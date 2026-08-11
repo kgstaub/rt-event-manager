@@ -14,6 +14,9 @@ composer.lock
 # Claude Code local settings
 .claude/settings.local.json
 
+# Pre-rename backup snapshot (kept locally, not tracked)
+wc-rti-customer-fields-backup.tgz
+
 # OS files
 .DS_Store
 Thumbs.db
