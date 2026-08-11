@@ -1,0 +1,19 @@
+# Composer dependencies
+/vendor/
+
+# Composer lock file (optional - some projects prefer to commit this)
+composer.lock
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,16 @@
+{
+    "name": "rti/rt-event-manager",
+    "description": "RT Event Manager - WooCommerce ticket management with badge printing",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=7.4",
+        "endroid/qr-code": "^5.0",
+        "dompdf/dompdf": "^2.0",
+        "phpoffice/phpspreadsheet": "^1.29"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}
