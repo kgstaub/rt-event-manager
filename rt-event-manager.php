@@ -3,7 +3,7 @@
  * Plugin Name: RT Event Manager
  * Plugin URI: https://example.com/rt-event-manager
  * Description: Round Table International event management — tickets, attendee registration, and organization fields for WooCommerce
- * Version: 1.1.0
+ * Version: 1.6.0
  * Author: Your Name
  * Author URI: https://example.com
  * License: GPL v2 or later
@@ -19,8 +19,8 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('RT_EVENT_MANAGER_VERSION', '1.3.0');
-define('RT_EVENT_MANAGER_DB_VERSION', '1.5.0');
+define('RT_EVENT_MANAGER_VERSION', '1.6.0');
+define('RT_EVENT_MANAGER_DB_VERSION', '1.6.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -256,6 +256,7 @@ function rt_event_manager_install_db() {
             combination_id bigint(20) unsigned NOT NULL DEFAULT 0,
             ticket_index int(11) unsigned NOT NULL DEFAULT 0,
             holder_name varchar(255) NOT NULL DEFAULT '',
+            phone varchar(32) NOT NULL DEFAULT '',
             rti_family varchar(50) NOT NULL DEFAULT '',
             rti_club varchar(255) NOT NULL DEFAULT '',
             dietary varchar(50) NOT NULL DEFAULT '',
@@ -311,6 +312,12 @@ function rt_event_manager_install_db() {
         $col_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_name LIKE 'combination_id'");
         if (empty($col_exists)) {
             $wpdb->query("ALTER TABLE $table_name ADD COLUMN `combination_id` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `product_id`");
+        }
+
+        // Always ensure the per-ticket phone column exists, regardless of version check.
+        $phone_col_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_name LIKE 'phone'");
+        if (empty($phone_col_exists)) {
+            $wpdb->query("ALTER TABLE $table_name ADD COLUMN `phone` varchar(32) NOT NULL DEFAULT '' AFTER `holder_name`");
         }
     }
 }

@@ -474,6 +474,20 @@ class RT_Event_Manager {
                     'class'    => array('form-row-wide'),
                 ), $name_value);
 
+                woocommerce_form_field($field_prefix . '_phone', array(
+                    'type'              => 'tel',
+                    'label'             => __('Phone Number', 'rt-event-manager'),
+                    'required'          => true,
+                    'class'             => array('form-row-wide'),
+                    'placeholder'       => __('+41 79 123 45 67', 'rt-event-manager'),
+                    'description'       => __('Please use international format, starting with your country code (e.g. +41…).', 'rt-event-manager'),
+                    'custom_attributes' => array(
+                        'pattern'   => '\+[0-9\s()\-]{7,}',
+                        'inputmode' => 'tel',
+                        'title'     => __('Enter the number in international format, e.g. +41791234567', 'rt-event-manager'),
+                    ),
+                ), '');
+
                 // RTI Family dropdown for subsequent tickets (ticket #1 inherits from billing)
                 if ($ticket_index > 0) {
                     woocommerce_form_field($field_prefix . '_family', array(
@@ -535,10 +549,24 @@ class RT_Event_Manager {
         for ($i = 0; $i < $ticket_count; $i++) {
             $field_prefix = 'rti_ticket_' . $i;
             $name_key = $field_prefix . '_name';
+            $phone_key = $field_prefix . '_phone';
 
             if (empty($_POST[$name_key])) {
                 wc_add_notice(sprintf(
                     __('Please enter the name for Ticket %d.', 'rt-event-manager'),
+                    $i + 1
+                ), 'error');
+            }
+
+            $phone_raw = isset($_POST[$phone_key]) ? wp_unslash($_POST[$phone_key]) : '';
+            if (trim($phone_raw) === '') {
+                wc_add_notice(sprintf(
+                    __('Please enter the phone number for Ticket %d.', 'rt-event-manager'),
+                    $i + 1
+                ), 'error');
+            } elseif (!self::is_valid_intl_phone($phone_raw)) {
+                wc_add_notice(sprintf(
+                    __('Please enter the phone number for Ticket %d in international format, e.g. +41791234567.', 'rt-event-manager'),
                     $i + 1
                 ), 'error');
             }
@@ -1201,6 +1229,7 @@ class RT_Event_Manager {
             for ($i = 0; $i < $ticket_count; $i++) {
                 $field_prefix = 'rti_ticket_' . $i;
                 $holder_name  = isset($_POST[$field_prefix . '_name']) ? sanitize_text_field($_POST[$field_prefix . '_name']) : '';
+                $phone        = isset($_POST[$field_prefix . '_phone']) ? self::normalize_phone(wp_unslash($_POST[$field_prefix . '_phone'])) : '';
                 $dietary      = isset($_POST[$field_prefix . '_dietary']) ? sanitize_text_field($_POST[$field_prefix . '_dietary']) : '';
                 $product_id   = isset($ticket_product_map[$i]) ? $ticket_product_map[$i] : 0;
                 $combo_id     = isset($combination_map[$i]) ? $combination_map[$i] : 0;
@@ -1228,6 +1257,7 @@ class RT_Event_Manager {
                     'combination_id' => $combo_id,
                     'ticket_index'   => $i,
                     'holder_name'    => $holder_name,
+                    'phone'          => $phone,
                     'rti_family'     => $ticket_family,
                     'rti_club'       => $buyer_club,
                     'dietary'        => $dietary,
@@ -1239,6 +1269,39 @@ class RT_Event_Manager {
         }
 
         $order->save();
+    }
+
+    /**
+     * Normalize a phone number to E.164-style storage form: a leading "+"
+     * (if the user provided one) followed by digits only. Formatting
+     * characters (spaces, dashes, parentheses, dots) are stripped.
+     *
+     * @param string $raw Raw user input
+     * @return string Normalized phone, or '' if there were no digits
+     */
+    public static function normalize_phone($raw) {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return '';
+        }
+        $has_plus = (strpos($raw, '+') === 0);
+        $digits   = preg_replace('/\D+/', '', $raw);
+        if ($digits === '') {
+            return '';
+        }
+        return ($has_plus ? '+' : '') . $digits;
+    }
+
+    /**
+     * Validate that a phone number is in international (E.164) format:
+     * a leading "+", a country code starting 1-9, and 8-15 digits total.
+     *
+     * @param string $raw Raw user input (normalized internally)
+     * @return bool
+     */
+    public static function is_valid_intl_phone($raw) {
+        $normalized = self::normalize_phone($raw);
+        return (bool) preg_match('/^\+[1-9]\d{7,14}$/', $normalized);
     }
 
     /**
@@ -1256,12 +1319,13 @@ class RT_Event_Manager {
         // Checked-in status must never be clobbered by a re-submit.
         $sql = $wpdb->prepare(
             "INSERT INTO $table_name
-                (order_id, product_id, combination_id, ticket_index, holder_name, rti_family, rti_club, dietary, world_id, qr_code_url, status)
-             VALUES (%d, %d, %d, %d, %s, %s, %s, %s, %s, %s, %s)
+                (order_id, product_id, combination_id, ticket_index, holder_name, phone, rti_family, rti_club, dietary, world_id, qr_code_url, status)
+             VALUES (%d, %d, %d, %d, %s, %s, %s, %s, %s, %s, %s, %s)
              ON DUPLICATE KEY UPDATE
                 product_id     = VALUES(product_id),
                 combination_id = VALUES(combination_id),
                 holder_name    = VALUES(holder_name),
+                phone          = VALUES(phone),
                 rti_family     = VALUES(rti_family),
                 rti_club       = VALUES(rti_club),
                 dietary        = VALUES(dietary),
@@ -1273,6 +1337,7 @@ class RT_Event_Manager {
             absint(isset($data['combination_id']) ? $data['combination_id'] : 0),
             absint($data['ticket_index']),
             sanitize_text_field($data['holder_name']),
+            self::normalize_phone(isset($data['phone']) ? $data['phone'] : ''),
             sanitize_text_field($data['rti_family']),
             sanitize_text_field($data['rti_club']),
             sanitize_text_field($data['dietary']),
@@ -1318,6 +1383,7 @@ class RT_Event_Manager {
 
         $allowed_fields = array(
             'holder_name'    => '%s',
+            'phone'          => '%s',
             'rti_family'     => '%s',
             'rti_club'       => '%s',
             'dietary'        => '%s',
@@ -1329,7 +1395,9 @@ class RT_Event_Manager {
 
         foreach ($allowed_fields as $field => $format) {
             if (isset($data[$field])) {
-                $update_data[$field] = sanitize_text_field($data[$field]);
+                $update_data[$field] = ($field === 'phone')
+                    ? self::normalize_phone($data[$field])
+                    : sanitize_text_field($data[$field]);
                 $update_format[]     = $format;
             }
         }
@@ -1507,6 +1575,10 @@ class RT_Event_Manager {
         // Holder name
         echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][holder_name]" value="' . esc_attr($ticket['holder_name']) . '" style="width:100%;" /></td>';
 
+        // Phone (international format)
+        $ticket_phone = isset($ticket['phone']) ? $ticket['phone'] : '';
+        echo '<td><input type="tel" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][phone]" value="' . esc_attr($ticket_phone) . '" style="width:100%;" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" /></td>';
+
         // RTI Family dropdown
         echo '<td><select class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][rti_family]" style="width:100%;">';
         echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
@@ -1675,6 +1747,7 @@ class RT_Event_Manager {
         }
         echo '<th style="width:70px;">' . esc_html__('Combo ID', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Ticket Phone', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('RTI Family', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Club', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Dietary', 'rt-event-manager') . '</th>';
@@ -1705,7 +1778,7 @@ class RT_Event_Manager {
         echo '<tbody id="rti-tickets-tbody">';
 
         if (empty($tickets)) {
-            $total_cols = 12 + count($all_attr_labels) + 1 + (current_user_can('manage_options') ? 1 : 0); // 12 base cols + attribute cols + combo ID col + print col
+            $total_cols = 13 + count($all_attr_labels) + 1 + (current_user_can('manage_options') ? 1 : 0); // 13 base cols + attribute cols + combo ID col + print col
             echo '<tr id="rti-no-tickets-row"><td colspan="' . intval($total_cols) . '" style="text-align:center;color:#999;">';
             echo esc_html__('No tickets yet.', 'rt-event-manager');
             echo '</td></tr>';
@@ -1918,12 +1991,28 @@ class RT_Event_Manager {
         $existing = self::get_tickets_for_order($order_id);
         $valid_ids = array_map('intval', array_column($existing, 'id'));
 
+        // Map ticket id => ticket_index for human-friendly validation messages.
+        $existing_index_map = array();
+        foreach ($existing as $ex_row) {
+            $existing_index_map[intval($ex_row['id'])] = intval($ex_row['ticket_index']);
+        }
+
         $qr_urls = array();
 
         foreach ($tickets as $ticket_id => $data) {
             $ticket_id = absint($ticket_id);
             if (!in_array($ticket_id, $valid_ids, true)) {
                 continue;
+            }
+
+            // Validate phone format when one is provided. Admins may leave the
+            // field blank on a newly added ticket, but a non-empty value must be
+            // in international format.
+            if (isset($data['phone']) && trim(wp_unslash($data['phone'])) !== '' && !self::is_valid_intl_phone(wp_unslash($data['phone']))) {
+                wp_send_json_error(sprintf(
+                    __('Ticket %d: phone number must be in international format, e.g. +41791234567.', 'rt-event-manager'),
+                    intval($existing_index_map[$ticket_id]) + 1
+                ));
             }
 
             // Auto-generate QR URL from world_id
@@ -1989,6 +2078,7 @@ class RT_Event_Manager {
             'combination_id' => $combo_id,
             'ticket_index'   => $next_index,
             'holder_name'    => '',
+            'phone'          => '',
             'rti_family'     => '',
             'rti_club'       => '',
             'dietary'        => '',
@@ -2026,6 +2116,7 @@ class RT_Event_Manager {
             'product_id'   => $product_id,
             'ticket_index' => $next_index,
             'holder_name'  => '',
+            'phone'        => '',
             'rti_family'   => '',
             'rti_club'     => '',
             'dietary'      => '',
@@ -2099,7 +2190,8 @@ class RT_Event_Manager {
 
         if (!empty($search)) {
             $like = '%' . $wpdb->esc_like($search) . '%';
-            $where[] = '(t.holder_name LIKE %s OR t.rti_club LIKE %s OR t.world_id LIKE %s)';
+            $where[] = '(t.holder_name LIKE %s OR t.rti_club LIKE %s OR t.world_id LIKE %s OR t.phone LIKE %s)';
+            $params[] = $like;
             $params[] = $like;
             $params[] = $like;
             $params[] = $like;
@@ -2213,6 +2305,7 @@ class RT_Event_Manager {
             'Voucher',
             'Phone',
             'Function / Role',
+            'Ticket Phone',
         );
 
         $col = 1;
@@ -2279,6 +2372,7 @@ class RT_Event_Manager {
             $sheet->setCellValueByColumnAndRow(14, $row, $buyer_voucher);
             $sheet->setCellValueByColumnAndRow(15, $row, $buyer_phone);
             $sheet->setCellValueByColumnAndRow(16, $row, $buyer_function);
+            $sheet->setCellValueByColumnAndRow(17, $row, isset($ticket['phone']) ? $ticket['phone'] : '');
 
             $row++;
         }
@@ -2647,7 +2741,8 @@ class RT_Event_Manager {
 
         if (!empty($search)) {
             $like = '%' . $wpdb->esc_like($search) . '%';
-            $where[] = '(t.holder_name LIKE %s OR t.rti_club LIKE %s OR t.world_id LIKE %s)';
+            $where[] = '(t.holder_name LIKE %s OR t.rti_club LIKE %s OR t.world_id LIKE %s OR t.phone LIKE %s)';
+            $params[] = $like;
             $params[] = $like;
             $params[] = $like;
             $params[] = $like;
@@ -3023,6 +3118,7 @@ class RT_Event_Manager {
                         <?php endforeach; ?>
                         <th style="width:70px;"><?php esc_html_e('Combo ID', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Holder Name', 'rt-event-manager'); ?></th>
+                        <th><?php esc_html_e('Ticket Phone', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Country', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('RTI Family', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Club', 'rt-event-manager'); ?></th>
@@ -3040,7 +3136,7 @@ class RT_Event_Manager {
                 <tbody>
                     <?php if (empty($tickets)) : ?>
                         <tr>
-                            <td colspan="<?php echo intval(14 + count($overview_attr_ids) + (current_user_can('manage_options') ? 1 : 0)); ?>" style="text-align:center;color:#999;padding:20px;">
+                            <td colspan="<?php echo intval(15 + count($overview_attr_ids) + (current_user_can('manage_options') ? 1 : 0)); ?>" style="text-align:center;color:#999;padding:20px;">
                                 <?php esc_html_e('No tickets found.', 'rt-event-manager'); ?>
                             </td>
                         </tr>
@@ -3132,6 +3228,7 @@ class RT_Event_Manager {
                                         <span style="color:#999;">—</span>
                                     <?php endif; ?>
                                 </td>
+                                <td><?php echo esc_html(!empty($ticket['phone']) ? $ticket['phone'] : '—'); ?></td>
                                 <td><?php echo esc_html($billing_country ?: '—'); ?></td>
                                 <td><?php echo esc_html($family_label); ?></td>
                                 <td><?php echo esc_html($ticket['rti_club'] ?: '—'); ?></td>
@@ -3584,6 +3681,7 @@ class RT_Event_Manager {
         echo '<th>' . esc_html__('#', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Product', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Ticket Phone', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('RTI Family', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Club', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Dietary', 'rt-event-manager') . '</th>';
@@ -3611,6 +3709,12 @@ class RT_Event_Manager {
                 // Holder name (editable)
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">';
                 echo '<input type="text" class="rti-frontend-ticket-field" name="rti_ft[' . esc_attr($ticket['id']) . '][holder_name]" value="' . esc_attr($ticket['holder_name']) . '" />';
+                echo '</td>';
+
+                // Phone (editable, international format required)
+                $ticket_phone = isset($ticket['phone']) ? $ticket['phone'] : '';
+                echo '<td data-title="' . esc_attr__('Ticket Phone', 'rt-event-manager') . '">';
+                echo '<input type="tel" class="rti-frontend-ticket-field" name="rti_ft[' . esc_attr($ticket['id']) . '][phone]" value="' . esc_attr($ticket_phone) . '" required pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="' . esc_attr__('+41 79 123 45 67', 'rt-event-manager') . '" title="' . esc_attr__('Enter the number in international format, e.g. +41791234567', 'rt-event-manager') . '" />';
                 echo '</td>';
 
                 // RTI Family (editable)
@@ -3643,6 +3747,8 @@ class RT_Event_Manager {
             } else {
                 // Read-only display
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($ticket['holder_name']) . '</td>';
+
+                echo '<td data-title="' . esc_attr__('Ticket Phone', 'rt-event-manager') . '">' . esc_html(!empty($ticket['phone']) ? $ticket['phone'] : '—') . '</td>';
 
                 $family_label = (isset($ticket['rti_family']) && $ticket['rti_family'] !== '') ? self::get_family_label($ticket['rti_family']) : '—';
                 echo '<td data-title="' . esc_attr__('RTI Family', 'rt-event-manager') . '">' . esc_html($family_label) . '</td>';
@@ -3771,17 +3877,33 @@ class RT_Event_Manager {
         $existing = self::get_tickets_for_order($order_id);
         $valid_ids = array_map('intval', array_column($existing, 'id'));
 
+        // Map ticket id => ticket_index for human-friendly validation messages.
+        $existing_index_map = array();
+        foreach ($existing as $ex_row) {
+            $existing_index_map[intval($ex_row['id'])] = intval($ex_row['ticket_index']);
+        }
+
         foreach ($tickets as $ticket_id => $data) {
             $ticket_id = absint($ticket_id);
             if (!in_array($ticket_id, $valid_ids, true)) {
                 continue;
             }
 
-            // Customers can only edit: holder_name, rti_family, rti_club, dietary
+            // Customers can only edit: holder_name, phone, rti_family, rti_club, dietary
             // .WORLD ID is NOT editable by customers
             $allowed_data = array();
             if (isset($data['holder_name'])) {
                 $allowed_data['holder_name'] = $data['holder_name'];
+            }
+            if (isset($data['phone'])) {
+                $phone_raw = wp_unslash($data['phone']);
+                if (trim($phone_raw) === '' || !self::is_valid_intl_phone($phone_raw)) {
+                    wp_send_json_error(sprintf(
+                        __('Please enter the phone number for Ticket %d in international format, e.g. +41791234567.', 'rt-event-manager'),
+                        intval($existing_index_map[$ticket_id]) + 1
+                    ));
+                }
+                $allowed_data['phone'] = $phone_raw;
             }
             if (isset($data['rti_family'])) {
                 $allowed_data['rti_family'] = $data['rti_family'];
