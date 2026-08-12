@@ -220,7 +220,7 @@ class RT_Event_Manager_Account {
 
         $display_name = !empty($sso['name']) ? $sso['name'] : $user->display_name;
 
-        echo '<h2 class="rtacc-title">' . esc_html(sprintf(__('Welcome, %s', 'rt-event-manager'), $display_name)) . '</h2>';
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html(sprintf(__('Welcome, %s', 'rt-event-manager'), $display_name)) . '</h2>';
 
         echo '<div class="rtacc-cards">';
         foreach (array('valid', 'draft', 'checked_in', 'invalid') as $status) {
@@ -250,8 +250,8 @@ class RT_Event_Manager_Account {
         }
 
         echo '<p class="rtacc-actions">';
-        echo '<a class="button" href="' . esc_url($this->tab_url('tickets')) . '">' . esc_html__('Manage tickets', 'rt-event-manager') . '</a> ';
-        echo '<a class="button" href="' . esc_url($this->tab_url('orders')) . '">' . esc_html__('View orders', 'rt-event-manager') . '</a>';
+        echo '<a class="uk-button uk-button-default" href="' . esc_url($this->tab_url('tickets')) . '">' . esc_html__('Manage tickets', 'rt-event-manager') . '</a> ';
+        echo '<a class="uk-button uk-button-default" href="' . esc_url($this->tab_url('orders')) . '">' . esc_html__('View orders', 'rt-event-manager') . '</a>';
         echo '</p>';
     }
 
@@ -311,10 +311,10 @@ class RT_Event_Manager_Account {
         $emergency = get_user_meta($user_id, 'rti_emergency_contact', true);
         $function  = get_user_meta($user_id, 'rti_function', true);
 
-        echo '<h2 class="rtacc-title">' . esc_html__('My Profile', 'rt-event-manager') . '</h2>';
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('My Profile', 'rt-event-manager') . '</h2>';
 
         // --- Read-only .WORLD SSO block ---
-        echo '<section class="rtacc-panel rtacc-panel--readonly">';
+        echo '<section class="rtacc-panel rtacc-panel--readonly uk-card uk-card-secondary uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Member details (from .WORLD)', 'rt-event-manager') . '</h3>';
         echo '<p class="rtacc-hint">' . esc_html__('These details are provided by .WORLD single sign-on and cannot be changed here.', 'rt-event-manager') . '</p>';
 
@@ -330,7 +330,7 @@ class RT_Event_Manager_Account {
             __('Club', 'rt-event-manager')        => $sso['club']['name'],
             __('Club level', 'rt-event-manager')  => $sso['club']['level'],
         );
-        echo '<dl class="rtacc-deflist">';
+        echo '<dl class="rtacc-deflist uk-description-list uk-description-list-divider">';
         foreach ($rows as $label => $value) {
             echo '<dt>' . esc_html($label) . '</dt>';
             echo '<dd>' . ($value !== '' ? esc_html($value) : '<span class="rtacc-muted">—</span>') . '</dd>';
@@ -348,22 +348,22 @@ class RT_Event_Manager_Account {
         echo '</section>';
 
         // --- Editable local block ---
-        echo '<section class="rtacc-panel">';
+        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Your details', 'rt-event-manager') . '</h3>';
-        echo '<form id="rtacc-profile-form" class="rtacc-form">';
+        echo '<form id="rtacc-profile-form" class="rtacc-form uk-form-stacked">';
 
         echo '<p class="rtacc-field">';
-        echo '<label for="rtacc-emergency">' . esc_html__('Emergency Contact', 'rt-event-manager') . '</label>';
-        echo '<input type="text" id="rtacc-emergency" name="emergency_contact" value="' . esc_attr($emergency) . '" placeholder="' . esc_attr__('Name, Phone, Email', 'rt-event-manager') . '" />';
+        echo '<label class="uk-form-label" for="rtacc-emergency">' . esc_html__('Emergency Contact', 'rt-event-manager') . '</label>';
+        echo '<input type="text" id="rtacc-emergency" class="uk-input" name="emergency_contact" value="' . esc_attr($emergency) . '" placeholder="' . esc_attr__('Name, Phone, Email', 'rt-event-manager') . '" />';
         echo '</p>';
 
         echo '<p class="rtacc-field">';
-        echo '<label for="rtacc-function">' . esc_html__('Function / Role', 'rt-event-manager') . '</label>';
-        echo '<input type="text" id="rtacc-function" name="function" value="' . esc_attr($function) . '" />';
+        echo '<label class="uk-form-label" for="rtacc-function">' . esc_html__('Function / Role', 'rt-event-manager') . '</label>';
+        echo '<input type="text" id="rtacc-function" class="uk-input" name="function" value="' . esc_attr($function) . '" />';
         echo '</p>';
 
         echo '<p class="rtacc-actions">';
-        echo '<button type="submit" class="button">' . esc_html__('Save changes', 'rt-event-manager') . '</button>';
+        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button>';
         echo '<span class="rtacc-status" id="rtacc-profile-status" aria-live="polite"></span>';
         echo '</p>';
 
@@ -384,14 +384,14 @@ class RT_Event_Manager_Account {
             'order'       => 'DESC',
         ));
 
-        echo '<h2 class="rtacc-title">' . esc_html__('Order History', 'rt-event-manager') . '</h2>';
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Order History', 'rt-event-manager') . '</h2>';
 
         if (empty($orders)) {
             echo '<p>' . esc_html__('You have no orders yet.', 'rt-event-manager') . '</p>';
             return;
         }
 
-        echo '<table class="rtacc-table rtacc-orders">';
+        echo '<table class="rtacc-table rtacc-orders uk-table uk-table-divider uk-table-middle uk-table-small">';
         echo '<thead><tr>';
         echo '<th>' . esc_html__('Order', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Date', 'rt-event-manager') . '</th>';
@@ -422,7 +422,7 @@ class RT_Event_Manager_Account {
             echo '<td>' . esc_html(wc_get_order_status_name($order->get_status())) . '</td>';
             echo '<td>' . esc_html(implode(', ', $item_names)) . '</td>';
             echo '<td>' . wp_kses_post($order->get_formatted_order_total()) . '</td>';
-            echo '<td><a class="button button-small" href="' . esc_url($receipt_url) . '" target="_blank" rel="noopener">' . esc_html__('Download PDF', 'rt-event-manager') . '</a></td>';
+            echo '<td><a class="uk-button uk-button-default uk-button-small" href="' . esc_url($receipt_url) . '" target="_blank" rel="noopener">' . esc_html__('Download PDF', 'rt-event-manager') . '</a></td>';
             echo '</tr>';
         }
 
@@ -438,10 +438,10 @@ class RT_Event_Manager_Account {
         $tickets = RT_Event_Manager::get_tickets_for_user($user_id);
         $can_edit = RT_Event_Manager::instance()->is_frontend_editing_allowed();
 
-        echo '<h2 class="rtacc-title">' . esc_html__('Event Tickets', 'rt-event-manager') . '</h2>';
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Event Tickets', 'rt-event-manager') . '</h2>';
 
         if (!$can_edit) {
-            echo '<div class="rtacc-notice">' . esc_html__('The ticket editing deadline has passed. Please contact us if you need to make changes.', 'rt-event-manager') . '</div>';
+            echo '<div class="rtacc-notice uk-alert-warning" uk-alert>' . esc_html__('The ticket editing deadline has passed. Please contact us if you need to make changes.', 'rt-event-manager') . '</div>';
         }
 
         $own       = array();
@@ -454,10 +454,10 @@ class RT_Event_Manager_Account {
             }
         }
 
-        echo '<form id="rtacc-tickets-form" class="rtacc-form">';
+        echo '<form id="rtacc-tickets-form" class="rtacc-form uk-form-stacked">';
 
         // Section 1: My Ticket
-        echo '<section class="rtacc-panel">';
+        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('My Ticket', 'rt-event-manager') . '</h3>';
         if (empty($own)) {
             echo '<p>' . esc_html__('You do not have a ticket assigned to yourself yet.', 'rt-event-manager') . '</p>';
@@ -467,7 +467,7 @@ class RT_Event_Manager_Account {
         echo '</section>';
 
         // Section 2: Travelling with me
-        echo '<section class="rtacc-panel">';
+        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Travelling with me', 'rt-event-manager') . '</h3>';
         if (empty($companion)) {
             echo '<p>' . esc_html__('No additional tickets yet.', 'rt-event-manager') . '</p>';
@@ -478,7 +478,7 @@ class RT_Event_Manager_Account {
 
         if ($can_edit && (!empty($own) || !empty($companion))) {
             echo '<p class="rtacc-actions">';
-            echo '<button type="submit" class="button">' . esc_html__('Save ticket details', 'rt-event-manager') . '</button>';
+            echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Save ticket details', 'rt-event-manager') . '</button>';
             echo '<span class="rtacc-status" id="rtacc-tickets-status" aria-live="polite"></span>';
             echo '</p>';
         }
@@ -486,7 +486,7 @@ class RT_Event_Manager_Account {
         echo '</form>';
 
         // Section 3: Add more tickets
-        echo '<section class="rtacc-panel">';
+        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Add more tickets', 'rt-event-manager') . '</h3>';
         $this->render_ticket_products();
         echo '</section>';
@@ -502,7 +502,7 @@ class RT_Event_Manager_Account {
         $dietary_options = RT_Event_Manager::get_dietary_options(true);
         $status_labels   = $this->status_labels();
 
-        echo '<table class="rtacc-table rtacc-tickets">';
+        echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
         echo '<thead><tr>';
         echo '<th>' . esc_html__('Product', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
@@ -526,16 +526,16 @@ class RT_Event_Manager_Account {
 
             if ($can_edit) {
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">';
-                echo '<input type="text" class="rtacc-ticket-field" name="tickets[' . esc_attr($id) . '][holder_name]" value="' . esc_attr($t['holder_name']) . '" />';
+                echo '<input type="text" class="rtacc-ticket-field uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][holder_name]" value="' . esc_attr($t['holder_name']) . '" />';
                 echo '</td>';
 
                 echo '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '">';
-                echo '<input type="tel" class="rtacc-ticket-field" name="tickets[' . esc_attr($id) . '][phone]" value="' . esc_attr($phone) . '" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" />';
+                echo '<input type="tel" class="rtacc-ticket-field uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][phone]" value="' . esc_attr($phone) . '" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" />';
                 echo '</td>';
 
                 if ($show_family) {
                     echo '<td data-title="' . esc_attr__('Family', 'rt-event-manager') . '">';
-                    echo '<select class="rtacc-ticket-field" name="tickets[' . esc_attr($id) . '][rti_family]">';
+                    echo '<select class="rtacc-ticket-field uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][rti_family]">';
                     echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
                     foreach ($family_options as $key => $label) {
                         echo '<option value="' . esc_attr($key) . '" ' . selected($t['rti_family'], (string) $key, false) . '>' . esc_html($label) . '</option>';
@@ -544,7 +544,7 @@ class RT_Event_Manager_Account {
                 }
 
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '">';
-                echo '<select class="rtacc-ticket-field" name="tickets[' . esc_attr($id) . '][dietary]">';
+                echo '<select class="rtacc-ticket-field uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][dietary]">';
                 foreach ($dietary_options as $dkey => $dlabel) {
                     echo '<option value="' . esc_attr($dkey) . '" ' . selected($t['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
                 }
@@ -602,20 +602,20 @@ class RT_Event_Manager_Account {
      * ------------------------------------------------------------------- */
 
     private function render_travel() {
-        echo '<h2 class="rtacc-title">' . esc_html__('Travel and Visa', 'rt-event-manager') . '</h2>';
-        echo '<div class="rtacc-notice">' . esc_html__('This section is coming soon.', 'rt-event-manager') . '</div>';
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Travel and Visa', 'rt-event-manager') . '</h2>';
+        echo '<div class="rtacc-notice uk-alert-warning" uk-alert>' . esc_html__('This section is coming soon.', 'rt-event-manager') . '</div>';
 
         // Inert preview of the planned layout. Inputs are disabled and nothing
         // is saved yet — see get_travel_plan()/save_travel_plan() stubs below.
-        echo '<fieldset class="rtacc-panel" disabled>';
+        echo '<fieldset class="rtacc-panel uk-card uk-card-default uk-card-body" disabled>';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Your travel plans', 'rt-event-manager') . '</h3>';
 
-        echo '<div class="rtacc-form">';
+        echo '<div class="rtacc-form uk-form-stacked">';
         echo '<p class="rtacc-field"><label>' . esc_html__('Arrival date & time', 'rt-event-manager') . '</label><input type="datetime-local" /></p>';
         echo '<p class="rtacc-field"><label>' . esc_html__('Arrival details (flight / train / etc.)', 'rt-event-manager') . '</label><input type="text" /></p>';
         echo '<p class="rtacc-field"><label>' . esc_html__('Departure date & time', 'rt-event-manager') . '</label><input type="datetime-local" /></p>';
         echo '<p class="rtacc-field"><label>' . esc_html__('Departure details', 'rt-event-manager') . '</label><input type="text" /></p>';
-        echo '<p class="rtacc-actions"><button type="button" class="button" disabled>' . esc_html__('Request Visa Letter of Invitation', 'rt-event-manager') . '</button></p>';
+        echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-default" disabled>' . esc_html__('Request Visa Letter of Invitation', 'rt-event-manager') . '</button></p>';
         echo '</div>';
         echo '</fieldset>';
     }
@@ -649,7 +649,7 @@ class RT_Event_Manager_Account {
      * ------------------------------------------------------------------- */
 
     private function render_shop() {
-        echo '<h2 class="rtacc-title">' . esc_html__('Shop', 'rt-event-manager') . '</h2>';
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Shop', 'rt-event-manager') . '</h2>';
 
         $args = array(
             'status'  => 'publish',
@@ -692,16 +692,16 @@ class RT_Event_Manager_Account {
     private function render_product_card($product) {
         $needs_options = $product->is_type('variable') || $product->is_type('make_to_order');
 
-        echo '<div class="rtacc-product">';
+        echo '<div class="rtacc-product uk-card uk-card-default uk-card-body">';
         echo '<a class="rtacc-product-thumb" href="' . esc_url($product->get_permalink()) . '">' . $product->get_image('woocommerce_thumbnail') . '</a>';
         echo '<h4 class="rtacc-product-title"><a href="' . esc_url($product->get_permalink()) . '">' . esc_html($product->get_name()) . '</a></h4>';
         echo '<div class="rtacc-product-price">' . wp_kses_post($product->get_price_html()) . '</div>';
 
         if ($needs_options) {
-            echo '<a class="button" href="' . esc_url($product->get_permalink()) . '">' . esc_html__('Choose options', 'rt-event-manager') . '</a>';
+            echo '<a class="uk-button uk-button-default" href="' . esc_url($product->get_permalink()) . '">' . esc_html__('Choose options', 'rt-event-manager') . '</a>';
         } else {
             $add_url = add_query_arg('add-to-cart', $product->get_id(), wc_get_cart_url());
-            echo '<a class="button" href="' . esc_url($add_url) . '" data-quantity="1" data-product_id="' . esc_attr($product->get_id()) . '" rel="nofollow">' . esc_html__('Add to cart', 'rt-event-manager') . '</a>';
+            echo '<a class="uk-button uk-button-default" href="' . esc_url($add_url) . '" data-quantity="1" data-product_id="' . esc_attr($product->get_id()) . '" rel="nofollow">' . esc_html__('Add to cart', 'rt-event-manager') . '</a>';
         }
         echo '</div>';
     }

@@ -1,16 +1,39 @@
 /**
  * RT Event Manager — customer account portal styles.
- * Intentionally lightweight and theme-friendly (inherits WooCommerce buttons).
+ *
+ * Designed to honor the YOOtheme Pro (UIkit) theme: the markup carries UIkit
+ * component classes (uk-button, uk-card, uk-table, uk-alert, uk-input, …) so it
+ * inherits the site's compiled theme styling. The variables below are seeded
+ * from the theme's customizer tokens (brand red #CC0B24, cream #FFF0C4, accent
+ * #A2071A, dark #660B05, hover #740800) and are used only for the bespoke
+ * pieces (sidebar nav, status badges, KPI tiles) plus as a graceful fallback
+ * when UIkit is not present. We intentionally do NOT restyle uk-* components —
+ * the theme owns those.
  */
 
 .rtacc {
+    /* Seeded from YOOtheme theme tokens (style "RTS"). */
+    --rtacc-primary: #CC0B24;
+    --rtacc-primary-hover: #740800;
+    --rtacc-secondary-bg: #FFF0C4;
+    --rtacc-accent: #A2071A;
+    --rtacc-dark: #660B05;
+    --rtacc-border: #e6e6e6;
+    --rtacc-muted: #777;
+
+    /* Status colors (semantic, kept distinct from brand palette). */
+    --rtacc-valid: #1a8a34;
+    --rtacc-draft: #b9880f;
+    --rtacc-invalid: var(--rtacc-primary);
+    --rtacc-checked-in: #2271b1;
+
     display: flex;
     flex-wrap: wrap;
     gap: 24px;
     align-items: flex-start;
 }
 
-/* ---- Navigation ---- */
+/* ---- Navigation (bespoke sidebar, brand-colored) ---- */
 .rtacc-nav {
     flex: 0 0 220px;
     max-width: 220px;
@@ -19,7 +42,7 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    border: 1px solid #e2e2e2;
+    border: 1px solid var(--rtacc-border);
     border-radius: 6px;
     overflow: hidden;
 }
@@ -30,18 +53,19 @@
     display: block;
     padding: 12px 16px;
     text-decoration: none;
-    color: #333;
+    color: var(--rtacc-primary);
 }
 .rtacc-nav-item a:hover {
-    background: #f6f6f6;
+    background: var(--rtacc-secondary-bg);
+    color: var(--rtacc-primary-hover);
 }
 .rtacc-nav-item.is-active a {
-    background: #2271b1;
+    background: var(--rtacc-primary);
     color: #fff;
     font-weight: 600;
 }
 .rtacc-nav-logout a {
-    color: #b32d2e;
+    color: var(--rtacc-dark);
 }
 
 /* ---- Content ---- */
@@ -57,19 +81,14 @@
 }
 .rtacc-hint,
 .rtacc-muted {
-    color: #777;
+    color: var(--rtacc-muted);
 }
+/* Spacing for panels; visual skin comes from uk-card on the same element. */
 .rtacc-panel {
-    border: 1px solid #e6e6e6;
-    border-radius: 6px;
-    padding: 16px 20px;
     margin-bottom: 20px;
 }
-.rtacc-panel--readonly {
-    background: #fafafa;
-}
 
-/* ---- Dashboard cards ---- */
+/* ---- Dashboard KPI tiles (bespoke) ---- */
 .rtacc-cards {
     display: flex;
     flex-wrap: wrap;
@@ -78,7 +97,7 @@
 }
 .rtacc-card {
     flex: 1 1 120px;
-    border: 1px solid #e6e6e6;
+    border: 1px solid var(--rtacc-border);
     border-radius: 6px;
     padding: 14px;
     text-align: center;
@@ -90,13 +109,13 @@
     line-height: 1.1;
 }
 .rtacc-card-label {
-    color: #666;
+    color: var(--rtacc-muted);
     font-size: 13px;
 }
-.rtacc-card--valid .rtacc-card-count { color: #00a32a; }
-.rtacc-card--draft .rtacc-card-count { color: #dba617; }
-.rtacc-card--invalid .rtacc-card-count { color: #d63638; }
-.rtacc-card--checked_in .rtacc-card-count { color: #2271b1; }
+.rtacc-card--valid .rtacc-card-count { color: var(--rtacc-valid); }
+.rtacc-card--draft .rtacc-card-count { color: var(--rtacc-draft); }
+.rtacc-card--invalid .rtacc-card-count { color: var(--rtacc-invalid); }
+.rtacc-card--checked_in .rtacc-card-count { color: var(--rtacc-checked-in); }
 
 .rtacc-ticket-summary {
     list-style: none;
@@ -108,78 +127,44 @@
     border-bottom: 1px solid #f0f0f0;
 }
 
-/* ---- Status badges ---- */
+/* ---- Status badges (bespoke, semantic colors) ---- */
 .rtacc-badge {
     display: inline-block;
     padding: 2px 8px;
-    border-radius: 3px;
+    border-radius: 4px;
     font-size: 11px;
     font-weight: 600;
     color: #fff;
     background: #999;
 }
-.rtacc-badge--valid { background: #00a32a; }
-.rtacc-badge--draft { background: #dba617; }
-.rtacc-badge--invalid { background: #d63638; }
-.rtacc-badge--checked_in { background: #2271b1; }
+.rtacc-badge--valid { background: var(--rtacc-valid); }
+.rtacc-badge--draft { background: var(--rtacc-draft); }
+.rtacc-badge--invalid { background: var(--rtacc-invalid); }
+.rtacc-badge--checked_in { background: var(--rtacc-checked-in); }
 
-/* ---- Tables ---- */
-.rtacc-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 8px 0;
-}
-.rtacc-table th,
-.rtacc-table td {
-    text-align: left;
-    padding: 8px 10px;
-    border-bottom: 1px solid #ececec;
-    vertical-align: middle;
-}
-.rtacc-table th {
-    background: #f5f5f5;
-}
-.rtacc-table input[type="text"],
-.rtacc-table input[type="tel"],
-.rtacc-table select {
-    width: 100%;
-    box-sizing: border-box;
-}
-
-/* ---- Forms ---- */
-.rtacc-form .rtacc-field {
-    margin-bottom: 14px;
-}
-.rtacc-form label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 4px;
-}
-.rtacc-form input[type="text"],
-.rtacc-form input[type="tel"],
-.rtacc-form input[type="datetime-local"] {
-    width: 100%;
-    max-width: 420px;
-    box-sizing: border-box;
-}
-.rtacc-deflist {
-    display: grid;
-    grid-template-columns: 160px 1fr;
-    gap: 6px 12px;
-    margin: 0;
-}
+/* ---- Description list (skin from uk-description-list; brand the terms) ---- */
 .rtacc-deflist dt {
-    font-weight: 600;
-    color: #555;
-}
-.rtacc-deflist dd {
-    margin: 0;
+    color: var(--rtacc-accent);
 }
 .rtacc-avatar {
     max-width: 96px;
     height: auto;
     border-radius: 50%;
     margin-bottom: 12px;
+}
+
+/* ---- Forms: spacing only; controls use uk-input / uk-select ---- */
+.rtacc-form .rtacc-field {
+    margin-bottom: 14px;
+}
+.rtacc-form .rtacc-field > label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+.rtacc-form .rtacc-field .uk-input,
+.rtacc-form .rtacc-field .uk-select {
+    max-width: 420px;
 }
 
 .rtacc-actions {
@@ -193,18 +178,10 @@
     display: none;
     font-weight: 600;
 }
-.rtacc-status.is-success { color: #00a32a; }
-.rtacc-status.is-error { color: #d63638; }
+.rtacc-status.is-success { color: var(--rtacc-valid); }
+.rtacc-status.is-error { color: var(--rtacc-primary); }
 
-.rtacc-notice {
-    background: #fcf3d7;
-    border: 1px solid #dba617;
-    border-radius: 6px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-}
-
-/* ---- Product grid (Shop + Add more tickets) ---- */
+/* ---- Product grid (Shop + Add more tickets); tiles use uk-card ---- */
 .rtacc-products {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -212,9 +189,6 @@
     margin-top: 12px;
 }
 .rtacc-product {
-    border: 1px solid #e6e6e6;
-    border-radius: 6px;
-    padding: 12px;
     text-align: center;
 }
 .rtacc-product-thumb img {
@@ -227,7 +201,6 @@
 }
 .rtacc-product-price {
     margin-bottom: 10px;
-    color: #333;
 }
 
 /* ---- Responsive ---- */
@@ -235,8 +208,5 @@
     .rtacc-nav {
         flex: 1 1 100%;
         max-width: none;
-    }
-    .rtacc-deflist {
-        grid-template-columns: 1fr;
     }
 }
