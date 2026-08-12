@@ -70,11 +70,18 @@ function rt_event_manager_init() {
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-badge-template.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-badge-generator.php';
 
+    // Load customer account portal + PDF receipt generator
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-receipt.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-account.php';
+
     // Initialize
     RT_Event_Manager::instance();
 
     // Initialize badge template handler
     RT_Event_Manager_Badge_Template::instance();
+
+    // Initialize customer account portal (shortcode + AJAX)
+    RT_Event_Manager_Account::instance();
 
     // Run one-time ticket migration for old orders
     rt_event_manager_migrate_tickets();

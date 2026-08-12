@@ -1,0 +1,242 @@
+/**
+ * RT Event Manager — customer account portal styles.
+ * Intentionally lightweight and theme-friendly (inherits WooCommerce buttons).
+ */
+
+.rtacc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: flex-start;
+}
+
+/* ---- Navigation ---- */
+.rtacc-nav {
+    flex: 0 0 220px;
+    max-width: 220px;
+}
+.rtacc-nav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid #e2e2e2;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.rtacc-nav-item + .rtacc-nav-item {
+    border-top: 1px solid #ececec;
+}
+.rtacc-nav-item a {
+    display: block;
+    padding: 12px 16px;
+    text-decoration: none;
+    color: #333;
+}
+.rtacc-nav-item a:hover {
+    background: #f6f6f6;
+}
+.rtacc-nav-item.is-active a {
+    background: #2271b1;
+    color: #fff;
+    font-weight: 600;
+}
+.rtacc-nav-logout a {
+    color: #b32d2e;
+}
+
+/* ---- Content ---- */
+.rtacc-content {
+    flex: 1 1 480px;
+    min-width: 0;
+}
+.rtacc-title {
+    margin-top: 0;
+}
+.rtacc-subtitle {
+    margin: 20px 0 8px;
+}
+.rtacc-hint,
+.rtacc-muted {
+    color: #777;
+}
+.rtacc-panel {
+    border: 1px solid #e6e6e6;
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+}
+.rtacc-panel--readonly {
+    background: #fafafa;
+}
+
+/* ---- Dashboard cards ---- */
+.rtacc-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 16px 0;
+}
+.rtacc-card {
+    flex: 1 1 120px;
+    border: 1px solid #e6e6e6;
+    border-radius: 6px;
+    padding: 14px;
+    text-align: center;
+}
+.rtacc-card-count {
+    display: block;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+}
+.rtacc-card-label {
+    color: #666;
+    font-size: 13px;
+}
+.rtacc-card--valid .rtacc-card-count { color: #00a32a; }
+.rtacc-card--draft .rtacc-card-count { color: #dba617; }
+.rtacc-card--invalid .rtacc-card-count { color: #d63638; }
+.rtacc-card--checked_in .rtacc-card-count { color: #2271b1; }
+
+.rtacc-ticket-summary {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.rtacc-ticket-summary li {
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+/* ---- Status badges ---- */
+.rtacc-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    background: #999;
+}
+.rtacc-badge--valid { background: #00a32a; }
+.rtacc-badge--draft { background: #dba617; }
+.rtacc-badge--invalid { background: #d63638; }
+.rtacc-badge--checked_in { background: #2271b1; }
+
+/* ---- Tables ---- */
+.rtacc-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+}
+.rtacc-table th,
+.rtacc-table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid #ececec;
+    vertical-align: middle;
+}
+.rtacc-table th {
+    background: #f5f5f5;
+}
+.rtacc-table input[type="text"],
+.rtacc-table input[type="tel"],
+.rtacc-table select {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ---- Forms ---- */
+.rtacc-form .rtacc-field {
+    margin-bottom: 14px;
+}
+.rtacc-form label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+.rtacc-form input[type="text"],
+.rtacc-form input[type="tel"],
+.rtacc-form input[type="datetime-local"] {
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+}
+.rtacc-deflist {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 6px 12px;
+    margin: 0;
+}
+.rtacc-deflist dt {
+    font-weight: 600;
+    color: #555;
+}
+.rtacc-deflist dd {
+    margin: 0;
+}
+.rtacc-avatar {
+    max-width: 96px;
+    height: auto;
+    border-radius: 50%;
+    margin-bottom: 12px;
+}
+
+.rtacc-actions {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.rtacc-status {
+    display: none;
+    font-weight: 600;
+}
+.rtacc-status.is-success { color: #00a32a; }
+.rtacc-status.is-error { color: #d63638; }
+
+.rtacc-notice {
+    background: #fcf3d7;
+    border: 1px solid #dba617;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+}
+
+/* ---- Product grid (Shop + Add more tickets) ---- */
+.rtacc-products {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 20px;
+    margin-top: 12px;
+}
+.rtacc-product {
+    border: 1px solid #e6e6e6;
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+}
+.rtacc-product-thumb img {
+    max-width: 100%;
+    height: auto;
+}
+.rtacc-product-title {
+    font-size: 15px;
+    margin: 10px 0 6px;
+}
+.rtacc-product-price {
+    margin-bottom: 10px;
+    color: #333;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 720px) {
+    .rtacc-nav {
+        flex: 1 1 100%;
+        max-width: none;
+    }
+    .rtacc-deflist {
+        grid-template-columns: 1fr;
+    }
+}

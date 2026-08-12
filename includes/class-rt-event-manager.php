@@ -505,10 +505,7 @@ class RT_Event_Manager {
                         'label'    => __('Dietary Restrictions', 'rt-event-manager'),
                         'required' => true,
                         'class'    => array('form-row-wide'),
-                        'options'  => array(
-                            'none'       => __('None', 'rt-event-manager'),
-                            'vegetarian' => __('Vegetarian', 'rt-event-manager'),
-                        ),
+                        'options'  => self::get_dietary_options(false),
                     ), '');
                 }
 
@@ -1368,6 +1365,64 @@ class RT_Event_Manager {
     }
 
     /**
+     * Get all tickets owned by a user, across every order they placed.
+     *
+     * Tickets have no direct user column — they link to a user only through
+     * their order. We resolve the user's orders HPOS-compatibly via
+     * wc_get_orders(), then fetch their tickets in a single query. Each ticket
+     * row is augmented with its `order_id` (already present) so callers can
+     * group by order.
+     *
+     * @param int $user_id
+     * @return array Array of ticket rows (ARRAY_A), ordered by order then index.
+     */
+    public static function get_tickets_for_user($user_id) {
+        $user_id = absint($user_id);
+        if (!$user_id) {
+            return array();
+        }
+
+        $order_ids = wc_get_orders(array(
+            'customer_id' => $user_id,
+            'limit'       => -1,
+            'return'      => 'ids',
+        ));
+
+        if (empty($order_ids)) {
+            return array();
+        }
+
+        global $wpdb;
+        $table_name   = $wpdb->prefix . 'rti_tickets';
+        $order_ids    = array_map('absint', $order_ids);
+        $placeholders = implode(', ', array_fill(0, count($order_ids), '%d'));
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE order_id IN ($placeholders) ORDER BY order_id ASC, ticket_index ASC",
+            $order_ids
+        ), ARRAY_A);
+    }
+
+    /**
+     * Centralized dietary options used across checkout, order editing and the
+     * customer account. The leading empty option is included for edit contexts;
+     * checkout omits it (the field is required there).
+     *
+     * @param bool $include_empty Whether to prepend an empty "—" option.
+     * @return array value => label
+     */
+    public static function get_dietary_options($include_empty = true) {
+        $options = array(
+            'none'       => __('None', 'rt-event-manager'),
+            'vegetarian' => __('Vegetarian', 'rt-event-manager'),
+        );
+        if ($include_empty) {
+            $options = array('' => '—') + $options;
+        }
+        return $options;
+    }
+
+    /**
      * Update a single ticket in the custom table
      *
      * @param int   $ticket_id Ticket row ID
@@ -1592,7 +1647,7 @@ class RT_Event_Manager {
 
         // Dietary
         echo '<td><select class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][dietary]" style="width:100%;">';
-        $dietary_options = array('' => '—', 'none' => 'None', 'vegetarian' => 'Vegetarian');
+        $dietary_options = self::get_dietary_options(true);
         foreach ($dietary_options as $dkey => $dlabel) {
             echo '<option value="' . esc_attr($dkey) . '" ' . selected($ticket['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
         }
@@ -2612,7 +2667,7 @@ class RT_Event_Manager {
      *
      * @param int $order_id Order ID
      */
-    private function recalculate_order_ticket_statuses($order_id) {
+    public function recalculate_order_ticket_statuses($order_id) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'rti_tickets';
 
@@ -3551,7 +3606,51 @@ class RT_Event_Manager {
                 'type' => 'sectionend',
                 'id'   => 'rti_ticket_settings',
             ),
+
+            array(
+                'title' => __('Shop Settings', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('Control the merchandise shown in the customer account Shop tab.', 'rt-event-manager'),
+                'id'    => 'rti_shop_settings',
+            ),
+            array(
+                'title'    => __('Merchandise Category', 'rt-event-manager'),
+                'desc'     => __('Products in this category (excluding ticket products) are shown in the account Shop tab. Leave empty to show all non-ticket products.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_merch_category',
+                'type'     => 'select',
+                'options'  => self::get_product_category_options(),
+                'default'  => '',
+                'desc_tip' => true,
+                'class'    => 'wc-enhanced-select',
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_shop_settings',
+            ),
         );
+    }
+
+    /**
+     * Product category options for settings dropdowns: term_id => name.
+     * Includes a leading empty option meaning "no category filter".
+     *
+     * @return array
+     */
+    public static function get_product_category_options() {
+        $options = array('' => __('— All non-ticket products —', 'rt-event-manager'));
+
+        $terms = get_terms(array(
+            'taxonomy'   => 'product_cat',
+            'hide_empty' => false,
+        ));
+
+        if (!is_wp_error($terms)) {
+            foreach ($terms as $term) {
+                $options[$term->term_id] = $term->name;
+            }
+        }
+
+        return $options;
     }
 
     /**
@@ -3734,7 +3833,7 @@ class RT_Event_Manager {
                 // Dietary (editable)
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '">';
                 echo '<select class="rti-frontend-ticket-field" name="rti_ft[' . esc_attr($ticket['id']) . '][dietary]">';
-                $dietary_options = array('' => '—', 'none' => 'None', 'vegetarian' => 'Vegetarian');
+                $dietary_options = self::get_dietary_options(true);
                 foreach ($dietary_options as $dkey => $dlabel) {
                     echo '<option value="' . esc_attr($dkey) . '" ' . selected($ticket['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
                 }
