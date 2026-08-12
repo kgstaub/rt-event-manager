@@ -209,27 +209,11 @@ class RT_Event_Manager_Account {
         $sso     = $this->get_sso_profile($user->ID);
         $tickets = RT_Event_Manager::get_tickets_for_user($user->ID);
 
-        $counts = array('valid' => 0, 'draft' => 0, 'invalid' => 0, 'checked_in' => 0);
-        foreach ($tickets as $t) {
-            $status = isset($t['status']) ? $t['status'] : 'draft';
-            if (isset($counts[$status])) {
-                $counts[$status]++;
-            }
-        }
         $status_labels = $this->status_labels();
 
         $display_name = !empty($sso['name']) ? $sso['name'] : $user->display_name;
 
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html(sprintf(__('Welcome, %s', 'rt-event-manager'), $display_name)) . '</h2>';
-
-        echo '<div class="rtacc-cards">';
-        foreach (array('valid', 'draft', 'checked_in', 'invalid') as $status) {
-            echo '<div class="rtacc-card rtacc-card--' . esc_attr($status) . '">';
-            echo '<span class="rtacc-card-count">' . esc_html($counts[$status]) . '</span>';
-            echo '<span class="rtacc-card-label">' . esc_html($status_labels[$status]) . '</span>';
-            echo '</div>';
-        }
-        echo '</div>';
 
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Your tickets', 'rt-event-manager') . '</h3>';
         if (empty($tickets)) {
