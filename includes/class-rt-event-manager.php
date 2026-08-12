@@ -127,6 +127,17 @@ class RT_Event_Manager {
         add_action('woocommerce_after_order_notes', array($this, 'add_ticket_holder_fields'));
         add_action('woocommerce_checkout_process', array($this, 'validate_ticket_holder_fields'));
 
+        // Ticket linking: carry the chosen parent ticket (and minor gender) from the
+        // add-to-cart request through the cart into the order line item.
+        add_filter('woocommerce_add_cart_item_data', array($this, 'capture_link_cart_item_data'), 10, 2);
+        add_filter('woocommerce_get_item_data', array($this, 'display_link_cart_item_data'), 10, 2);
+        add_action('woocommerce_checkout_create_order_line_item', array($this, 'save_link_order_item_meta'), 10, 4);
+
+        // Future (minor) tickets may only be bought as a co-traveller (parent required)
+        // and are hidden from the normal catalog.
+        add_filter('woocommerce_add_to_cart_validation', array($this, 'validate_future_add_to_cart'), 10, 3);
+        add_action('woocommerce_product_query', array($this, 'hide_future_from_catalog'));
+
         // Admin ticket metabox on order page
         add_action('add_meta_boxes', array($this, 'add_tickets_metabox'));
 
@@ -420,6 +431,7 @@ class RT_Event_Manager {
                     'product_name'    => $cart_item['data']->get_name(),
                     'quantity'        => $cart_item['quantity'],
                     'require_dietary' => 'yes' === $require_dietary,
+                    'kind'            => self::get_ticket_kind_for_product($product_id),
                 );
             }
         }
@@ -465,31 +477,37 @@ class RT_Event_Manager {
                     $item['product_name']
                 )) . '</h4>';
 
-                $name_value = ($ticket_index === 0) ? $default_name : '';
+                $is_minor = (isset($item['kind']) && 'minor' === $item['kind']);
+
+                $name_value = ($ticket_index === 0 && !$is_minor) ? $default_name : '';
 
                 woocommerce_form_field($field_prefix . '_name', array(
                     'type'     => 'text',
-                    'label'    => __('Ticket Holder Name', 'rt-event-manager'),
+                    'label'    => $is_minor ? __('Child\'s Name', 'rt-event-manager') : __('Ticket Holder Name', 'rt-event-manager'),
                     'required' => true,
                     'class'    => array('form-row-wide'),
                 ), $name_value);
 
-                woocommerce_form_field($field_prefix . '_phone', array(
-                    'type'              => 'tel',
-                    'label'             => __('Phone Number', 'rt-event-manager'),
-                    'required'          => true,
-                    'class'             => array('form-row-wide'),
-                    'placeholder'       => __('+41 79 123 45 67', 'rt-event-manager'),
-                    'description'       => __('Please use international format, starting with your country code (e.g. +41…).', 'rt-event-manager'),
-                    'custom_attributes' => array(
-                        'pattern'   => '\+[0-9\s()\-]{7,}',
-                        'inputmode' => 'tel',
-                        'title'     => __('Enter the number in international format, e.g. +41791234567', 'rt-event-manager'),
-                    ),
-                ), '');
+                // Minors (Future Tabler / Circler) do not require a phone number.
+                if (!$is_minor) {
+                    woocommerce_form_field($field_prefix . '_phone', array(
+                        'type'              => 'tel',
+                        'label'             => __('Phone Number', 'rt-event-manager'),
+                        'required'          => true,
+                        'class'             => array('form-row-wide'),
+                        'placeholder'       => __('+41 79 123 45 67', 'rt-event-manager'),
+                        'description'       => __('Please use international format, starting with your country code (e.g. +41…).', 'rt-event-manager'),
+                        'custom_attributes' => array(
+                            'pattern'   => '\+[0-9\s()\-]{7,}',
+                            'inputmode' => 'tel',
+                            'title'     => __('Enter the number in international format, e.g. +41791234567', 'rt-event-manager'),
+                        ),
+                    ), '');
+                }
 
-                // RTI Family dropdown for subsequent tickets (ticket #1 inherits from billing)
-                if ($ticket_index > 0) {
+                // RTI Family dropdown for subsequent tickets (ticket #1 inherits from
+                // billing). Minors never carry a family organization.
+                if ($ticket_index > 0 && !$is_minor) {
                     woocommerce_form_field($field_prefix . '_family', array(
                         'type'     => 'select',
                         'label'    => __('Family Organization', 'rt-event-manager'),
@@ -543,6 +561,8 @@ class RT_Event_Manager {
     public function validate_ticket_holder_fields() {
         $ticket_count = isset($_POST['rti_ticket_count']) ? absint($_POST['rti_ticket_count']) : 0;
 
+        $product_map = isset($_POST['rti_ticket_product_map']) ? array_map('absint', (array) $_POST['rti_ticket_product_map']) : array();
+
         for ($i = 0; $i < $ticket_count; $i++) {
             $field_prefix = 'rti_ticket_' . $i;
             $name_key = $field_prefix . '_name';
@@ -553,6 +573,12 @@ class RT_Event_Manager {
                     __('Please enter the name for Ticket %d.', 'rt-event-manager'),
                     $i + 1
                 ), 'error');
+            }
+
+            // Minors (Future Tabler / Circler) are exempt from the phone requirement.
+            $pid = isset($product_map[$i]) ? $product_map[$i] : 0;
+            if ($pid && 'minor' === self::get_ticket_kind_for_product($pid)) {
+                continue;
             }
 
             $phone_raw = isset($_POST[$phone_key]) ? wp_unslash($_POST[$phone_key]) : '';
@@ -1199,6 +1225,9 @@ class RT_Event_Manager {
             // Only iterate ticket items (_rti_is_ticket=yes) to match the checkout form's
             // ticket_product_map indexing which also only counts ticket items.
             $combination_map = array(); // ticket_index => combination_id
+            $kind_map        = array(); // ticket_index => 'event'|'pretour'|'minor'
+            $parent_map      = array(); // ticket_index => parent ticket id
+            $minor_type_map  = array(); // ticket_index => 'tabler'|'circler'
             $item_combo_index = 0;
             foreach ($order->get_items() as $item) {
                 $pid = $item->get_product_id();
@@ -1207,11 +1236,17 @@ class RT_Event_Manager {
                     continue;
                 }
                 $combo_id = absint($item->get_meta('_mto_combination_id'));
+                $kind     = self::get_ticket_kind_for_product($pid);
+                $parent   = absint($item->get_meta('_rti_parent_ticket_id'));
+                $gender   = sanitize_text_field($item->get_meta('_rti_minor_gender'));
                 $qty = $item->get_quantity();
                 for ($q = 0; $q < $qty; $q++) {
                     if ($combo_id) {
                         $combination_map[$item_combo_index] = $combo_id;
                     }
+                    $kind_map[$item_combo_index]       = $kind;
+                    $parent_map[$item_combo_index]     = $parent;
+                    $minor_type_map[$item_combo_index] = ('minor' === $kind) ? $gender : '';
                     $item_combo_index++;
                 }
             }
@@ -1230,16 +1265,23 @@ class RT_Event_Manager {
                 $dietary      = isset($_POST[$field_prefix . '_dietary']) ? sanitize_text_field($_POST[$field_prefix . '_dietary']) : '';
                 $product_id   = isset($ticket_product_map[$i]) ? $ticket_product_map[$i] : 0;
                 $combo_id     = isset($combination_map[$i]) ? $combination_map[$i] : 0;
+                $kind         = isset($kind_map[$i]) ? $kind_map[$i] : 'event';
+                $parent_id    = isset($parent_map[$i]) ? $parent_map[$i] : 0;
+                $minor_type   = isset($minor_type_map[$i]) ? $minor_type_map[$i] : '';
+                $is_minor     = ('minor' === $kind);
 
-                // Ticket #1 uses the buyer's family; subsequent tickets have their own selector
-                if ($i === 0) {
+                // Ticket #1 uses the buyer's family; subsequent tickets have their own
+                // selector. Minors never carry a family organization.
+                if ($is_minor) {
+                    $ticket_family = '';
+                } elseif ($i === 0) {
                     $ticket_family = $buyer_family;
                 } else {
                     $ticket_family = isset($_POST[$field_prefix . '_family']) ? sanitize_text_field($_POST[$field_prefix . '_family']) : '9';
                 }
 
-                // Ticket #1 always gets the buyer's .WORLD ID and QR code
-                $world_id    = ($i === 0 && $user_id) ? $buyer_world_id : '';
+                // Ticket #1 always gets the buyer's .WORLD ID and QR code — but never a minor.
+                $world_id    = (!$is_minor && $i === 0 && $user_id) ? $buyer_world_id : '';
                 $qr_code_url = '';
                 if (!empty($world_id)) {
                     $qr_code_url = 'tablerworld:///member?id=' . $world_id;
@@ -1249,23 +1291,144 @@ class RT_Event_Manager {
                 $ticket_status = rt_event_manager_determine_ticket_status($order, $holder_name);
 
                 $this->insert_ticket(array(
-                    'order_id'       => $order_id,
-                    'product_id'     => $product_id,
-                    'combination_id' => $combo_id,
-                    'ticket_index'   => $i,
-                    'holder_name'    => $holder_name,
-                    'phone'          => $phone,
-                    'rti_family'     => $ticket_family,
-                    'rti_club'       => $buyer_club,
-                    'dietary'        => $dietary,
-                    'world_id'       => $world_id,
-                    'qr_code_url'    => $qr_code_url,
-                    'status'         => $ticket_status,
+                    'order_id'         => $order_id,
+                    'product_id'       => $product_id,
+                    'combination_id'   => $combo_id,
+                    'parent_ticket_id' => $parent_id,
+                    'ticket_kind'      => $kind,
+                    'minor_type'       => $minor_type,
+                    'ticket_index'     => $i,
+                    'holder_name'      => $holder_name,
+                    'phone'            => $phone,
+                    'rti_family'       => $ticket_family,
+                    'rti_club'         => $is_minor ? '' : $buyer_club,
+                    'dietary'          => $dietary,
+                    'world_id'         => $world_id,
+                    'qr_code_url'      => $qr_code_url,
+                    'status'           => $ticket_status,
                 ));
             }
         }
 
         $order->save();
+    }
+
+    /* ---------------------------------------------------------------------
+     * Ticket linking (pretour / minor co-travellers)
+     * ------------------------------------------------------------------- */
+
+    /**
+     * Capture the parent ticket id and (for minors) the gender from the
+     * add-to-cart request so they travel with the cart item.
+     *
+     * @param array $cart_item_data
+     * @param int   $product_id
+     * @return array
+     */
+    public function capture_link_cart_item_data($cart_item_data, $product_id) {
+        $unique = false;
+
+        if (isset($_REQUEST['rti_parent_ticket_id'])) {
+            $cart_item_data['rti_parent_ticket_id'] = absint($_REQUEST['rti_parent_ticket_id']);
+            $unique = true;
+        }
+        if (isset($_REQUEST['rti_minor_gender'])) {
+            $gender = sanitize_key(wp_unslash($_REQUEST['rti_minor_gender']));
+            if (in_array($gender, array('tabler', 'circler'), true)) {
+                $cart_item_data['rti_minor_gender'] = $gender;
+                $unique = true;
+            }
+        }
+
+        // Keep each linked co-traveller as its own cart line (don't merge quantities).
+        if ($unique) {
+            $cart_item_data['rti_link_unique'] = md5(wp_json_encode($cart_item_data) . wp_rand());
+        }
+
+        return $cart_item_data;
+    }
+
+    /**
+     * Show the linkage in the cart/checkout item details.
+     *
+     * @param array $item_data
+     * @param array $cart_item
+     * @return array
+     */
+    public function display_link_cart_item_data($item_data, $cart_item) {
+        if (!empty($cart_item['rti_minor_gender'])) {
+            $item_data[] = array(
+                'key'   => __('Minor', 'rt-event-manager'),
+                'value' => ('circler' === $cart_item['rti_minor_gender'])
+                    ? __('Future Circler (girls)', 'rt-event-manager')
+                    : __('Future Tabler (boys)', 'rt-event-manager'),
+            );
+        }
+        if (!empty($cart_item['rti_parent_ticket_id'])) {
+            $item_data[] = array(
+                'key'   => __('Linked to ticket', 'rt-event-manager'),
+                'value' => '#' . absint($cart_item['rti_parent_ticket_id']),
+            );
+        }
+        return $item_data;
+    }
+
+    /**
+     * Persist the linkage onto the order line item at checkout.
+     *
+     * @param WC_Order_Item_Product $item
+     * @param string                $cart_item_key
+     * @param array                 $values
+     * @param WC_Order              $order
+     */
+    public function save_link_order_item_meta($item, $cart_item_key, $values, $order) {
+        if (!empty($values['rti_parent_ticket_id'])) {
+            $item->add_meta_data('_rti_parent_ticket_id', absint($values['rti_parent_ticket_id']), true);
+        }
+        if (!empty($values['rti_minor_gender'])) {
+            $item->add_meta_data('_rti_minor_gender', sanitize_key($values['rti_minor_gender']), true);
+        }
+    }
+
+    /**
+     * Block adding a Future (minor) ticket to the cart unless a parent ticket is
+     * specified — enforcing "co-traveller only".
+     *
+     * @param bool $passed
+     * @param int  $product_id
+     * @param int  $quantity
+     * @return bool
+     */
+    public function validate_future_add_to_cart($passed, $product_id, $quantity) {
+        if (self::is_future_product($product_id) && empty($_REQUEST['rti_parent_ticket_id'])) {
+            wc_add_notice(
+                __('Future member tickets can only be added as a co-traveller from your account.', 'rt-event-manager'),
+                'error'
+            );
+            return false;
+        }
+        return $passed;
+    }
+
+    /**
+     * Hide Future (minor) products from the shop catalog/archive loop so they
+     * cannot be purchased standalone.
+     *
+     * @param WP_Query $query
+     */
+    public function hide_future_from_catalog($query) {
+        $cat = self::get_future_category_id();
+        if (!$cat) {
+            return;
+        }
+        $tax_query = (array) $query->get('tax_query');
+        $tax_query[] = array(
+            'taxonomy' => 'product_cat',
+            'field'    => 'term_id',
+            'terms'    => array($cat),
+            'operator' => 'NOT IN',
+        );
+        $query->set('tax_query', $tax_query);
     }
 
     /**
@@ -1316,22 +1479,28 @@ class RT_Event_Manager {
         // Checked-in status must never be clobbered by a re-submit.
         $sql = $wpdb->prepare(
             "INSERT INTO $table_name
-                (order_id, product_id, combination_id, ticket_index, holder_name, phone, rti_family, rti_club, dietary, world_id, qr_code_url, status)
-             VALUES (%d, %d, %d, %d, %s, %s, %s, %s, %s, %s, %s, %s)
+                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, rti_family, rti_club, dietary, world_id, qr_code_url, status)
+             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s)
              ON DUPLICATE KEY UPDATE
-                product_id     = VALUES(product_id),
-                combination_id = VALUES(combination_id),
-                holder_name    = VALUES(holder_name),
-                phone          = VALUES(phone),
-                rti_family     = VALUES(rti_family),
-                rti_club       = VALUES(rti_club),
-                dietary        = VALUES(dietary),
-                world_id       = VALUES(world_id),
-                qr_code_url    = VALUES(qr_code_url),
-                status         = IF(status = 'checked_in', status, VALUES(status))",
+                product_id       = VALUES(product_id),
+                combination_id   = VALUES(combination_id),
+                parent_ticket_id = VALUES(parent_ticket_id),
+                ticket_kind      = VALUES(ticket_kind),
+                minor_type       = VALUES(minor_type),
+                holder_name      = VALUES(holder_name),
+                phone            = VALUES(phone),
+                rti_family       = VALUES(rti_family),
+                rti_club         = VALUES(rti_club),
+                dietary          = VALUES(dietary),
+                world_id         = VALUES(world_id),
+                qr_code_url      = VALUES(qr_code_url),
+                status           = IF(status = 'checked_in', status, VALUES(status))",
             absint($data['order_id']),
             absint($data['product_id']),
             absint(isset($data['combination_id']) ? $data['combination_id'] : 0),
+            absint(isset($data['parent_ticket_id']) ? $data['parent_ticket_id'] : 0),
+            isset($data['ticket_kind']) ? sanitize_text_field($data['ticket_kind']) : 'event',
+            isset($data['minor_type']) ? sanitize_text_field($data['minor_type']) : '',
             absint($data['ticket_index']),
             sanitize_text_field($data['holder_name']),
             self::normalize_phone(isset($data['phone']) ? $data['phone'] : ''),
@@ -1437,15 +1606,18 @@ class RT_Event_Manager {
         $update_format = array();
 
         $allowed_fields = array(
-            'holder_name'    => '%s',
-            'phone'          => '%s',
-            'rti_family'     => '%s',
-            'rti_club'       => '%s',
-            'dietary'        => '%s',
-            'world_id'       => '%s',
-            'qr_code_url'    => '%s',
-            'status'         => '%s',
-            'combination_id' => '%d',
+            'holder_name'      => '%s',
+            'phone'            => '%s',
+            'rti_family'       => '%s',
+            'rti_club'         => '%s',
+            'dietary'          => '%s',
+            'world_id'         => '%s',
+            'qr_code_url'      => '%s',
+            'status'           => '%s',
+            'combination_id'   => '%d',
+            'parent_ticket_id' => '%d',
+            'ticket_kind'      => '%s',
+            'minor_type'       => '%s',
         );
 
         foreach ($allowed_fields as $field => $format) {
@@ -3603,6 +3775,26 @@ class RT_Event_Manager {
                 'desc_tip' => true,
             ),
             array(
+                'title'    => __('Pretour Category', 'rt-event-manager'),
+                'desc'     => __('Ticket products in this category are treated as Pretour tickets (shown in the Pretour tab and linked to an Event ticket).', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_pretour_category',
+                'type'     => 'select',
+                'options'  => self::get_product_category_options(),
+                'default'  => '',
+                'desc_tip' => true,
+                'class'    => 'wc-enhanced-select',
+            ),
+            array(
+                'title'    => __('Future Member (Minor) Category', 'rt-event-manager'),
+                'desc'     => __('Ticket products in this category are treated as Future Tabler / Future Circler minor tickets — addable only as co-travellers linked to an existing Event or Pretour ticket.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_future_category',
+                'type'     => 'select',
+                'options'  => self::get_product_category_options(),
+                'default'  => '',
+                'desc_tip' => true,
+                'class'    => 'wc-enhanced-select',
+            ),
+            array(
                 'type' => 'sectionend',
                 'id'   => 'rti_ticket_settings',
             ),
@@ -3651,6 +3843,59 @@ class RT_Event_Manager {
         }
 
         return $options;
+    }
+
+    /**
+     * Configured Pretour product category term id (0 if unset).
+     *
+     * @return int
+     */
+    public static function get_pretour_category_id() {
+        return absint(get_option('rt_event_manager_pretour_category', 0));
+    }
+
+    /**
+     * Configured Future/minor product category term id (0 if unset).
+     *
+     * @return int
+     */
+    public static function get_future_category_id() {
+        return absint(get_option('rt_event_manager_future_category', 0));
+    }
+
+    /**
+     * @param int $product_id
+     * @return bool True if the product is a Pretour ticket product.
+     */
+    public static function is_pretour_product($product_id) {
+        $cat = self::get_pretour_category_id();
+        return $cat && has_term($cat, 'product_cat', $product_id);
+    }
+
+    /**
+     * @param int $product_id
+     * @return bool True if the product is a Future/minor ticket product.
+     */
+    public static function is_future_product($product_id) {
+        $cat = self::get_future_category_id();
+        return $cat && has_term($cat, 'product_cat', $product_id);
+    }
+
+    /**
+     * Classify a ticket product into its kind. Future (minor) takes precedence
+     * over Pretour, which takes precedence over the default Event ticket.
+     *
+     * @param int $product_id
+     * @return string 'minor' | 'pretour' | 'event'
+     */
+    public static function get_ticket_kind_for_product($product_id) {
+        if (self::is_future_product($product_id)) {
+            return 'minor';
+        }
+        if (self::is_pretour_product($product_id)) {
+            return 'pretour';
+        }
+        return 'event';
     }
 
     /**

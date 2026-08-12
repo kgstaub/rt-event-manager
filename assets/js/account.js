@@ -54,12 +54,12 @@
         });
     });
 
-    // ---- Ticket save ----
-    $(document).on('submit', '#rtacc-tickets-form', function (e) {
+    // ---- Ticket save (Event Tickets + Pretour tabs) ----
+    $(document).on('submit', '.rtacc-tickets-form', function (e) {
         e.preventDefault();
         var $form   = $(this);
         var $btn    = $form.find('button[type="submit"]');
-        var $status = $('#rtacc-tickets-status');
+        var $status = $form.find('.rtacc-status');
 
         var tickets = {};
         $form.find('tr[data-ticket-id]').each(function () {
@@ -92,6 +92,33 @@
             $btn.prop('disabled', false);
             setStatus($status, i18n.requestFail || 'Request failed.', 'error');
         });
+    });
+
+    // ---- Add a linked co-traveller / pretour (parent chosen at add-to-cart) ----
+    $(document).on('click', '.rtacc-add-linked-btn', function (e) {
+        e.preventDefault();
+        var $btn   = $(this);
+        var $wrap  = $btn.closest('.rtacc-linked-add');
+        var pid    = $btn.data('product');
+        var parent = $wrap.find('.rtacc-add-parent').val();
+
+        if (!parent) {
+            window.alert(i18n.needParent || 'Please choose a ticket to attach this to.');
+            return;
+        }
+
+        var sep = cfg.cartUrl.indexOf('?') > -1 ? '&' : '?';
+        var url = cfg.cartUrl + sep + 'add-to-cart=' + encodeURIComponent(pid) +
+                  '&rti_parent_ticket_id=' + encodeURIComponent(parent);
+
+        if ($btn.data('needs-gender')) {
+            var gender = $wrap.find('.rtacc-add-gender').val();
+            if (gender) {
+                url += '&rti_minor_gender=' + encodeURIComponent(gender);
+            }
+        }
+
+        window.location.href = url;
     });
 
 })(jQuery);
