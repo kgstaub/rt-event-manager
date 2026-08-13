@@ -4548,6 +4548,47 @@ class RT_Event_Manager {
     }
 
     /**
+     * The pretour tickets linked to a host ticket (event / Future member).
+     *
+     * @param int  $ticket_id
+     * @param bool $exclude_cancelled Skip already-cancelled pretours.
+     * @return array Ticket rows (ARRAY_A).
+     */
+    public static function get_child_pretours($ticket_id, $exclude_cancelled = true) {
+        global $wpdb;
+        $ticket_id = absint($ticket_id);
+        if (!$ticket_id) {
+            return array();
+        }
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $sql = "SELECT * FROM $table_name WHERE parent_ticket_id = %d AND ticket_kind = 'pretour'";
+        if ($exclude_cancelled) {
+            $sql .= " AND status <> 'cancelled'";
+        }
+        return $wpdb->get_results($wpdb->prepare($sql, $ticket_id), ARRAY_A);
+    }
+
+    /**
+     * Look up a ticket by its pending transfer token.
+     *
+     * @param string $token
+     * @return array|null Ticket row or null.
+     */
+    public static function get_ticket_by_transfer_token($token) {
+        global $wpdb;
+        $token = sanitize_text_field($token);
+        if ('' === $token) {
+            return null;
+        }
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE transfer_token = %s",
+            $token
+        ), ARRAY_A);
+        return $row ?: null;
+    }
+
+    /**
      * Short "parent" reference label for a ticket row, or '' if none.
      * Resolves the parent ticket's holder name when available.
      *

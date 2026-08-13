@@ -56,6 +56,9 @@ class RT_Event_Manager_Account {
         add_action('wp_ajax_rt_event_manager_receipt', array($this, 'ajax_receipt'));
         add_action('wp_ajax_rt_event_manager_add_ticket_to_cart', array($this, 'ajax_add_ticket_to_cart'));
         add_action('wp_ajax_rt_event_manager_add_pretours_to_cart', array($this, 'ajax_add_pretours_to_cart'));
+        add_action('wp_ajax_rt_event_manager_request_transfer', array($this, 'ajax_request_transfer'));
+        add_action('wp_ajax_rt_event_manager_cancel_ticket', array($this, 'ajax_cancel_ticket'));
+        add_action('wp_ajax_rt_event_manager_accept_transfer', array($this, 'ajax_accept_transfer'));
     }
 
     /* ---------------------------------------------------------------------
@@ -129,9 +132,13 @@ class RT_Event_Manager_Account {
         wp_localize_script('rt-event-manager-account', 'rtEventManagerAccount', array(
             'ajaxUrl'      => admin_url('admin-ajax.php'),
             'cartUrl'      => wc_get_cart_url(),
+            'accountUrl'   => wc_get_page_permalink('myaccount'),
             'profileNonce' => wp_create_nonce('rt_event_manager_save_profile'),
             'ticketsNonce' => wp_create_nonce('rt_event_manager_account_save_tickets'),
             'addTicketNonce' => wp_create_nonce('rt_event_manager_add_ticket'),
+            'transferNonce' => wp_create_nonce('rt_event_manager_transfer'),
+            'cancelNonce'  => wp_create_nonce('rt_event_manager_cancel'),
+            'acceptNonce'  => wp_create_nonce('rt_event_manager_accept_transfer'),
             'i18n'         => array(
                 'saving'      => __('Saving…', 'rt-event-manager'),
                 'saved'       => __('Saved!', 'rt-event-manager'),
@@ -139,6 +146,12 @@ class RT_Event_Manager_Account {
                 'requestFail' => __('Request failed. Please try again.', 'rt-event-manager'),
                 'needParent'  => __('Please choose which ticket to attach this to.', 'rt-event-manager'),
                 'selectMember' => __('Please select at least one member.', 'rt-event-manager'),
+                'needEmail'   => __('Please enter the new holder\'s email address.', 'rt-event-manager'),
+                'sending'     => __('Sending…', 'rt-event-manager'),
+                'cancelling'  => __('Cancelling…', 'rt-event-manager'),
+                'accepting'   => __('Accepting…', 'rt-event-manager'),
+                'ticketFor'   => __('Ticket:', 'rt-event-manager'),
+                'sendTransfer' => __('Send transfer request', 'rt-event-manager'),
             ),
         ));
     }
@@ -251,8 +264,17 @@ class RT_Event_Manager_Account {
      * ------------------------------------------------------------------- */
 
     public function render_shortcode($atts) {
-        // Logged out → let WooCommerce render its login/register form.
+        $transfer_token = isset($_GET['rti_transfer']) ? sanitize_text_field(wp_unslash($_GET['rti_transfer'])) : '';
+
+        // Logged out → let WooCommerce render its login/register form. When a
+        // transfer link brought them here, keep the token and return to it after
+        // they log in or register.
         if (!is_user_logged_in()) {
+            if ('' !== $transfer_token) {
+                $this->prepare_transfer_login_redirect($transfer_token);
+                $notice = '<div class="woocommerce-info">' . esc_html__('Please log in or create an account to accept this ticket transfer.', 'rt-event-manager') . '</div>';
+                return $notice . do_shortcode('[woocommerce_my_account]');
+            }
             return do_shortcode('[woocommerce_my_account]');
         }
 
@@ -265,8 +287,27 @@ class RT_Event_Manager_Account {
         $this->enqueue_assets();
 
         ob_start();
-        $this->render_portal();
+        if ('' !== $transfer_token) {
+            $this->render_transfer_accept($transfer_token);
+        } else {
+            $this->render_portal();
+        }
         return ob_get_clean();
+    }
+
+    /**
+     * After a logged-out visitor authenticates from a transfer link, send them
+     * back to the accept page (with the token) instead of the account root.
+     *
+     * @param string $token
+     */
+    private function prepare_transfer_login_redirect($token) {
+        $url = add_query_arg('rti_transfer', rawurlencode($token), wc_get_page_permalink('myaccount'));
+        $redirect = function () use ($url) {
+            return $url;
+        };
+        add_filter('woocommerce_login_redirect', $redirect, 100);
+        add_filter('woocommerce_registration_redirect', $redirect, 100);
     }
 
     private function render_portal() {
@@ -697,6 +738,7 @@ class RT_Event_Manager_Account {
             ));
         }
         $this->render_future_modal($future_options);
+        $this->render_transfer_cancel_modals();
     }
 
     private function render_pretour() {
@@ -775,6 +817,107 @@ class RT_Event_Manager_Account {
 
         // The bulk pretour modal (hidden; opened by the title-line button).
         $this->render_pretour_modal($candidates);
+        $this->render_transfer_cancel_modals();
+    }
+
+    /**
+     * The shared Transfer and Cancel confirmation modals (opened by the per-row
+     * action buttons; ticket id and summary text are filled in by account.js).
+     */
+    private function render_transfer_cancel_modals() {
+        $refund_open = RT_Event_Manager::instance()->is_refund_window_open();
+
+        // ---- Transfer ----
+        echo '<div class="rtacc-modal" id="rtacc-modal-transfer" hidden>';
+        echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
+        echo '<div class="rtacc-modal-dialog">';
+        echo '<form class="rtacc-form uk-form-stacked rtacc-transfer-form">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html__('Transfer this ticket', 'rt-event-manager') . '</h3>';
+        echo '<input type="hidden" name="ticket_id" value="" />';
+        echo '<p class="rtacc-modal-target rtacc-muted"></p>';
+        echo '<p>' . esc_html__('The ticket and any pretour linked to it move to the new holder as a package. This is not a refund — the new holder will see the original price paid, and any repayment is arranged between the two of you.', 'rt-event-manager') . '</p>';
+        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('New holder\'s email address', 'rt-event-manager') . '</label>';
+        echo '<input type="email" class="uk-input" name="email" required placeholder="name@example.com" /></p>';
+        echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
+        echo '<p class="rtacc-actions">';
+        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Send transfer request', 'rt-event-manager') . '</button>';
+        echo '<button type="button" class="uk-button uk-button-secondary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button>';
+        echo '</p></form></div></div>';
+
+        // ---- Cancel ----
+        $note = $refund_open
+            ? __('A refund will be requested from the event organiser. Cancellation is immediate and cannot be undone.', 'rt-event-manager')
+            : __('The refund deadline has passed, so this cancellation will not be refunded. Cancellation is immediate and cannot be undone.', 'rt-event-manager');
+        echo '<div class="rtacc-modal" id="rtacc-modal-cancel" hidden>';
+        echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
+        echo '<div class="rtacc-modal-dialog">';
+        echo '<form class="rtacc-form uk-form-stacked rtacc-cancel-form">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html__('Cancel this ticket', 'rt-event-manager') . '</h3>';
+        echo '<input type="hidden" name="ticket_id" value="" />';
+        echo '<p class="rtacc-modal-target rtacc-muted"></p>';
+        echo '<p class="rtacc-cancel-package" style="display:none;">' . esc_html__('Any pretour linked to this ticket will be cancelled as well.', 'rt-event-manager') . '</p>';
+        echo '<p>' . esc_html($note) . '</p>';
+        echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
+        echo '<p class="rtacc-actions">';
+        echo '<button type="submit" class="uk-button uk-button-danger">' . esc_html__('Confirm cancellation', 'rt-event-manager') . '</button>';
+        echo '<button type="button" class="uk-button uk-button-secondary" data-rtacc-close>' . esc_html__('Keep ticket', 'rt-event-manager') . '</button>';
+        echo '</p></form></div></div>';
+    }
+
+    /**
+     * Render the transfer-accept page (reached via the emailed link, once the
+     * new holder is logged in): show the package being transferred, the original
+     * price paid, the private-settlement note, and an Accept button.
+     *
+     * @param string $token
+     */
+    private function render_transfer_accept($token) {
+        echo '<div class="rtacc rtacc--transfer">';
+        echo '<div class="rtacc-content" style="flex:1 1 100%;">';
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Accept ticket transfer', 'rt-event-manager') . '</h2>';
+
+        $event = RT_Event_Manager::get_ticket_by_transfer_token($token);
+        if (!$event || 'event' !== RT_Event_Manager::get_ticket_kind($event) || 'cancelled' === $event['status']) {
+            echo '<div class="rtacc-notice uk-alert-danger" uk-alert><p>' . esc_html__('This transfer link is no longer valid. It may have already been accepted or withdrawn.', 'rt-event-manager') . '</p></div>';
+            echo '<p><a class="uk-button uk-button-default" href="' . esc_url(wc_get_page_permalink('myaccount')) . '">' . esc_html__('Go to my account', 'rt-event-manager') . '</a></p>';
+            echo '</div></div>';
+            return;
+        }
+
+        $pretours = RT_Event_Manager::get_child_pretours(absint($event['id']));
+        $product  = wc_get_product($event['product_id']);
+        $ename    = $product ? $product->get_name() : __('Event ticket', 'rt-event-manager');
+        $currency = RT_Event_Manager::get_ticket_currency($event);
+
+        $total = RT_Event_Manager::get_ticket_paid_amount($event);
+        foreach ($pretours as $p) {
+            $total += RT_Event_Manager::get_ticket_paid_amount($p);
+        }
+
+        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
+        echo '<p>' . esc_html(sprintf(__('%s has offered to transfer the following to you:', 'rt-event-manager'), $event['holder_name'] !== '' ? $event['holder_name'] : __('A member', 'rt-event-manager'))) . '</p>';
+        echo '<ul class="rtacc-transfer-list">';
+        echo '<li>' . esc_html($ename) . '</li>';
+        foreach ($pretours as $p) {
+            $pp = wc_get_product($p['product_id']);
+            echo '<li>' . esc_html($pp ? $pp->get_name() : __('Pretour', 'rt-event-manager')) . '</li>';
+        }
+        echo '</ul>';
+
+        echo '<p><strong>' . esc_html__('Original price paid:', 'rt-event-manager') . '</strong> ' . wp_kses_post(wc_price($total, array('currency' => $currency))) . '</p>';
+        echo '<p class="rtacc-muted">' . esc_html__('Accepting does not charge you and does not refund the current holder. Any repayment or compensation is to be agreed directly between you and the current holder.', 'rt-event-manager') . '</p>';
+
+        echo '<form class="rtacc-form rtacc-accept-form">';
+        echo '<input type="hidden" name="token" value="' . esc_attr($token) . '" />';
+        echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
+        echo '<p class="rtacc-actions">';
+        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Accept transfer', 'rt-event-manager') . '</button>';
+        echo '<a class="uk-button uk-button-secondary" href="' . esc_url(wc_get_page_permalink('myaccount')) . '">' . esc_html__('Not now', 'rt-event-manager') . '</a>';
+        echo '<span class="rtacc-status" aria-live="polite"></span>';
+        echo '</p></form>';
+        echo '</section>';
+
+        echo '</div></div>';
     }
 
     /* ---- Ticket rendering helpers ---- */
@@ -930,9 +1073,10 @@ class RT_Event_Manager_Account {
             // Future members' guardian is shown as a sub-line under the holder.
             echo '<table class="rtacc-table rtacc-tickets rtacc-pretour-table uk-table uk-table-divider uk-table-middle uk-table-small">';
             echo '<thead><tr>';
-            echo '<th style="width:35%;">' . esc_html__('Tour', 'rt-event-manager') . '</th>';
-            echo '<th style="width:35%;">' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
+            echo '<th style="width:30%;">' . esc_html__('Tour', 'rt-event-manager') . '</th>';
+            echo '<th style="width:30%;">' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
             echo '<th style="width:130px;">' . esc_html__('Status', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
             echo '</tr></thead><tbody>';
             foreach ($tickets as $t) {
                 $status  = isset($t['status']) ? $t['status'] : 'draft';
@@ -949,6 +1093,7 @@ class RT_Event_Manager_Account {
                 }
                 echo '</td>';
                 echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
+                echo '<td data-title="' . esc_attr__('Actions', 'rt-event-manager') . '">' . $this->ticket_actions_cell($t) . '</td>';
                 echo '</tr>';
             }
             echo '</tbody></table>';
@@ -975,6 +1120,7 @@ class RT_Event_Manager_Account {
             echo '<th>' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
         }
         echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
         echo '</tr></thead><tbody>';
 
         foreach ($tickets as $t) {
@@ -1082,10 +1228,47 @@ class RT_Event_Manager_Account {
             }
 
             echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
+            echo '<td data-title="' . esc_attr__('Actions', 'rt-event-manager') . '">' . $this->ticket_actions_cell($t) . '</td>';
             echo '</tr>';
         }
 
         echo '</tbody></table>';
+    }
+
+    /**
+     * Per-row Transfer / Cancel action buttons. Transfer is offered only for
+     * adult event tickets (they move as a package with their pretours); every
+     * live ticket can be cancelled. Cancelled/checked-in rows show no actions.
+     *
+     * @param array $t Ticket row.
+     * @return string HTML.
+     */
+    private function ticket_actions_cell($t) {
+        $id     = absint($t['id']);
+        $kind   = $this->effective_kind($t);
+        $status = isset($t['status']) ? $t['status'] : 'draft';
+        $name   = ($t['holder_name'] !== '') ? $t['holder_name'] : ('#' . $id);
+
+        if ('cancelled' === $status) {
+            return '<span class="rtacc-muted">' . esc_html__('Cancelled', 'rt-event-manager') . '</span>';
+        }
+        if ('checked_in' === $status) {
+            return '<span class="rtacc-muted">&mdash;</span>';
+        }
+
+        $refund_open = RT_Event_Manager::instance()->is_refund_window_open();
+
+        $out = '<div class="rtacc-row-actions">';
+        if ('event' === $kind) {
+            $out .= '<button type="button" class="uk-button uk-button-default uk-button-small rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '">' . esc_html__('Request transfer', 'rt-event-manager') . '</button>';
+        }
+        $cancel_label = $refund_open
+            ? __('Cancel and request refund', 'rt-event-manager')
+            : __('Cancel', 'rt-event-manager');
+        $out .= '<button type="button" class="uk-button uk-button-danger uk-button-small rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '">' . esc_html($cancel_label) . '</button>';
+        $out .= '</div>';
+
+        return $out;
     }
 
     /* ---- Product queries for the add sections ---- */
@@ -1528,7 +1711,225 @@ class RT_Event_Manager_Account {
             'draft'      => __('Pending Confirmation', 'rt-event-manager'),
             'invalid'    => __('Invalid', 'rt-event-manager'),
             'checked_in' => __('Checked In', 'rt-event-manager'),
+            'cancelled'  => __('Cancelled', 'rt-event-manager'),
         );
+    }
+
+    /**
+     * Whether the current user owns a ticket row. Prefers the explicit
+     * owner_user_id; falls back to the order customer for legacy rows.
+     *
+     * @param array $t
+     * @param int   $user_id
+     * @return bool
+     */
+    private function user_owns_ticket($t, $user_id) {
+        $owner = absint(isset($t['owner_user_id']) ? $t['owner_user_id'] : 0);
+        if ($owner) {
+            return $owner === absint($user_id);
+        }
+        $order = wc_get_order(absint($t['order_id']));
+        return $order && absint($order->get_customer_id()) === absint($user_id);
+    }
+
+    /* ---------------------------------------------------------------------
+     * AJAX: ticket transfer & cancellation
+     * ------------------------------------------------------------------- */
+
+    /** Request a transfer of an adult event ticket to a new holder's email. */
+    public function ajax_request_transfer() {
+        check_ajax_referer('rt_event_manager_transfer', 'nonce');
+        if (!is_user_logged_in()) {
+            wp_send_json_error(__('You must be logged in.', 'rt-event-manager'));
+        }
+        $user_id   = get_current_user_id();
+        $ticket_id = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
+        $email     = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
+
+        $t = $ticket_id ? RT_Event_Manager::get_ticket_by_id($ticket_id) : null;
+        if (!$t || !$this->user_owns_ticket($t, $user_id)) {
+            wp_send_json_error(__('Ticket not found.', 'rt-event-manager'));
+        }
+        if ('event' !== RT_Event_Manager::get_ticket_kind($t)) {
+            wp_send_json_error(__('Only event tickets can be transferred. Future member tickets must be cancelled instead.', 'rt-event-manager'));
+        }
+        if (in_array($t['status'], array('cancelled', 'checked_in'), true)) {
+            wp_send_json_error(__('This ticket can no longer be transferred.', 'rt-event-manager'));
+        }
+        if (!is_email($email)) {
+            wp_send_json_error(__('Please enter a valid email address.', 'rt-event-manager'));
+        }
+        if (strtolower($email) === strtolower(wp_get_current_user()->user_email)) {
+            wp_send_json_error(__('That is your own email address.', 'rt-event-manager'));
+        }
+
+        $token = wp_generate_password(32, false);
+        RT_Event_Manager::instance()->update_ticket($ticket_id, array(
+            'transfer_token'        => $token,
+            'transfer_email'        => $email,
+            'transfer_requested_at' => current_time('mysql'),
+        ));
+
+        $this->send_transfer_email($t, $email, $token);
+
+        wp_send_json_success(array(
+            'message' => sprintf(__('A transfer invitation has been sent to %s.', 'rt-event-manager'), $email),
+        ));
+    }
+
+    /** Cancel a ticket immediately (cascades to linked pretours). */
+    public function ajax_cancel_ticket() {
+        check_ajax_referer('rt_event_manager_cancel', 'nonce');
+        if (!is_user_logged_in()) {
+            wp_send_json_error(__('You must be logged in.', 'rt-event-manager'));
+        }
+        $user_id   = get_current_user_id();
+        $ticket_id = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
+
+        $t = $ticket_id ? RT_Event_Manager::get_ticket_by_id($ticket_id) : null;
+        if (!$t || !$this->user_owns_ticket($t, $user_id)) {
+            wp_send_json_error(__('Ticket not found.', 'rt-event-manager'));
+        }
+        if (in_array($t['status'], array('cancelled', 'checked_in'), true)) {
+            wp_send_json_error(__('This ticket cannot be cancelled.', 'rt-event-manager'));
+        }
+
+        $mgr         = RT_Event_Manager::instance();
+        $refund_open = $mgr->is_refund_window_open();
+
+        $cancelled = array($t);
+        $mgr->update_ticket($ticket_id, array(
+            'status'         => 'cancelled',
+            'transfer_token' => '',
+            'transfer_email' => '',
+        ));
+        // A pretour cannot outlive its host — cascade the cancellation.
+        if (in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true)) {
+            foreach (RT_Event_Manager::get_child_pretours($ticket_id) as $child) {
+                $mgr->update_ticket(absint($child['id']), array('status' => 'cancelled'));
+                $cancelled[] = $child;
+            }
+        }
+
+        $this->send_cancel_email($t, $cancelled, $refund_open, $user_id);
+
+        wp_send_json_success(array(
+            'message' => $refund_open
+                ? __('Ticket cancelled. A refund has been requested from the organiser.', 'rt-event-manager')
+                : __('Ticket cancelled. No refund is due after the deadline.', 'rt-event-manager'),
+        ));
+    }
+
+    /** Accept a pending transfer: reassign the package to the logged-in user. */
+    public function ajax_accept_transfer() {
+        check_ajax_referer('rt_event_manager_accept_transfer', 'nonce');
+        if (!is_user_logged_in()) {
+            wp_send_json_error(__('Please log in to accept this transfer.', 'rt-event-manager'));
+        }
+        $user_id = get_current_user_id();
+        $token   = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
+
+        $event = RT_Event_Manager::get_ticket_by_transfer_token($token);
+        if (!$event || 'event' !== RT_Event_Manager::get_ticket_kind($event) || 'cancelled' === $event['status']) {
+            wp_send_json_error(__('This transfer link is no longer valid.', 'rt-event-manager'));
+        }
+
+        $mgr      = RT_Event_Manager::instance();
+        $new_user = get_userdata($user_id);
+        $new_name = trim($new_user->first_name . ' ' . $new_user->last_name);
+        if ('' === $new_name) {
+            $new_name = $new_user->display_name;
+        }
+        $new_world  = get_user_meta($user_id, 'world_id', true);
+        $new_family = get_user_meta($user_id, 'rti_family', true);
+        $new_club   = get_user_meta($user_id, 'rti_club', true);
+        $qr         = $new_world ? ('tablerworld:///member?id=' . $new_world) : '';
+
+        $order  = wc_get_order(absint($event['order_id']));
+        $status = $order ? rt_event_manager_determine_ticket_status($order, $new_name) : 'draft';
+
+        // Overwrite the event ticket to the new owner; personal fields are reset.
+        $mgr->update_ticket(absint($event['id']), array(
+            'owner_user_id'   => $user_id,
+            'holder_name'     => $new_name,
+            'phone'           => '',
+            'rti_family'      => $new_family,
+            'rti_club'        => $new_club,
+            'world_id'        => $new_world,
+            'qr_code_url'     => $qr,
+            'dietary'         => 'none',
+            'allergy_details' => '',
+            'transfer_token'  => '',
+            'transfer_email'  => '',
+            'status'          => $status,
+        ));
+
+        // The pretour package follows the same person.
+        foreach (RT_Event_Manager::get_child_pretours(absint($event['id'])) as $child) {
+            $mgr->update_ticket(absint($child['id']), array(
+                'owner_user_id' => $user_id,
+                'holder_name'   => $new_name,
+                'phone'         => '',
+                'status'        => $order ? rt_event_manager_determine_ticket_status($order, $new_name) : 'draft',
+            ));
+        }
+
+        wp_send_json_success(array(
+            'redirect' => add_query_arg('tab', 'tickets', wc_get_page_permalink('myaccount')),
+        ));
+    }
+
+    /** Email the prospective new holder a transfer-accept link. */
+    private function send_transfer_email($ticket, $email, $token) {
+        $accept_url = add_query_arg('rti_transfer', rawurlencode($token), wc_get_page_permalink('myaccount'));
+        $product    = wc_get_product($ticket['product_id']);
+        $pname      = $product ? $product->get_name() : __('an event ticket', 'rt-event-manager');
+
+        $from      = wp_get_current_user();
+        $from_name = trim($from->first_name . ' ' . $from->last_name);
+        if ('' === $from_name) {
+            $from_name = $from->display_name;
+        }
+
+        $subject = sprintf(__('%s would like to transfer an event ticket to you', 'rt-event-manager'), $from_name);
+
+        $lines   = array();
+        $lines[] = sprintf(__('%1$s has offered to transfer their ticket (%2$s) to you.', 'rt-event-manager'), $from_name, $pname);
+        $lines[] = '';
+        $lines[] = __('To accept, open the link below and log in or create an account:', 'rt-event-manager');
+        $lines[] = $accept_url;
+        $lines[] = '';
+        $lines[] = __('Accepting the ticket is free of charge here. Any repayment for the original price is to be arranged directly between you and the current holder.', 'rt-event-manager');
+
+        wp_mail($email, $subject, implode("\n", $lines));
+    }
+
+    /** Email the shop manager about a cancellation (and refund status). */
+    private function send_cancel_email($ticket, $cancelled, $refund_open, $user_id) {
+        $to       = RT_Event_Manager::get_shop_manager_email();
+        $user     = get_userdata($user_id);
+        $who      = $user ? $user->user_email : '';
+        $order_id = absint($ticket['order_id']);
+
+        $subject = $refund_open
+            ? sprintf(__('Ticket cancellation & refund request (order #%d)', 'rt-event-manager'), $order_id)
+            : sprintf(__('Ticket cancellation, no refund (order #%d)', 'rt-event-manager'), $order_id);
+
+        $lines   = array();
+        $lines[] = sprintf(__('A customer cancelled the following ticket(s) from order #%d:', 'rt-event-manager'), $order_id);
+        foreach ($cancelled as $c) {
+            $p    = wc_get_product($c['product_id']);
+            $name = ($c['holder_name'] !== '') ? $c['holder_name'] : ('#' . $c['id']);
+            $lines[] = '- ' . ($p ? $p->get_name() : ('#' . $c['id'])) . ' — ' . $name;
+        }
+        $lines[] = '';
+        $lines[] = sprintf(__('Cancelled by: %1$s (user #%2$d)', 'rt-event-manager'), $who, $user_id);
+        $lines[] = '';
+        $lines[] = $refund_open
+            ? __('This cancellation is within the refund window — please process a refund for the amounts paid.', 'rt-event-manager')
+            : __('This cancellation is after the refund deadline — no refund is due.', 'rt-event-manager');
+
+        wp_mail($to, $subject, implode("\n", $lines));
     }
 
     /* ---------------------------------------------------------------------

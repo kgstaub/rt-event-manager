@@ -226,6 +226,18 @@
 .rtacc-badge--draft { background: var(--rtacc-draft); }
 .rtacc-badge--invalid { background: var(--rtacc-invalid); }
 .rtacc-badge--checked_in { background: var(--rtacc-checked-in); }
+.rtacc-badge--cancelled { background: #8c8f94; }
+
+/* Per-row Transfer / Cancel actions. */
+.rtacc-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.rtacc-transfer-list {
+    margin: 8px 0 12px;
+    padding-left: 18px;
+}
 
 /* ---- Description list (skin from uk-description-list; brand the terms) ---- */
 .rtacc-deflist dt {
