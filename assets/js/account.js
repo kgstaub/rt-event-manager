@@ -231,9 +231,19 @@
             email:     email
         }, function (response) {
             if (response && response.success) {
-                $form.find('.rtacc-field, .rtacc-modal-target, p:not(.rtacc-actions)').hide();
+                $form.find('.rtacc-field, .rtacc-modal-target, p:not(.rtacc-actions):not(.rtacc-modal-error)').hide();
                 $err.removeClass().addClass('rtacc-modal-error uk-text-success')
                     .text((response.data && response.data.message) || (i18n.saved || 'Sent!')).show();
+                // Testing aid: surface the accept link so the transfer can be tried
+                // without waiting for email delivery.
+                if (response.data && response.data.accept_url) {
+                    $form.find('.rtacc-testlink').remove();
+                    var url = response.data.accept_url;
+                    var $link = $('<p class="rtacc-testlink"></p>')
+                        .append(document.createTextNode((i18n.testLink || 'Test link:') + ' '))
+                        .append($('<a target="_blank" rel="noopener"></a>').attr('href', url).text(url));
+                    $form.find('.rtacc-actions').before($link);
+                }
                 $btn.hide();
             } else {
                 $btn.prop('disabled', false).text(i18n.sendTransfer || 'Send transfer request');

@@ -152,6 +152,7 @@ class RT_Event_Manager_Account {
                 'accepting'   => __('Accepting…', 'rt-event-manager'),
                 'ticketFor'   => __('Ticket:', 'rt-event-manager'),
                 'sendTransfer' => __('Send transfer request', 'rt-event-manager'),
+                'testLink'    => __('Test link:', 'rt-event-manager'),
             ),
         ));
     }
@@ -840,8 +841,8 @@ class RT_Event_Manager_Account {
         echo '<input type="email" class="uk-input" name="email" required placeholder="name@example.com" /></p>';
         echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
         echo '<p class="rtacc-actions">';
-        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Send transfer request', 'rt-event-manager') . '</button>';
-        echo '<button type="button" class="uk-button uk-button-secondary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button>';
+        echo '<button type="submit" class="uk-button uk-button-secondary">' . esc_html__('Send transfer request', 'rt-event-manager') . '</button>';
+        echo '<button type="button" class="uk-button uk-button-primary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button>';
         echo '</p></form></div></div>';
 
         // ---- Cancel ----
@@ -1249,23 +1250,29 @@ class RT_Event_Manager_Account {
         $status = isset($t['status']) ? $t['status'] : 'draft';
         $name   = ($t['holder_name'] !== '') ? $t['holder_name'] : ('#' . $id);
 
-        if ('cancelled' === $status) {
-            return '<span class="rtacc-muted">' . esc_html__('Cancelled', 'rt-event-manager') . '</span>';
-        }
-        if ('checked_in' === $status) {
-            return '<span class="rtacc-muted">&mdash;</span>';
+        // Terminal states have no actions — the Status column already shows the
+        // cancelled/checked-in badge, so leave the Actions cell empty.
+        if (in_array($status, array('cancelled', 'checked_in'), true)) {
+            return '';
         }
 
         $refund_open = RT_Event_Manager::instance()->is_refund_window_open();
 
+        // Icon-only buttons; the label doubles as the hover tooltip (title) and
+        // the accessible name (aria-label).
+        $icon_transfer = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>';
+        $icon_cancel   = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+
+        $transfer_label = __('Request transfer', 'rt-event-manager');
+        $cancel_label   = $refund_open
+            ? __('Cancel and request refund', 'rt-event-manager')
+            : __('Cancel ticket', 'rt-event-manager');
+
         $out = '<div class="rtacc-row-actions">';
         if ('event' === $kind) {
-            $out .= '<button type="button" class="uk-button uk-button-default uk-button-small rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '">' . esc_html__('Request transfer', 'rt-event-manager') . '</button>';
+            $out .= '<button type="button" class="rtacc-icon-btn rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" title="' . esc_attr($transfer_label) . '" aria-label="' . esc_attr($transfer_label) . '">' . $icon_transfer . '</button>';
         }
-        $cancel_label = $refund_open
-            ? __('Cancel and request refund', 'rt-event-manager')
-            : __('Cancel', 'rt-event-manager');
-        $out .= '<button type="button" class="uk-button uk-button-primary uk-button-small rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '">' . esc_html($cancel_label) . '</button>';
+        $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" title="' . esc_attr($cancel_label) . '" aria-label="' . esc_attr($cancel_label) . '">' . $icon_cancel . '</button>';
         $out .= '</div>';
 
         return $out;
@@ -1774,6 +1781,8 @@ class RT_Event_Manager_Account {
 
         wp_send_json_success(array(
             'message' => sprintf(__('A transfer invitation has been sent to %s.', 'rt-event-manager'), $email),
+            // Exposed so the invite link can be tested without email delivery.
+            'accept_url' => add_query_arg('rti_transfer', rawurlencode($token), wc_get_page_permalink('myaccount')),
         ));
     }
 

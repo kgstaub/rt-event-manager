@@ -228,15 +228,54 @@
 .rtacc-badge--checked_in { background: var(--rtacc-checked-in); }
 .rtacc-badge--cancelled { background: #8c8f94; }
 
-/* Per-row Transfer / Cancel actions. */
+/* Per-row Transfer / Cancel actions (icon buttons with title tooltips). */
 .rtacc-row-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
 }
+.rtacc-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--rtacc-border);
+    border-radius: 6px;
+    background: #fff;
+    color: #555;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.rtacc-icon-btn svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+}
+.rtacc-icon-btn:hover,
+.rtacc-icon-btn:focus-visible {
+    background: var(--rtacc-primary);
+    color: #fff;
+    border-color: var(--rtacc-primary);
+}
+.rtacc-icon-btn--danger {
+    color: var(--rtacc-primary);
+    border-color: var(--rtacc-primary);
+}
+.rtacc-icon-btn--danger:hover,
+.rtacc-icon-btn--danger:focus-visible {
+    background: var(--rtacc-primary-hover);
+    border-color: var(--rtacc-primary-hover);
+}
 .rtacc-transfer-list {
     margin: 8px 0 12px;
     padding-left: 18px;
+}
+.rtacc-testlink {
+    margin-top: 8px;
+    font-size: 12px;
+    word-break: break-all;
 }
 
 /* ---- Description list (skin from uk-description-list; brand the terms) ---- */
