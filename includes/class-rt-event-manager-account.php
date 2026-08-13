@@ -116,6 +116,7 @@ class RT_Event_Manager_Account {
         return array(
             'dashboard' => __('Dashboard', 'rt-event-manager'),
             'profile'   => __('My Profile', 'rt-event-manager'),
+            'emergency' => __('Emergency Contact', 'rt-event-manager'),
             'orders'    => __('Order History', 'rt-event-manager'),
             'tickets'   => __('Event Tickets', 'rt-event-manager'),
             'pretour'   => __('Pretour', 'rt-event-manager'),
@@ -382,6 +383,9 @@ class RT_Event_Manager_Account {
             case 'profile':
                 $this->render_profile();
                 break;
+            case 'emergency':
+                $this->render_emergency();
+                break;
             case 'orders':
                 $this->render_orders();
                 break;
@@ -533,7 +537,6 @@ class RT_Event_Manager_Account {
         $sso     = $this->get_sso_profile($user_id);
         $is_sso  = $this->user_is_sso($user_id);
 
-        $emergency = get_user_meta($user_id, 'rti_emergency_contact', true);
         $function  = get_user_meta($user_id, 'rti_function', true);
 
         // Function / Role: typeable field with admin-maintained suggestions and
@@ -606,15 +609,6 @@ class RT_Event_Manager_Account {
         echo '</p>';
         echo '</section>';
 
-        // Emergency Contact — its own subsection.
-        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
-        echo '<h3 class="rtacc-subtitle">' . esc_html__('Emergency Contact', 'rt-event-manager') . '</h3>';
-        echo '<p class="rtacc-field">';
-        echo '<label class="uk-form-label" for="rtacc-emergency">' . esc_html__('Emergency contact', 'rt-event-manager') . '</label>';
-        echo '<input type="text" id="rtacc-emergency" class="uk-input" name="emergency_contact" value="' . esc_attr($emergency) . '" placeholder="' . esc_attr__('Name, Phone, Email', 'rt-event-manager') . '" />';
-        echo '</p>';
-        echo '</section>';
-
         echo '<p class="rtacc-actions">';
         echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button>';
         echo '<span class="rtacc-status" id="rtacc-profile-status" aria-live="polite"></span>';
@@ -678,6 +672,47 @@ class RT_Event_Manager_Account {
             echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-' . esc_attr($name) . '">' . esc_html($label) . '</label>';
             echo '<input type="text" id="rtacc-' . esc_attr($name) . '" class="uk-input" name="' . esc_attr($name) . '" value="' . esc_attr(get_user_meta($user_id, $name, true)) . '" /></p>';
         }
+    }
+
+    /* ---------------------------------------------------------------------
+     * Tab: Emergency Contact
+     * ------------------------------------------------------------------- */
+
+    private function render_emergency() {
+        $user_id = get_current_user_id();
+
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Emergency Contact', 'rt-event-manager') . '</h2>';
+        echo '<p class="rtacc-hint">' . esc_html__('Who should we contact in case of an emergency? You can add a second contact too.', 'rt-event-manager') . '</p>';
+
+        // Reuse the profile-save form id so the existing AJAX save handles it.
+        echo '<form id="rtacc-profile-form" class="rtacc-form uk-form-stacked">';
+        $this->render_emergency_block(1, __('Emergency contact', 'rt-event-manager'), $user_id);
+        $this->render_emergency_block(2, __('Second emergency contact (optional)', 'rt-event-manager'), $user_id);
+        echo '<p class="rtacc-actions">';
+        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button>';
+        echo '<span class="rtacc-status" id="rtacc-profile-status" aria-live="polite"></span>';
+        echo '</p></form>';
+    }
+
+    /** One emergency-contact block (Name, Relationship, Email, Phone). */
+    private function render_emergency_block($n, $title, $user_id) {
+        $fields = array(
+            'name'         => __('Name', 'rt-event-manager'),
+            'relationship' => __('Relationship', 'rt-event-manager'),
+            'email'        => __('Email', 'rt-event-manager'),
+            'phone'        => __('Phone', 'rt-event-manager'),
+        );
+        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html($title) . '</h3>';
+        foreach ($fields as $key => $label) {
+            $post_name = 'emergency' . absint($n) . '_' . $key;
+            $meta_key  = 'rti_emergency' . absint($n) . '_' . $key;
+            $type      = ('email' === $key) ? 'email' : (('phone' === $key) ? 'tel' : 'text');
+            $value     = get_user_meta($user_id, $meta_key, true);
+            echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-' . esc_attr($post_name) . '">' . esc_html($label) . '</label>';
+            echo '<input type="' . esc_attr($type) . '" id="rtacc-' . esc_attr($post_name) . '" class="uk-input" name="' . esc_attr($post_name) . '" value="' . esc_attr($value) . '" /></p>';
+        }
+        echo '</section>';
     }
 
     /* ---------------------------------------------------------------------
@@ -2184,11 +2219,21 @@ class RT_Event_Manager_Account {
         $user_id = get_current_user_id();
 
         // Always-editable local fields.
-        if (isset($_POST['emergency_contact'])) {
-            update_user_meta($user_id, 'rti_emergency_contact', sanitize_text_field(wp_unslash($_POST['emergency_contact'])));
-        }
         if (isset($_POST['function'])) {
             update_user_meta($user_id, 'rti_function', sanitize_text_field(wp_unslash($_POST['function'])));
+        }
+
+        // Emergency contacts (up to two): Name, Relationship, Email, Phone.
+        foreach (array(1, 2) as $n) {
+            foreach (array('name', 'relationship', 'email', 'phone') as $key) {
+                $field = 'emergency' . $n . '_' . $key;
+                if (isset($_POST[$field])) {
+                    $value = ('email' === $key)
+                        ? sanitize_email(wp_unslash($_POST[$field]))
+                        : sanitize_text_field(wp_unslash($_POST[$field]));
+                    update_user_meta($user_id, 'rti_emergency' . $n . '_' . $key, $value);
+                }
+            }
         }
 
         // Membership fields: editable only for manually-created (non-SSO)
