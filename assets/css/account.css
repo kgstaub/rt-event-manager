@@ -321,6 +321,18 @@
     margin: 0 0 12px;
     color: var(--rtacc-muted);
 }
+.rtacc-visa-list {
+    margin: 0 0 12px;
+    padding-left: 18px;
+}
+.rtacc-visa-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.rtacc-visa-row .rtacc-field {
+    flex: 1 1 160px;
+}
 
 /* ---- Description list (skin from uk-description-list; brand the terms) ---- */
 .rtacc-deflist dt {

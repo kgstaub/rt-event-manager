@@ -183,6 +183,7 @@ class RT_Event_Manager_Account {
             'acceptNonce'  => wp_create_nonce('rt_event_manager_accept_transfer'),
             'declineNonce' => wp_create_nonce('rt_event_manager_decline_transfer'),
             'withdrawNonce' => wp_create_nonce('rt_event_manager_withdraw_transfer'),
+            'visaNonce'    => wp_create_nonce('rt_event_manager_visa'),
             'i18n'         => array(
                 'saving'      => __('Saving…', 'rt-event-manager'),
                 'saved'       => __('Saved!', 'rt-event-manager'),
@@ -206,6 +207,7 @@ class RT_Event_Manager_Account {
                 'sendEmail'   => __('Send email', 'rt-event-manager'),
                 'sendWhatsApp' => __('Send WhatsApp', 'rt-event-manager'),
                 'confirmWithdraw' => __('Withdraw the pending transfer for this ticket?', 'rt-event-manager'),
+                'generating'  => __('Generating…', 'rt-event-manager'),
             ),
         ));
     }
@@ -1759,22 +1761,7 @@ class RT_Event_Manager_Account {
      * ------------------------------------------------------------------- */
 
     private function render_travel() {
-        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Travel and Visa', 'rt-event-manager') . '</h2>';
-        echo '<div class="rtacc-notice uk-alert-warning" uk-alert>' . esc_html__('This section is coming soon.', 'rt-event-manager') . '</div>';
-
-        // Inert preview of the planned layout. Inputs are disabled and nothing
-        // is saved yet — see get_travel_plan()/save_travel_plan() stubs below.
-        echo '<fieldset class="rtacc-panel uk-card uk-card-default uk-card-body" disabled>';
-        echo '<h3 class="rtacc-subtitle">' . esc_html__('Your travel plans', 'rt-event-manager') . '</h3>';
-
-        echo '<div class="rtacc-form uk-form-stacked">';
-        echo '<p class="rtacc-field"><label>' . esc_html__('Arrival date & time', 'rt-event-manager') . '</label><input type="datetime-local" /></p>';
-        echo '<p class="rtacc-field"><label>' . esc_html__('Arrival details (flight / train / etc.)', 'rt-event-manager') . '</label><input type="text" /></p>';
-        echo '<p class="rtacc-field"><label>' . esc_html__('Departure date & time', 'rt-event-manager') . '</label><input type="datetime-local" /></p>';
-        echo '<p class="rtacc-field"><label>' . esc_html__('Departure details', 'rt-event-manager') . '</label><input type="text" /></p>';
-        echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-default" disabled>' . esc_html__('Request Visa Letter of Invitation', 'rt-event-manager') . '</button></p>';
-        echo '</div>';
-        echo '</fieldset>';
+        RT_Event_Manager_Visa::instance()->render_account_tab();
     }
 
     /**

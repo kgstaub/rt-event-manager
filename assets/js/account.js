@@ -59,6 +59,52 @@
         window.location.href = url.toString();
     });
 
+    // ---- Visa letter: toggle the request form ----
+    $(document).on('click', '.rtacc-visa-toggle', function () {
+        $(this).closest('.rtacc-panel').find('.rtacc-visa-form').toggle();
+    });
+
+    // ---- Visa letter: generate ----
+    $(document).on('submit', '.rtacc-visa-form', function (e) {
+        e.preventDefault();
+        var $form   = $(this);
+        var $err    = $form.find('.rtacc-modal-error');
+        var $status = $form.find('.rtacc-status');
+        var $btn    = $form.find('button[type="submit"]');
+        var $note   = $form.find('.rtacc-visa-eu-note');
+        $err.hide();
+
+        var data = $form.serializeArray();
+        data.push({ name: 'action', value: 'rt_event_manager_generate_visa' });
+        data.push({ name: 'nonce', value: cfg.visaNonce });
+        data.push({ name: 'ticket_id', value: $form.data('ticket') });
+
+        $btn.prop('disabled', true);
+        setStatus($status, i18n.generating || 'Generating…', null);
+        $.post(cfg.ajaxUrl, $.param(data), function (response) {
+            $btn.prop('disabled', false);
+            if (response && response.success && response.data) {
+                setStatus($status, '', null);
+                $status.hide();
+                if (response.data.eu_efta) {
+                    $note.find('p').text(response.data.message);
+                    $note.show();
+                }
+                if (response.data.download_url) {
+                    window.open(response.data.download_url, '_blank');
+                    window.setTimeout(function () { window.location.reload(); }, 800);
+                }
+            } else {
+                setStatus($status, '', null); $status.hide();
+                $err.text((response && response.data) || i18n.error || 'Error').show();
+            }
+        }).fail(function () {
+            $btn.prop('disabled', false);
+            setStatus($status, '', null); $status.hide();
+            $err.text(i18n.requestFail || 'Request failed.').show();
+        });
+    });
+
     // ---- Copy a share link to the clipboard ----
     $(document).on('click', '.rtacc-copy-link', function () {
         var $btn = $(this);

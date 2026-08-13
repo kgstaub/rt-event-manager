@@ -99,6 +99,7 @@ function rt_event_manager_init() {
     // Load customer account portal + PDF receipt generator
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-receipt.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-account.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-visa.php';
 
     // Initialize
     RT_Event_Manager::instance();
@@ -108,6 +109,9 @@ function rt_event_manager_init() {
 
     // Initialize customer account portal (shortcode + AJAX)
     RT_Event_Manager_Account::instance();
+
+    // Initialize visa letter of invitation handler
+    RT_Event_Manager_Visa::instance();
 
     // Run one-time ticket migration for old orders
     rt_event_manager_migrate_tickets();

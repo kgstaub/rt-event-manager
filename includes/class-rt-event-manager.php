@@ -2301,6 +2301,23 @@ class RT_Event_Manager {
     }
 
     /**
+     * Whether a user owns a ticket row — via explicit owner_user_id, falling
+     * back to the order customer for legacy rows.
+     *
+     * @param array $t
+     * @param int   $user_id
+     * @return bool
+     */
+    public static function user_owns_ticket($t, $user_id) {
+        $owner = absint(isset($t['owner_user_id']) ? $t['owner_user_id'] : 0);
+        if ($owner) {
+            return $owner === absint($user_id);
+        }
+        $order = wc_get_order(absint($t['order_id']));
+        return $order && absint($order->get_customer_id()) === absint($user_id);
+    }
+
+    /**
      * Whether a refund is still possible for a cancellation. Refunds are tied to
      * the same cutoff date as ticket editing: on or before the cutoff a refund is
      * requested; after it, cancellation happens with no refund.
