@@ -441,12 +441,25 @@ class RT_Event_Manager_Visa {
             echo '</ul>';
         }
 
-        // Attendee letter form — only when they don't already have one (one per person).
-        if ($this->person_has_letter($ticket_id, get_current_user_id(), false, '')) {
-            echo '<p class="rtacc-muted">' . esc_html__('A letter of invitation has already been generated for this person.', 'rt-event-manager') . '</p>';
+        $has_attendee = $this->person_has_letter($ticket_id, get_current_user_id(), false, '');
+        $is_event     = ('event' === $kind);
+        $min          = RT_Event_Manager::get_minor_min_age();
+
+        // Toggle buttons, inline on one row.
+        echo '<div class="rtacc-visa-actions">';
+        if ($has_attendee) {
+            echo '<p class="rtacc-muted" style="margin:0;">' . esc_html__('A letter of invitation has already been generated for this person.', 'rt-event-manager') . '</p>';
         } else {
-            echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle">' . esc_html__('Request a letter of invitation', 'rt-event-manager') . '</button>';
-            echo '<form class="rtacc-form uk-form-stacked rtacc-visa-form" style="display:none;margin-top:12px;" data-ticket="' . esc_attr($ticket_id) . '">';
+            echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle" data-visa-form="visa-attendee-' . esc_attr($ticket_id) . '">' . esc_html__('Request a letter of invitation', 'rt-event-manager') . '</button>';
+        }
+        if ($is_event) {
+            echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle" data-visa-form="visa-child-' . esc_attr($ticket_id) . '">' . esc_html(sprintf(__('Request a letter for an accompanying child (under %d)', 'rt-event-manager'), $min)) . '</button>';
+        }
+        echo '</div>';
+
+        // Attendee letter form — only when they don't already have one (one per person).
+        if (!$has_attendee) {
+            echo '<form id="visa-attendee-' . esc_attr($ticket_id) . '" class="rtacc-form uk-form-stacked rtacc-visa-form" style="display:none;margin-top:12px;" data-ticket="' . esc_attr($ticket_id) . '">';
             echo '<div class="rtacc-visa-result uk-alert" uk-alert style="display:none;"></div>';
             echo $this->visa_fields_html($b, $dob_prefill);
             echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
@@ -456,10 +469,8 @@ class RT_Event_Manager_Visa {
 
         // Accompanying-child letter (under the Future member minimum age), only
         // offered from an adult event ticket (the child's guardian).
-        if ('event' === $kind) {
-            $min = RT_Event_Manager::get_minor_min_age();
-            echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle" style="margin-top:8px;">' . esc_html(sprintf(__('Request a letter for an accompanying child (under %d)', 'rt-event-manager'), $min)) . '</button>';
-            echo '<form class="rtacc-form uk-form-stacked rtacc-visa-form" style="display:none;margin-top:12px;" data-ticket="' . esc_attr($ticket_id) . '">';
+        if ($is_event) {
+            echo '<form id="visa-child-' . esc_attr($ticket_id) . '" class="rtacc-form uk-form-stacked rtacc-visa-form" style="display:none;margin-top:12px;" data-ticket="' . esc_attr($ticket_id) . '">';
             echo '<input type="hidden" name="for_child" value="1" />';
             echo '<div class="rtacc-visa-result uk-alert" uk-alert style="display:none;"></div>';
             echo '<p class="rtacc-hint">' . esc_html(sprintf(__('The letter will state that the child is accompanying their guardian, %s.', 'rt-event-manager'), $holder)) . '</p>';

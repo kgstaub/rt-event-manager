@@ -59,9 +59,10 @@
         window.location.href = url.toString();
     });
 
-    // ---- Visa letter: toggle the request form (each button toggles its form) ----
+    // ---- Visa letter: toggle the request form (each button targets its form by id) ----
     $(document).on('click', '.rtacc-visa-toggle', function () {
-        $(this).nextAll('.rtacc-visa-form').first().toggle();
+        var id = $(this).data('visa-form');
+        if (id) { $('#' + id).toggle(); }
     });
 
     // ---- Visa letter: generate (spinner in-place, then inline download) ----

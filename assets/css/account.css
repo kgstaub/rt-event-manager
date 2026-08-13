@@ -325,6 +325,13 @@
     margin: 0 0 12px;
     padding-left: 18px;
 }
+.rtacc-visa-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
 .rtacc-visa-row {
     display: flex;
     gap: 12px;
