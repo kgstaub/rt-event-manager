@@ -475,7 +475,7 @@ class RT_Event_Manager_Visa {
             echo '<button type="button" class="uk-button uk-button-primary rtacc-visa-toggle" data-visa-form="visa-attendee-' . esc_attr($ticket_id) . '">' . esc_html__('Request a letter of invitation', 'rt-event-manager') . '</button>';
         }
         if ($is_event) {
-            echo '<button type="button" class="uk-button uk-button-secondary rtacc-visa-toggle" data-visa-form="visa-child-' . esc_attr($ticket_id) . '">' . esc_html(sprintf(__('Request a letter for an accompanying child (under %d)', 'rt-event-manager'), $child_max)) . '</button>';
+            echo '<button type="button" class="uk-button uk-button-secondary rtacc-visa-toggle" data-visa-form="visa-child-' . esc_attr($ticket_id) . '">' . esc_html(sprintf(__('Request a letter for your own child (under %d)', 'rt-event-manager'), $child_max)) . '</button>';
         }
         echo '</div>';
 
