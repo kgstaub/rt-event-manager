@@ -44,6 +44,9 @@ class RT_Event_Manager_Account {
         // WP-core register_form hook does not reach).
         add_action('woocommerce_register_form_start', array($this, 'render_sso_login_buttons'));
 
+        // "Add more to your booking" controls on the cart page.
+        add_action('woocommerce_after_cart_table', array($this, 'render_cart_add_tickets'));
+
         // AJAX (logged-in only — the whole portal requires authentication).
         add_action('wp_ajax_rt_event_manager_save_profile', array($this, 'ajax_save_profile'));
         add_action('wp_ajax_rt_event_manager_account_save_tickets', array($this, 'ajax_save_tickets'));
@@ -95,7 +98,7 @@ class RT_Event_Manager_Account {
      * ------------------------------------------------------------------- */
 
     public function maybe_enqueue_assets() {
-        if (function_exists('is_account_page') && is_account_page()) {
+        if (function_exists('is_account_page') && (is_account_page() || is_cart())) {
             $this->enqueue_assets();
         }
     }
@@ -146,6 +149,72 @@ class RT_Event_Manager_Account {
         if (shortcode_exists('world_sso_login')) {
             echo do_shortcode('[world_sso_login]');
         }
+    }
+
+    /**
+     * "Add more to your booking" controls on the cart page. Shown when the cart
+     * contains an event ticket, letting the buyer add another attendee, a
+     * pretour, or a Future member in the same order.
+     */
+    public function render_cart_add_tickets() {
+        if (!function_exists('WC') || !WC()->cart) {
+            return;
+        }
+
+        $has_event = false;
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            if ($pid && RT_Event_Manager::is_ticket_product($pid) && 'event' === RT_Event_Manager::get_ticket_kind_for_product($pid)) {
+                $has_event = true;
+                break;
+            }
+        }
+        if (!$has_event) {
+            return;
+        }
+
+        $buttons  = '';
+        $event    = $this->first_purchasable_product($this->get_event_product_ids());
+        $pretour  = $this->first_purchasable_product($this->get_pretour_product_ids());
+        $fut_id   = $this->get_future_product_id();
+        $future   = $fut_id ? wc_get_product($fut_id) : null;
+
+        if ($event) {
+            $buttons .= $this->cart_add_link($event, __('Add another attendee', 'rt-event-manager'));
+        }
+        if ($pretour) {
+            $buttons .= $this->cart_add_link($pretour, __('Add a pretour', 'rt-event-manager'));
+        }
+        if ($future && $future->is_purchasable() && $future->is_in_stock()) {
+            $buttons .= $this->cart_add_link($future, __('Add a Future member', 'rt-event-manager'));
+        }
+
+        if ($buttons === '') {
+            return;
+        }
+
+        echo '<div class="rtacc-cart-add">';
+        echo '<h3 class="rtacc-cart-add-title">' . esc_html__('Add more to your booking', 'rt-event-manager') . '</h3>';
+        echo '<p class="rtacc-cart-add-hint">' . esc_html__('Attendee details are collected at checkout.', 'rt-event-manager') . '</p>';
+        echo '<div class="rtacc-cart-add-buttons">' . $buttons . '</div>';
+        echo '</div>';
+    }
+
+    /**
+     * Add-to-cart button for the cart "add more" section. Products needing
+     * options link to their page; simple products add to the cart directly.
+     *
+     * @param WC_Product $product
+     * @param string     $label
+     * @return string
+     */
+    private function cart_add_link($product, $label) {
+        if ($this->product_needs_options($product)) {
+            $url = $product->get_permalink();
+        } else {
+            $url = add_query_arg('add-to-cart', $product->get_id(), wc_get_cart_url());
+        }
+        return '<a class="button rtacc-cart-add-btn" href="' . esc_url($url) . '" rel="nofollow">' . esc_html($label) . '</a>';
     }
 
     /* ---------------------------------------------------------------------

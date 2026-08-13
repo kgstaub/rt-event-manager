@@ -108,6 +108,27 @@
     display: block;
     font-size: 12px;
 }
+
+/* ---- Cart "add more to your booking" ---- */
+.rtacc-cart-add {
+    margin: 24px 0;
+    padding: 16px 20px;
+    border: 1px solid #e6e6e6;
+    border-radius: 6px;
+}
+.rtacc-cart-add-title {
+    margin: 0 0 4px;
+}
+.rtacc-cart-add-hint {
+    margin: 0 0 12px;
+    color: var(--rtacc-muted, #777);
+    font-size: 13px;
+}
+.rtacc-cart-add-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
 .rtacc-subtitle {
     margin: 20px 0 8px;
 }
