@@ -48,6 +48,17 @@
         });
     }
 
+    // ---- Toggle "show cancelled tickets" (reloads with a query flag) ----
+    $(document).on('change', '.rtacc-show-cancelled', function () {
+        var url = new URL(window.location.href);
+        if (this.checked) {
+            url.searchParams.set('show_cancelled', '1');
+        } else {
+            url.searchParams.delete('show_cancelled');
+        }
+        window.location.href = url.toString();
+    });
+
     // ---- Copy a share link to the clipboard ----
     $(document).on('click', '.rtacc-copy-link', function () {
         var $btn = $(this);

@@ -766,13 +766,15 @@ class RT_Event_Manager_Account {
      * ------------------------------------------------------------------- */
 
     private function render_tickets() {
-        $user_id  = get_current_user_id();
-        $tickets  = RT_Event_Manager::get_tickets_for_user($user_id);
+        $user_id       = get_current_user_id();
+        $show_cancelled = $this->show_cancelled();
+        $tickets  = RT_Event_Manager::get_tickets_for_user($user_id, $show_cancelled);
         $can_edit = RT_Event_Manager::instance()->is_frontend_editing_allowed();
         $by_id    = $this->index_by_id($tickets);
 
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Event Tickets', 'rt-event-manager') . '</h2>';
         $this->maybe_cutoff_notice($can_edit);
+        $this->render_show_cancelled_toggle($show_cancelled);
 
         // Classify event tickets; Future members (minors) go in their own block.
         // "My Ticket" is the user's OWN event ticket (their first parentless one);
@@ -819,7 +821,12 @@ class RT_Event_Manager_Account {
         $this->render_editable_sections('rtacc-tickets-form', array(
             array('label' => __('My Ticket', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a ticket assigned to yourself yet.', 'rt-event-manager')),
             array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional tickets yet.', 'rt-event-manager'), 'after' => $add_ticket_button),
-            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'after' => $future_button, 'guardian_options' => $future_options),
+            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'after' => $future_button, 'guardian_options' => $future_options, 'desc' => sprintf(
+                /* translators: 1: minimum age, 2: maximum age */
+                __('Add reduced rate tickets for your accompanying children between %1$d and %2$d. Children under %1$d do not need to register.', 'rt-event-manager'),
+                RT_Event_Manager::get_minor_min_age(),
+                RT_Event_Manager::get_minor_max_age()
+            )),
         ), $by_id, $can_edit);
 
         // Customize-ticket modals (rendered once, opened by the section buttons).
@@ -837,8 +844,9 @@ class RT_Event_Manager_Account {
     }
 
     private function render_pretour() {
-        $user_id  = get_current_user_id();
-        $tickets  = RT_Event_Manager::get_tickets_for_user($user_id);
+        $user_id       = get_current_user_id();
+        $show_cancelled = $this->show_cancelled();
+        $tickets  = RT_Event_Manager::get_tickets_for_user($user_id, $show_cancelled);
         $can_edit = RT_Event_Manager::instance()->is_frontend_editing_allowed();
         $by_id    = $this->index_by_id($tickets);
 
@@ -901,6 +909,7 @@ class RT_Event_Manager_Account {
         echo '</div>';
 
         $this->maybe_cutoff_notice($can_edit);
+        $this->render_show_cancelled_toggle($show_cancelled);
 
         // Pretour tickets are read-only (Tour + Holder + Status; Guardian for
         // Future members). Their details are managed on the Event Tickets tab.
@@ -1068,6 +1077,19 @@ class RT_Event_Manager_Account {
      * @param array $tickets
      * @return int 0 when the user has no event ticket of their own.
      */
+    /** Whether the "show cancelled tickets" toggle is on (query flag). */
+    private function show_cancelled() {
+        return !empty($_GET['show_cancelled']);
+    }
+
+    /** Render the "Show cancelled tickets" checkbox. */
+    private function render_show_cancelled_toggle($checked) {
+        echo '<p class="rtacc-show-cancelled-wrap"><label>';
+        echo '<input type="checkbox" class="rtacc-show-cancelled"' . ($checked ? ' checked' : '') . ' /> ';
+        echo esc_html__('Show cancelled tickets', 'rt-event-manager');
+        echo '</label></p>';
+    }
+
     private function own_event_ticket_id($tickets) {
         foreach ($tickets as $t) {
             // Skip cancelled/refunded tickets so a fresh registration becomes the
@@ -1163,6 +1185,9 @@ class RT_Event_Manager_Account {
         foreach ($sections as $sec) {
             echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
             echo '<h3 class="rtacc-subtitle">' . esc_html($sec['label']) . '</h3>';
+            if (!empty($sec['desc'])) {
+                echo '<p class="rtacc-section-desc">' . esc_html($sec['desc']) . '</p>';
+            }
             if (empty($sec['tickets'])) {
                 echo '<p>' . esc_html($sec['empty']) . '</p>';
             } else {

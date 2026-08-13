@@ -2231,7 +2231,7 @@ class RT_Event_Manager {
      * @param int $user_id
      * @return array Array of ticket rows (ARRAY_A), ordered by order then index.
      */
-    public static function get_tickets_for_user($user_id) {
+    public static function get_tickets_for_user($user_id, $include_terminal = false) {
         $user_id = absint($user_id);
         if (!$user_id) {
             return array();
@@ -2261,8 +2261,13 @@ class RT_Event_Manager {
             $params       = array_merge($params, $order_ids);
         }
 
-        $sql = "SELECT * FROM $table_name WHERE " . implode(' OR ', $where)
-             . ' ORDER BY order_id ASC, ticket_index ASC';
+        // Cancelled and refunded tickets are hidden from the customer portal
+        // unless explicitly requested (the "show cancelled" toggle).
+        $sql = "SELECT * FROM $table_name WHERE (" . implode(' OR ', $where) . ")";
+        if (!$include_terminal) {
+            $sql .= " AND status NOT IN ('cancelled', 'refunded')";
+        }
+        $sql .= ' ORDER BY order_id ASC, ticket_index ASC';
 
         return $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
     }

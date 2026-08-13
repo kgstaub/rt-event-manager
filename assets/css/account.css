@@ -304,6 +304,18 @@
     gap: 8px;
     margin: 10px 0 0;
 }
+.rtacc-show-cancelled-wrap {
+    margin: 0 0 14px;
+    font-size: 13px;
+    color: var(--rtacc-muted);
+}
+.rtacc-show-cancelled-wrap label {
+    cursor: pointer;
+}
+.rtacc-section-desc {
+    margin: 0 0 12px;
+    color: var(--rtacc-muted);
+}
 
 /* ---- Description list (skin from uk-description-list; brand the terms) ---- */
 .rtacc-deflist dt {
