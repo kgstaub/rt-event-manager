@@ -2411,6 +2411,7 @@ class RT_Event_Manager {
             'transfer_token'        => '%s',
             'transfer_email'        => '%s',
             'transfer_requested_at' => '%s',
+            'refund_status'         => '%s',
         );
 
         foreach ($allowed_fields as $field => $format) {
@@ -3519,6 +3520,24 @@ class RT_Event_Manager {
             array($this, 'render_tickets_overview_page')
         );
 
+        add_submenu_page(
+            'rt-event-manager',
+            __('Refunds & Cancellations', 'rt-event-manager'),
+            __('Refunds & Cancellations', 'rt-event-manager'),
+            'edit_shop_orders',
+            'rt-event-manager-refunds',
+            array($this, 'render_refunds_page')
+        );
+
+        add_submenu_page(
+            'rt-event-manager',
+            __('Transfers', 'rt-event-manager'),
+            __('Transfers', 'rt-event-manager'),
+            'edit_shop_orders',
+            'rt-event-manager-transfers',
+            array($this, 'render_transfers_page')
+        );
+
         // Badge Template submenu (admin only)
         add_submenu_page(
             'rt-event-manager',
@@ -3528,6 +3547,192 @@ class RT_Event_Manager {
             'rt-event-badge-template',
             array($this, 'render_badge_template_page')
         );
+    }
+
+    /**
+     * Admin page: cancelled tickets, with open refund requests surfaced first
+     * and Confirm / Decline actions to record the organiser's decision.
+     */
+    public function render_refunds_page() {
+        if (!current_user_can('edit_shop_orders')) {
+            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'rti_tickets';
+
+        // Record a refund decision.
+        if (isset($_POST['rti_refund_action'], $_POST['rti_ticket_id'])) {
+            check_admin_referer('rti_refund_action');
+            $tid      = absint($_POST['rti_ticket_id']);
+            $decision = sanitize_key(wp_unslash($_POST['rti_refund_action']));
+            if ($tid && in_array($decision, array('confirm', 'decline'), true)) {
+                $new = ('confirm' === $decision) ? 'confirmed' : 'declined';
+                $this->update_ticket($tid, array('refund_status' => $new));
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf(
+                    'confirm' === $decision
+                        ? __('Refund marked as confirmed for ticket #%d.', 'rt-event-manager')
+                        : __('Refund marked as declined for ticket #%d.', 'rt-event-manager'),
+                    $tid
+                )) . '</p></div>';
+            }
+        }
+
+        $rows = $wpdb->get_results(
+            "SELECT t.*, p.post_title AS product_name
+             FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
+             WHERE t.status = 'cancelled'
+             ORDER BY t.updated_at DESC, t.id DESC",
+            ARRAY_A
+        );
+
+        $open = array();
+        $rest = array();
+        foreach ($rows as $r) {
+            if ('requested' === $r['refund_status']) {
+                $open[] = $r;
+            } else {
+                $rest[] = $r;
+            }
+        }
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__('Refunds & Cancellations', 'rt-event-manager') . '</h1>';
+        echo '<p class="description">' . esc_html__('Confirm or decline records the decision here for your reference. Process the actual payment refund in the WooCommerce order.', 'rt-event-manager') . '</p>';
+
+        echo '<h2>' . esc_html(sprintf(__('Open refund requests (%d)', 'rt-event-manager'), count($open))) . '</h2>';
+        $this->render_refund_table($open, true);
+
+        echo '<h2>' . esc_html__('Other cancellations', 'rt-event-manager') . '</h2>';
+        $this->render_refund_table($rest, false);
+
+        echo '</div>';
+    }
+
+    /** Render a cancelled-tickets table; $actionable adds Confirm/Decline. */
+    private function render_refund_table($rows, $actionable) {
+        if (empty($rows)) {
+            echo '<p>' . esc_html__('None.', 'rt-event-manager') . '</p>';
+            return;
+        }
+        $refund_labels = array(
+            'requested' => __('Refund requested', 'rt-event-manager'),
+            'confirmed' => __('Refund confirmed', 'rt-event-manager'),
+            'declined'  => __('Refund declined', 'rt-event-manager'),
+            'none'      => __('No refund (after cutoff)', 'rt-event-manager'),
+            ''          => __('—', 'rt-event-manager'),
+        );
+
+        echo '<table class="wp-list-table widefat fixed striped">';
+        echo '<thead><tr>';
+        echo '<th>' . esc_html__('Order', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Holder', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Amount paid', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Cancelled', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Refund', 'rt-event-manager') . '</th>';
+        if ($actionable) {
+            echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+
+        foreach ($rows as $r) {
+            $order_id = absint($r['order_id']);
+            $order    = wc_get_order($order_id);
+            $order_link = $order ? $order->get_edit_order_url() : '';
+            $amount   = wc_price(self::get_ticket_paid_amount($r), array('currency' => self::get_ticket_currency($r)));
+            $rlabel   = isset($refund_labels[$r['refund_status']]) ? $refund_labels[$r['refund_status']] : $r['refund_status'];
+            $pname    = $r['product_name'] ? $r['product_name'] : ('#' . $r['product_id']);
+
+            echo '<tr>';
+            echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html($order_id) . '</a>' : ('#' . esc_html($order_id))) . '</td>';
+            echo '<td>' . esc_html($r['holder_name'] !== '' ? $r['holder_name'] : '—') . '</td>';
+            echo '<td>' . esc_html($pname . ' (' . self::ticket_kind_label($r) . ')') . '</td>';
+            echo '<td>' . wp_kses_post($amount) . '</td>';
+            echo '<td>' . esc_html($r['updated_at']) . '</td>';
+            echo '<td>' . esc_html($rlabel) . '</td>';
+            if ($actionable) {
+                echo '<td><form method="post" style="display:inline">';
+                wp_nonce_field('rti_refund_action');
+                echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
+                echo '<button type="submit" class="button button-primary" name="rti_refund_action" value="confirm">' . esc_html__('Confirm refund', 'rt-event-manager') . '</button> ';
+                echo '<button type="submit" class="button" name="rti_refund_action" value="decline">' . esc_html__('Decline', 'rt-event-manager') . '</button>';
+                echo '</form></td>';
+            }
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+    }
+
+    /**
+     * Admin page: tickets with a pending transfer offer (awaiting acceptance),
+     * with a Withdraw action to cancel the offer.
+     */
+    public function render_transfers_page() {
+        if (!current_user_can('edit_shop_orders')) {
+            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'rti_tickets';
+
+        if (isset($_POST['rti_withdraw_transfer'], $_POST['rti_ticket_id'])) {
+            check_admin_referer('rti_withdraw_transfer');
+            $tid = absint($_POST['rti_ticket_id']);
+            if ($tid) {
+                $this->update_ticket($tid, array(
+                    'transfer_token' => '',
+                    'transfer_email' => '',
+                ));
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf(__('Transfer offer withdrawn for ticket #%d.', 'rt-event-manager'), $tid)) . '</p></div>';
+            }
+        }
+
+        $rows = $wpdb->get_results(
+            "SELECT t.*, p.post_title AS product_name
+             FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
+             WHERE t.transfer_token <> ''
+             ORDER BY t.transfer_requested_at DESC",
+            ARRAY_A
+        );
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html(sprintf(__('Open transfers (%d)', 'rt-event-manager'), count($rows))) . '</h1>';
+        echo '<p class="description">' . esc_html__('Event tickets with a pending transfer offer that the invited person has not yet accepted.', 'rt-event-manager') . '</p>';
+
+        if (empty($rows)) {
+            echo '<p>' . esc_html__('No pending transfers.', 'rt-event-manager') . '</p></div>';
+            return;
+        }
+
+        echo '<table class="wp-list-table widefat fixed striped">';
+        echo '<thead><tr>';
+        echo '<th>' . esc_html__('Order', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Current holder', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Invited email', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Requested', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
+        echo '</tr></thead><tbody>';
+
+        foreach ($rows as $r) {
+            $order_id   = absint($r['order_id']);
+            $order      = wc_get_order($order_id);
+            $order_link = $order ? $order->get_edit_order_url() : '';
+            $pname      = $r['product_name'] ? $r['product_name'] : ('#' . $r['product_id']);
+
+            echo '<tr>';
+            echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html($order_id) . '</a>' : ('#' . esc_html($order_id))) . '</td>';
+            echo '<td>' . esc_html($r['holder_name'] !== '' ? $r['holder_name'] : '—') . '</td>';
+            echo '<td>' . esc_html($pname) . '</td>';
+            echo '<td>' . esc_html($r['transfer_email']) . '</td>';
+            echo '<td>' . esc_html($r['transfer_requested_at'] ? $r['transfer_requested_at'] : '—') . '</td>';
+            echo '<td><form method="post" style="display:inline">';
+            wp_nonce_field('rti_withdraw_transfer');
+            echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
+            echo '<button type="submit" class="button" name="rti_withdraw_transfer" value="1">' . esc_html__('Withdraw', 'rt-event-manager') . '</button>';
+            echo '</form></td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table></div>';
     }
 
     /**

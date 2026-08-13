@@ -1806,16 +1806,24 @@ class RT_Event_Manager_Account {
         $mgr         = RT_Event_Manager::instance();
         $refund_open = $mgr->is_refund_window_open();
 
+        // Before the cutoff a refund is requested (pending admin action);
+        // afterwards the cancellation is recorded with no refund due.
+        $refund_status = $refund_open ? 'requested' : 'none';
+
         $cancelled = array($t);
         $mgr->update_ticket($ticket_id, array(
             'status'         => 'cancelled',
+            'refund_status'  => $refund_status,
             'transfer_token' => '',
             'transfer_email' => '',
         ));
         // A pretour cannot outlive its host — cascade the cancellation.
         if (in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true)) {
             foreach (RT_Event_Manager::get_child_pretours($ticket_id) as $child) {
-                $mgr->update_ticket(absint($child['id']), array('status' => 'cancelled'));
+                $mgr->update_ticket(absint($child['id']), array(
+                    'status'        => 'cancelled',
+                    'refund_status' => $refund_status,
+                ));
                 $cancelled[] = $child;
             }
         }

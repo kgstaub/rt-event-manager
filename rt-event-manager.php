@@ -20,7 +20,7 @@ defined('ABSPATH') || exit;
 
 // Define plugin constants
 define('RT_EVENT_MANAGER_VERSION', '1.6.0');
-define('RT_EVENT_MANAGER_DB_VERSION', '2.0.0');
+define('RT_EVENT_MANAGER_DB_VERSION', '2.1.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -305,6 +305,7 @@ function rt_event_manager_install_db() {
             transfer_token varchar(64) NOT NULL DEFAULT '',
             transfer_email varchar(255) NOT NULL DEFAULT '',
             transfer_requested_at datetime NULL DEFAULT NULL,
+            refund_status varchar(20) NOT NULL DEFAULT '',
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
@@ -380,6 +381,8 @@ function rt_event_manager_install_db() {
             'transfer_token'        => "ADD COLUMN `transfer_token` varchar(64) NOT NULL DEFAULT '' AFTER `owner_user_id`",
             'transfer_email'        => "ADD COLUMN `transfer_email` varchar(255) NOT NULL DEFAULT '' AFTER `transfer_token`",
             'transfer_requested_at' => "ADD COLUMN `transfer_requested_at` datetime NULL DEFAULT NULL AFTER `transfer_email`",
+            // Refund tracking for cancelled tickets (added in 2.1.0).
+            'refund_status'         => "ADD COLUMN `refund_status` varchar(20) NOT NULL DEFAULT '' AFTER `transfer_requested_at`",
         );
         foreach ($relationship_columns as $column => $ddl) {
             $exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM $table_name LIKE %s", $column));
