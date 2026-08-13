@@ -751,8 +751,7 @@ class RT_Event_Manager_Account {
         foreach ($tickets as $t) {
             $product = wc_get_product($t['product_id']);
             $pname   = $product ? $product->get_name() : __('ticket', 'rt-event-manager');
-            $who     = ($t['holder_name'] !== '') ? $t['holder_name'] : $pname;
-            $opts[absint($t['id'])] = sprintf('%s (#%d)', $who, absint($t['id']));
+            $opts[absint($t['id'])] = ($t['holder_name'] !== '') ? $t['holder_name'] : $pname;
         }
         return $opts;
     }
