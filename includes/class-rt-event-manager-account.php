@@ -197,13 +197,13 @@ class RT_Event_Manager_Account {
             $buttons .= '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cart-pretour">' . esc_html__('Add a pretour', 'rt-event-manager') . '</button>';
             $options = '';
             foreach ($pretours as $p) {
-                $options .= '<div class="rtacc-cart-pretour-option">' . $this->cart_add_link($p, $p->get_name() . ' — ' . wp_strip_all_tags($p->get_price_html()), 'uk-button uk-button-default') . '</div>';
+                $options .= '<div class="rtacc-cart-pretour-option">' . $this->cart_add_link($p, $p->get_name() . ' — ' . wp_strip_all_tags($p->get_price_html()), 'uk-button uk-button-secondary') . '</div>';
             }
             $modals .= '<div class="rtacc-modal" id="rtacc-modal-cart-pretour" hidden>'
                 . '<div class="rtacc-modal-backdrop" data-rtacc-close></div>'
                 . '<div class="rtacc-modal-dialog"><h3 class="rtacc-subtitle">' . esc_html__('Choose a pretour', 'rt-event-manager') . '</h3>'
                 . '<div class="rtacc-cart-pretour-list">' . $options . '</div>'
-                . '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-default" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button></p>'
+                . '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button></p>'
                 . '</div></div>';
         } elseif (count($pretours) === 1) {
             $buttons .= $this->cart_add_link($pretours[0], __('Add a pretour', 'rt-event-manager'));
