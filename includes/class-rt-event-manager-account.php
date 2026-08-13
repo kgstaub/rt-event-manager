@@ -590,7 +590,7 @@ class RT_Event_Manager_Account {
 
         // Customize-ticket modals (rendered once, opened by the section buttons).
         $primary_product = $this->first_purchasable_product($this->get_event_product_ids());
-        if ($primary_product && !$this->product_needs_options($primary_product)) {
+        if ($primary_id && $primary_product && !$this->product_needs_options($primary_product)) {
             $this->render_ticket_modal('cotraveller', array(
                 'title'      => __('Add a ticket', 'rt-event-manager'),
                 'product_id' => $primary_product->get_id(),
@@ -1000,6 +1000,11 @@ class RT_Event_Manager_Account {
      * @return string Escaped button HTML.
      */
     private function cotraveller_add_button($parent_id) {
+        // Co-travellers link to the member's own ticket, so only offer this once
+        // the account has a primary ticket to link them to.
+        if (!absint($parent_id)) {
+            return '';
+        }
         $product = $this->first_purchasable_product($this->get_event_product_ids());
         if (!$product) {
             return '';
