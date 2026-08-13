@@ -35,20 +35,45 @@ class RT_Event_Manager_Receipt {
      * @return string|false Raw PDF bytes, or false on failure.
      */
     public function generate_receipt_pdf($order_id, $doc_type = 'receipt') {
-        if (!class_exists('Dompdf\\Dompdf')) {
-            return false;
-        }
-
         $order = wc_get_order($order_id);
         if (!$order) {
             return false;
         }
-
         $doc_type = ('invoice' === $doc_type) ? 'invoice' : 'receipt';
+        return $this->render_pdf($this->wrap_html($this->build_body($order, $doc_type)));
+    }
 
+    /**
+     * Combined PDF for several orders — one order per page.
+     *
+     * @param int[]       $order_ids
+     * @param string|null $doc_type  Force a type, or null to pick per order
+     *                               (receipt when paid, invoice otherwise).
+     * @return string|false PDF bytes or false.
+     */
+    public function generate_combined_pdf($order_ids, $doc_type = null) {
+        $bodies = array();
+        foreach ((array) $order_ids as $oid) {
+            $order = wc_get_order(absint($oid));
+            if (!$order) {
+                continue;
+            }
+            $dt = $doc_type ? $doc_type : ($order->is_paid() ? 'receipt' : 'invoice');
+            $bodies[] = $this->build_body($order, $dt);
+        }
+        if (empty($bodies)) {
+            return false;
+        }
+        $html = $this->wrap_html(implode('<div style="page-break-before: always;"></div>', $bodies));
+        return $this->render_pdf($html);
+    }
+
+    /** Render an HTML string to A4 PDF bytes via DomPDF. */
+    private function render_pdf($html) {
+        if (!class_exists('Dompdf\\Dompdf')) {
+            return false;
+        }
         try {
-            $html = $this->build_html($order, $doc_type);
-
             $options = new Options();
             $options->set('isRemoteEnabled', true);
             $options->set('isHtml5ParserEnabled', true);
@@ -67,13 +92,38 @@ class RT_Event_Manager_Receipt {
         }
     }
 
+    /** Wrap body content in the document shell (doctype, head, styles). */
+    private function wrap_html($body) {
+        $styles = '
+            @page { margin: 24mm 18mm; }
+            body { font-family: \'DejaVu Sans\', sans-serif; font-size: 12px; color: #222; }
+            h1 { font-size: 20px; margin: 0 0 4px; }
+            .muted { color: #666; }
+            .header { border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 16px; }
+            .meta { width: 100%; margin-bottom: 16px; }
+            .meta td { vertical-align: top; padding: 2px 0; }
+            .meta .label { color: #666; width: 120px; }
+            table.items { width: 100%; border-collapse: collapse; margin-top: 8px; }
+            table.items th, table.items td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ddd; }
+            table.items th { background: #f2f2f2; }
+            table.items td.num, table.items th.num { text-align: right; }
+            .totals { width: 40%; margin-left: 60%; margin-top: 12px; }
+            .totals td { padding: 3px 8px; }
+            .totals td.num { text-align: right; }
+            .totals tr.grand td { font-weight: bold; border-top: 2px solid #333; }
+            .footer { margin-top: 28px; font-size: 10px; color: #888; text-align: center; }
+        ';
+        return '<!DOCTYPE html><html><head><meta charset="utf-8" /><style>' . $styles . '</style></head><body>' . $body . '</body></html>';
+    }
+
     /**
-     * Build the receipt HTML for an order.
+     * Build the inner receipt/invoice body for one order.
      *
      * @param WC_Order $order
+     * @param string   $doc_type
      * @return string
      */
-    private function build_html($order, $doc_type = 'receipt') {
+    private function build_body($order, $doc_type = 'receipt') {
         $is_invoice = ('invoice' === $doc_type);
         $doc_title  = $is_invoice ? __('Order Invoice', 'rt-event-manager') : __('Order Receipt', 'rt-event-manager');
         $doc_for    = $is_invoice ? __('Invoice for order', 'rt-event-manager') : __('Receipt for order', 'rt-event-manager');
@@ -90,31 +140,6 @@ class RT_Event_Manager_Receipt {
 
         ob_start();
         ?>
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8" />
-            <style>
-                @page { margin: 24mm 18mm; }
-                body { font-family: 'DejaVu Sans', sans-serif; font-size: 12px; color: #222; }
-                h1 { font-size: 20px; margin: 0 0 4px; }
-                .muted { color: #666; }
-                .header { border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 16px; }
-                .meta { width: 100%; margin-bottom: 16px; }
-                .meta td { vertical-align: top; padding: 2px 0; }
-                .meta .label { color: #666; width: 120px; }
-                table.items { width: 100%; border-collapse: collapse; margin-top: 8px; }
-                table.items th, table.items td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ddd; }
-                table.items th { background: #f2f2f2; }
-                table.items td.num, table.items th.num { text-align: right; }
-                .totals { width: 40%; margin-left: 60%; margin-top: 12px; }
-                .totals td { padding: 3px 8px; }
-                .totals td.num { text-align: right; }
-                .totals tr.grand td { font-weight: bold; border-top: 2px solid #333; }
-                .footer { margin-top: 28px; font-size: 10px; color: #888; text-align: center; }
-            </style>
-        </head>
-        <body>
             <div class="header">
                 <h1><?php echo esc_html($store_name); ?></h1>
                 <div class="muted"><?php echo esc_html($doc_title); ?></div>
@@ -170,8 +195,6 @@ class RT_Event_Manager_Receipt {
             <div class="footer">
                 <?php echo esc_html(sprintf(__('Generated on %s', 'rt-event-manager'), wc_format_datetime(new WC_DateTime()))); ?>
             </div>
-        </body>
-        </html>
         <?php
         return ob_get_clean();
     }

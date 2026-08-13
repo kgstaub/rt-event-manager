@@ -739,6 +739,16 @@ class RT_Event_Manager_Account {
         }
 
         echo '</tbody></table>';
+
+        // Combined PDF of every order (only worth offering with more than one).
+        if (count($orders) > 1) {
+            $combined_url = wp_nonce_url(
+                add_query_arg(array('action' => 'rt_event_manager_receipt', 'combined' => '1'), admin_url('admin-ajax.php')),
+                'rt_event_manager_receipt_combined',
+                'nonce'
+            );
+            echo '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($combined_url) . '" target="_blank" rel="noopener">' . esc_html__('Download all orders as one PDF', 'rt-event-manager') . '</a></p>';
+        }
     }
 
     /**
@@ -2531,14 +2541,45 @@ class RT_Event_Manager_Account {
      * ------------------------------------------------------------------- */
 
     public function ajax_receipt() {
+        if (!is_user_logged_in()) {
+            wp_die(esc_html__('You must be logged in.', 'rt-event-manager'));
+        }
+
+        if (!class_exists('RT_Event_Manager_Receipt')) {
+            wp_die(esc_html__('Receipt generator not available.', 'rt-event-manager'));
+        }
+
+        // Combined PDF of all of the user's orders.
+        if (!empty($_GET['combined'])) {
+            if (!isset($_GET['nonce']) || !wp_verify_nonce($_GET['nonce'], 'rt_event_manager_receipt_combined')) {
+                wp_die(esc_html__('Security check failed.', 'rt-event-manager'));
+            }
+            $order_ids = wc_get_orders(array(
+                'customer_id' => get_current_user_id(),
+                'limit'       => -1,
+                'orderby'     => 'date',
+                'order'       => 'ASC',
+                'return'      => 'ids',
+            ));
+            if (empty($order_ids)) {
+                wp_die(esc_html__('You have no orders yet.', 'rt-event-manager'));
+            }
+            $pdf = RT_Event_Manager_Receipt::instance()->generate_combined_pdf($order_ids);
+            if (!$pdf) {
+                wp_die(esc_html__('Failed to generate the PDF.', 'rt-event-manager'));
+            }
+            nocache_headers();
+            header('Content-Type: application/pdf');
+            header('Content-Disposition: inline; filename="orders-' . get_current_user_id() . '.pdf"');
+            header('Content-Length: ' . strlen($pdf));
+            echo $pdf;
+            exit;
+        }
+
         $order_id = isset($_GET['order_id']) ? absint($_GET['order_id']) : 0;
 
         if (!isset($_GET['nonce']) || !wp_verify_nonce($_GET['nonce'], 'rt_event_manager_receipt_' . $order_id)) {
             wp_die(esc_html__('Security check failed.', 'rt-event-manager'));
-        }
-
-        if (!is_user_logged_in()) {
-            wp_die(esc_html__('You must be logged in.', 'rt-event-manager'));
         }
 
         $order = wc_get_order($order_id);
