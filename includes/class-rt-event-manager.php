@@ -471,6 +471,24 @@ class RT_Event_Manager {
             }
         }
 
+        // Pre-compute a flat list of every ticket slot so a pretour can offer a
+        // picker of the event / Future member tickets in this same order to link
+        // to (the pretour then inherits that attendee's details).
+        $host_options = array(); // global ticket index => label
+        $slot_idx = 0;
+        foreach ($ticket_items as $item) {
+            for ($q = 0; $q < $item['quantity']; $q++) {
+                if (in_array($item['kind'], array('event', 'minor'), true)) {
+                    $host_options[$slot_idx] = sprintf(
+                        __('Ticket %d — %s', 'rt-event-manager'),
+                        $slot_idx + 1,
+                        $item['product_name']
+                    );
+                }
+                $slot_idx++;
+            }
+        }
+
         $ticket_index = 0;
 
         echo '<div id="rti-ticket-holders">';
@@ -495,11 +513,31 @@ class RT_Event_Manager {
                 $is_additional = ($ticket_index > 0) || !empty($item['has_parent']);
                 $prefill = isset($item['prefill']) ? $item['prefill'] : array();
 
+                // A pretour added from the cart (no explicit parent, not prefilled)
+                // is booked for one of the attendees in this same order rather than
+                // a new person — offer a picker to choose which one.
+                $is_cart_pretour = (isset($item['kind']) && 'pretour' === $item['kind']) && empty($item['has_parent']);
+
                 if (!empty($prefill)) {
                     // Details were entered in the account modal before checkout —
                     // show a read-only summary and pass them through as hidden
                     // fields so the normal save path stores them unchanged.
                     $this->render_prefilled_ticket_fields($field_prefix, $prefill);
+                } elseif ($is_cart_pretour && !empty($host_options)) {
+                    // Link picker: the pretour inherits the chosen attendee's name,
+                    // phone, family, club and dietary details at checkout.
+                    $link_opts = array('' => __('— Select the attendee —', 'rt-event-manager'));
+                    foreach ($host_options as $hidx => $hlabel) {
+                        $link_opts[$hidx] = $hlabel;
+                    }
+                    woocommerce_form_field($field_prefix . '_link', array(
+                        'type'        => 'select',
+                        'label'       => __('This pretour is for', 'rt-event-manager'),
+                        'required'    => true,
+                        'class'       => array('form-row-wide'),
+                        'options'     => $link_opts,
+                        'description' => __('Choose which attendee is joining this tour — the pretour uses their name and details.', 'rt-event-manager'),
+                    ), '');
                 } else {
 
                 $name_value = (!$is_additional && !$is_minor) ? $default_name : '';
@@ -711,6 +749,19 @@ class RT_Event_Manager {
             // Prefilled tickets (added and validated from the account) are not
             // re-validated at checkout.
             if (!empty($_POST[$field_prefix . '_prefilled'])) {
+                continue;
+            }
+
+            // A cart pretour uses the "This pretour is for" picker instead of its
+            // own holder fields — just require that an attendee was chosen.
+            if (isset($_POST[$field_prefix . '_link'])) {
+                $link = wp_unslash($_POST[$field_prefix . '_link']);
+                if ('' === trim((string) $link) || !is_numeric($link)) {
+                    wc_add_notice(sprintf(
+                        __('Please choose which attendee Ticket %d is for.', 'rt-event-manager'),
+                        $i + 1
+                    ), 'error');
+                }
                 continue;
             }
 
@@ -1545,8 +1596,56 @@ class RT_Event_Manager {
                 }
             }
 
-            // Distribute unparented pretours across available hosts (event tickets
-            // first, then Future member tickets), one pretour per host.
+            // Resolve pretours the buyer linked to a specific attendee at checkout
+            // (the "This pretour is for" picker): copy that attendee's details onto
+            // the pretour and link it to their ticket. The picker value is the host
+            // ticket's checkout index, which equals the stored ticket_index.
+            $idx_to_id = array();
+            foreach ($order_tickets as $ot) {
+                $idx_to_id[absint($ot['ticket_index'])] = absint($ot['id']);
+            }
+            for ($li = 0; $li < $ticket_count; $li++) {
+                if (!isset($_POST['rti_ticket_' . $li . '_link'])) {
+                    continue;
+                }
+                $raw = wp_unslash($_POST['rti_ticket_' . $li . '_link']);
+                if ('' === $raw || !is_numeric($raw)) {
+                    continue;
+                }
+                $host_index = absint($raw);
+                if ($host_index === $li || !isset($idx_to_id[$li], $idx_to_id[$host_index])) {
+                    continue;
+                }
+                $pretour_id = $idx_to_id[$li];
+                $host_id    = $idx_to_id[$host_index];
+                if (!empty($pretour_taken[$host_id])) {
+                    continue; // one pretour per host
+                }
+                $host_row = self::get_ticket_by_id($host_id);
+                if (!$host_row || !in_array(self::get_ticket_kind($host_row), array('event', 'minor'), true)) {
+                    continue;
+                }
+                $this->update_ticket($pretour_id, array(
+                    'parent_ticket_id' => $host_id,
+                    'holder_name'      => $host_row['holder_name'],
+                    'phone'            => $host_row['phone'],
+                    'rti_family'       => $host_row['rti_family'],
+                    'rti_club'         => $host_row['rti_club'],
+                    'dietary'          => $host_row['dietary'],
+                    'allergy_details'  => $host_row['allergy_details'],
+                    'world_id'         => $host_row['world_id'],
+                    'qr_code_url'      => $host_row['qr_code_url'],
+                    'status'           => rt_event_manager_determine_ticket_status($order, $host_row['holder_name']),
+                ));
+                $pretour_taken[$host_id] = true;
+            }
+
+            // Re-read so pretours just linked above are seen as parented and are
+            // not re-distributed by the fallback below.
+            $order_tickets = self::get_tickets_for_order($order_id);
+
+            // Distribute any still-unparented pretours across available hosts
+            // (event tickets first, then Future member tickets), one per host.
             $hosts = array_merge($event_ticket_ids, $minor_ticket_ids);
             if (!empty($hosts)) {
                 foreach ($order_tickets as $ot) {
