@@ -120,6 +120,7 @@ class RT_Event_Manager_Account {
             'orders'    => __('Order History', 'rt-event-manager'),
             'tickets'   => __('Event Tickets', 'rt-event-manager'),
             'pretour'   => __('Pretour', 'rt-event-manager'),
+            'calendar'  => __('My Calendar', 'rt-event-manager'),
             'travel'    => __('Travel and Visa', 'rt-event-manager'),
             'shop'      => __('Shop', 'rt-event-manager'),
         );
@@ -405,6 +406,9 @@ class RT_Event_Manager_Account {
             case 'pretour':
                 $this->render_pretour();
                 break;
+            case 'calendar':
+                $this->render_calendar();
+                break;
             case 'travel':
                 $this->render_travel();
                 break;
@@ -429,6 +433,7 @@ class RT_Event_Manager_Account {
             'orders'    => 'fa-receipt',
             'tickets'   => 'fa-ticket',
             'pretour'   => 'fa-route',
+            'calendar'  => 'fa-calendar-days',
             'travel'    => 'fa-passport',
             'shop'      => 'fa-bag-shopping',
         );
@@ -1005,6 +1010,140 @@ class RT_Event_Manager_Account {
         // The bulk pretour modal (hidden; opened by the title-line button).
         $this->render_pretour_modal($candidates);
         $this->render_transfer_cancel_modals();
+    }
+
+    /* ---------------------------------------------------------------------
+     * Tab: My Calendar
+     * ------------------------------------------------------------------- */
+
+    private function render_calendar() {
+        $user_id = get_current_user_id();
+
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('My Calendar', 'rt-event-manager') . '</h2>';
+
+        $cats = array(
+            'pretour' => __('Pretours', 'rt-event-manager'),
+            'daytour' => __('Day tours', 'rt-event-manager'),
+            'event'   => __('Event tickets', 'rt-event-manager'),
+            'agenda'  => __('Official agenda', 'rt-event-manager'),
+        );
+
+        // Gather items. Purchased tickets appear once per product; agenda items
+        // come from the backend-managed list.
+        $items = array();
+        $seen_products = array();
+        foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $t) {
+            $pid = absint($t['product_id']);
+            if (isset($seen_products[$pid])) {
+                continue;
+            }
+            $start = get_post_meta($pid, '_rti_start', true);
+            if ('' === $start) {
+                continue;
+            }
+            $seen_products[$pid] = true;
+            $end     = get_post_meta($pid, '_rti_end', true);
+            $product = wc_get_product($pid);
+            $items[] = array(
+                'title'    => $product ? $product->get_name() : ('#' . $pid),
+                'start'    => strtotime($start),
+                'end'      => ('' !== $end) ? strtotime($end) : strtotime($start),
+                'cat'      => RT_Event_Manager::get_calendar_category($pid),
+                'location' => '',
+            );
+        }
+        foreach (RT_Event_Manager::get_agenda() as $a) {
+            if (empty($a['start'])) {
+                continue;
+            }
+            $items[] = array(
+                'title'    => isset($a['title']) ? $a['title'] : '',
+                'start'    => strtotime($a['start']),
+                'end'      => !empty($a['end']) ? strtotime($a['end']) : strtotime($a['start']),
+                'cat'      => 'agenda',
+                'location' => isset($a['location']) ? $a['location'] : '',
+            );
+        }
+        $items = array_values(array_filter($items, function ($i) {
+            return !empty($i['start']);
+        }));
+
+        if (empty($items)) {
+            echo '<p>' . esc_html__('Your calendar is empty. It will fill up once your tickets have dates and the official agenda is published.', 'rt-event-manager') . '</p>';
+            return;
+        }
+
+        // Range: from the first pretour to the last official agenda item
+        // (falling back to the overall earliest start / latest end).
+        $all_starts     = wp_list_pluck($items, 'start');
+        $all_ends       = wp_list_pluck($items, 'end');
+        $pretour_starts = array();
+        $agenda_ends    = array();
+        foreach ($items as $i) {
+            if ('pretour' === $i['cat']) { $pretour_starts[] = $i['start']; }
+            if ('agenda' === $i['cat'])  { $agenda_ends[] = $i['end']; }
+        }
+        $range_start = !empty($pretour_starts) ? min($pretour_starts) : min($all_starts);
+        $range_end   = !empty($agenda_ends) ? max($agenda_ends) : max($all_ends);
+        if ($range_end < $range_start) {
+            $range_end = max($all_ends);
+        }
+
+        // Snap to the Monday of the start week and the Sunday of the end week.
+        $day_start = strtotime('monday this week', $range_start);
+        if ($day_start > $range_start) {
+            $day_start = strtotime('-7 days', $day_start);
+        }
+        $day_end = strtotime('sunday this week', $range_end);
+        if ($day_end < $range_end) {
+            $day_end = strtotime('+7 days', $day_end);
+        }
+
+        // Legend with per-category show/hide toggles.
+        echo '<div class="rtacc-cal">';
+        echo '<div class="rtacc-cal-legend">';
+        foreach ($cats as $key => $label) {
+            echo '<label class="rtacc-cal-legitem rtacc-cal-legitem--' . esc_attr($key) . '">';
+            echo '<input type="checkbox" class="rtacc-cal-toggle" data-cat="' . esc_attr($key) . '" checked /> ';
+            echo '<span class="rtacc-cal-swatch"></span>' . esc_html($label);
+            echo '</label>';
+        }
+        echo '</div>';
+
+        echo '<div class="rtacc-cal-weeks">';
+        $week_days = array(
+            __('Mon', 'rt-event-manager'), __('Tue', 'rt-event-manager'), __('Wed', 'rt-event-manager'),
+            __('Thu', 'rt-event-manager'), __('Fri', 'rt-event-manager'), __('Sat', 'rt-event-manager'),
+            __('Sun', 'rt-event-manager'),
+        );
+        $guard = 0;
+        for ($day = $day_start; $day <= $day_end && $guard < 60; $day = strtotime('+7 days', $day), $guard++) {
+            echo '<div class="rtacc-cal-week">';
+            for ($d = 0; $d < 7; $d++) {
+                $cell = strtotime('+' . $d . ' days', $day);
+                $cell_ymd = date_i18n('Y-m-d', $cell);
+                echo '<div class="rtacc-cal-day">';
+                echo '<div class="rtacc-cal-daylabel"><span class="rtacc-cal-dow">' . esc_html($week_days[$d]) . '</span> ' . esc_html(date_i18n('j M', $cell)) . '</div>';
+                foreach ($items as $i) {
+                    if (date_i18n('Y-m-d', $i['start']) <= $cell_ymd && date_i18n('Y-m-d', $i['end']) >= $cell_ymd) {
+                        $time = ('agenda' === $i['cat'] || $i['start'] !== $i['end']) ? date_i18n('H:i', $i['start']) : '';
+                        echo '<div class="rtacc-cal-item rtacc-cal-item--' . esc_attr($i['cat']) . '" data-cat="' . esc_attr($i['cat']) . '">';
+                        if ('' !== $time) {
+                            echo '<span class="rtacc-cal-time">' . esc_html($time) . '</span> ';
+                        }
+                        echo esc_html($i['title']);
+                        if ('' !== $i['location']) {
+                            echo '<span class="rtacc-cal-loc">' . esc_html($i['location']) . '</span>';
+                        }
+                        echo '</div>';
+                    }
+                }
+                echo '</div>';
+            }
+            echo '</div>';
+        }
+        echo '</div>'; // .rtacc-cal-weeks
+        echo '</div>'; // .rtacc-cal
     }
 
     /**

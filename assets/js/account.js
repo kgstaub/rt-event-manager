@@ -143,6 +143,11 @@
         });
     });
 
+    // ---- Calendar: show/hide a category ----
+    $(document).on('change', '.rtacc-cal-toggle', function () {
+        $(this).closest('.rtacc-cal').toggleClass('rtacc-cal-hide-' + $(this).data('cat'), !this.checked);
+    });
+
     // ---- Copy a share link to the clipboard ----
     $(document).on('click', '.rtacc-copy-link', function () {
         var $btn = $(this);

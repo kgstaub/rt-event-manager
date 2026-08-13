@@ -477,11 +477,94 @@
     gap: 8px;
 }
 
+/* ---- My Calendar ---- */
+.rtacc-cal-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.rtacc-cal-legitem {
+    cursor: pointer;
+    font-size: 13px;
+}
+.rtacc-cal-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+.rtacc-cal-legitem--pretour .rtacc-cal-swatch { background: #A2071A; }
+.rtacc-cal-legitem--daytour .rtacc-cal-swatch { background: #2c8c99; }
+.rtacc-cal-legitem--event   .rtacc-cal-swatch { background: #CC0B24; }
+.rtacc-cal-legitem--agenda  .rtacc-cal-swatch { background: #2271b1; }
+
+.rtacc-cal-week {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.rtacc-cal-day {
+    border: 1px solid var(--rtacc-border);
+    border-radius: 4px;
+    padding: 6px;
+    min-height: 92px;
+    min-width: 0;
+}
+.rtacc-cal-daylabel {
+    font-size: 11px;
+    color: var(--rtacc-muted);
+    margin-bottom: 6px;
+}
+.rtacc-cal-dow {
+    font-weight: 700;
+}
+.rtacc-cal-item {
+    font-size: 12px;
+    color: #fff;
+    padding: 3px 6px;
+    border-radius: 3px;
+    margin-bottom: 4px;
+    word-break: break-word;
+}
+.rtacc-cal-item .rtacc-cal-time {
+    font-weight: 700;
+}
+.rtacc-cal-loc {
+    display: block;
+    font-size: 11px;
+    opacity: 0.85;
+}
+.rtacc-cal-item--pretour { background: #A2071A; }
+.rtacc-cal-item--daytour { background: #2c8c99; }
+.rtacc-cal-item--event   { background: #CC0B24; }
+.rtacc-cal-item--agenda  { background: #2271b1; }
+/* Category show/hide toggles. */
+.rtacc-cal-hide-pretour .rtacc-cal-item--pretour,
+.rtacc-cal-hide-daytour .rtacc-cal-item--daytour,
+.rtacc-cal-hide-event   .rtacc-cal-item--event,
+.rtacc-cal-hide-agenda  .rtacc-cal-item--agenda {
+    display: none;
+}
+
 /* ---- Responsive ---- */
 @media (max-width: 720px) {
     .rtacc-nav {
         flex: 1 1 100%;
         max-width: none;
+    }
+    /* Calendar: one day per row, hide empty days. */
+    .rtacc-cal-week {
+        grid-template-columns: 1fr;
+    }
+    .rtacc-cal-day {
+        min-height: 0;
+    }
+    .rtacc-cal-day:not(:has(.rtacc-cal-item)) {
+        display: none;
     }
 }
 
