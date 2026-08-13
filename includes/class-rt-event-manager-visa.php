@@ -167,12 +167,26 @@ class RT_Event_Manager_Visa {
     }
 
     public static function default_template() {
-        return '<p>' . esc_html__('Sehr geehrte Damen und Herren', 'rt-event-manager') . '</p>'
+        return '<p>Sehr geehrte Damen und Herren</p>'
             . '<p>Hiermit bestätigen wir, {host_name}, dass wir die untenstehende Person zum Anlass in der Schweiz erwarten.</p>'
             . '<h4>Gastgeber</h4>'
-            . '<p>{host_name}<br>{host_address}<br>Telefon: {host_phone}<br>E-Mail: {host_email}<br>Staatsangehörigkeit: {host_nationality}</p>'
+            . '<table class="details">'
+            . '<tr><td class="lbl">Name</td><td>{host_name}</td></tr>'
+            . '<tr><td class="lbl">Adresse</td><td>{host_address}</td></tr>'
+            . '<tr><td class="lbl">Telefon</td><td>{host_phone}</td></tr>'
+            . '<tr><td class="lbl">E-Mail</td><td>{host_email}</td></tr>'
+            . '<tr><td class="lbl">Staatsangehörigkeit</td><td>{host_nationality}</td></tr>'
+            . '</table>'
             . '<h4>Antragsteller / Gast</h4>'
-            . '<p>{applicant_name}<br>Geburtsdatum: {applicant_dob}<br>Staatsangehörigkeit: {applicant_nationality}<br>{applicant_address}<br>Telefon: {applicant_phone}<br>E-Mail: {applicant_email}</p>'
+            . '<table class="details">'
+            . '<tr><td class="lbl">Name</td><td>{applicant_name}</td></tr>'
+            . '<tr><td class="lbl">Geburtsdatum</td><td>{applicant_dob}</td></tr>'
+            . '<tr><td class="lbl">Staatsangehörigkeit</td><td>{applicant_nationality}</td></tr>'
+            . '<tr><td class="lbl">Adresse</td><td>{applicant_address}</td></tr>'
+            . '<tr><td class="lbl">Telefon</td><td>{applicant_phone}</td></tr>'
+            . '<tr><td class="lbl">E-Mail</td><td>{applicant_email}</td></tr>'
+            . '</table>'
+            . '{guardian_note}'
             . '<p>Zeitraum des Aufenthalts: {stay_from} bis {stay_to}.</p>'
             . '<p>Wir freuen uns auf den Besuch. Für Rückfragen stehen wir gerne zur Verfügung.</p>'
             . '<p>Ausstellungsdatum: {issue_date}</p>';
@@ -329,7 +343,7 @@ class RT_Event_Manager_Visa {
             $who = is_array($applicant) && !empty($applicant['name']) ? $applicant['name'] : ('#' . $r['ticket_id']);
             $order = wc_get_order(absint($r['order_id']));
             $order_link = $order ? $order->get_edit_order_url() : '';
-            $dl = wp_nonce_url(add_query_arg(array('action' => 'rt_event_manager_visa_pdf', 'letter_id' => $r['id']), admin_url('admin-ajax.php')), 'rt_visa_pdf_' . $r['id'], 'nonce');
+            $dl = $this->download_url($r['id']);
             echo '<tr>';
             echo '<td>' . esc_html($r['reference']) . '</td>';
             echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html($r['order_id']) . '</a>' : ('#' . esc_html($r['order_id']))) . '</td>';
@@ -361,31 +375,47 @@ class RT_Event_Manager_Visa {
         $tickets = RT_Event_Manager::get_tickets_for_user($user_id);
 
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Travel and Visa', 'rt-event-manager') . '</h2>';
-        echo '<p class="rtacc-hint">' . esc_html__('If you need a visa for Switzerland, generate a letter of invitation for each event ticket below. Citizens of EU/EFTA countries do not need a visa or a letter.', 'rt-event-manager') . '</p>';
+        echo '<p class="rtacc-hint">' . esc_html__('If you need a visa for Switzerland, generate a letter of invitation for each attendee below. Citizens of EU/EFTA countries do not need a visa or a letter.', 'rt-event-manager') . '</p>';
 
-        $event_tickets = array_filter($tickets, function ($t) {
-            return 'event' === RT_Event_Manager::get_ticket_kind($t);
+        $visa_tickets = array_filter($tickets, function ($t) {
+            return in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true);
         });
 
-        if (empty($event_tickets)) {
-            echo '<p>' . esc_html__('You have no event tickets yet.', 'rt-event-manager') . '</p>';
+        if (empty($visa_tickets)) {
+            echo '<p>' . esc_html__('You have no tickets yet.', 'rt-event-manager') . '</p>';
             return;
         }
 
-        foreach ($event_tickets as $t) {
+        foreach ($visa_tickets as $t) {
             $this->render_ticket_visa_card($t);
         }
+    }
+
+    /** Field set shared by the attendee and accompanying-child forms. */
+    private function visa_fields_html($b, $dob_prefill = '') {
+        $h  = '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Date of birth', 'rt-event-manager') . '</label><input type="date" class="uk-input" name="dob" value="' . esc_attr($dob_prefill) . '" required /></p>';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Nationality', 'rt-event-manager') . '</label>' . $this->country_select('nationality', $b['country']) . '</p>';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Street and number', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="addr1" value="' . esc_attr($b['addr1']) . '" required /></p>';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Address line 2', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="addr2" value="' . esc_attr($b['addr2']) . '" /></p>';
+        $h .= '<div class="rtacc-visa-row">';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Postcode', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="postcode" value="' . esc_attr($b['postcode']) . '" required /></p>';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('City', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="city" value="' . esc_attr($b['city']) . '" required /></p>';
+        $h .= '</div>';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Country of residence', 'rt-event-manager') . '</label>' . $this->country_select('country', $b['country']) . '</p>';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Phone', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="phone" value="' . esc_attr($b['phone']) . '" /></p>';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('E-mail', 'rt-event-manager') . '</label><input type="email" class="uk-input" name="email" value="' . esc_attr($b['email']) . '" /></p>';
+        return $h;
     }
 
     private function render_ticket_visa_card($t) {
         $ticket_id = absint($t['id']);
         $order     = wc_get_order(absint($t['order_id']));
-        $product   = wc_get_product($t['product_id']);
-        $pname     = $product ? $product->get_name() : __('Event ticket', 'rt-event-manager');
+        $kind      = RT_Event_Manager::get_ticket_kind($t);
         $holder    = ($t['holder_name'] !== '') ? $t['holder_name'] : ('#' . $ticket_id);
+        $dob_prefill = ('minor' === $kind && !empty($t['dob'])) ? $t['dob'] : '';
 
         // Prefill from the order billing address.
-        $b = array('name' => $holder, 'addr1' => '', 'addr2' => '', 'postcode' => '', 'city' => '', 'country' => '', 'phone' => isset($t['phone']) ? $t['phone'] : '', 'email' => '');
+        $b = array('addr1' => '', 'addr2' => '', 'postcode' => '', 'city' => '', 'country' => '', 'phone' => isset($t['phone']) ? $t['phone'] : '', 'email' => '');
         if ($order) {
             $b['addr1']    = $order->get_billing_address_1();
             $b['addr2']    = $order->get_billing_address_2();
@@ -397,38 +427,48 @@ class RT_Event_Manager_Visa {
         }
 
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
-        echo '<h3 class="rtacc-subtitle">' . esc_html($pname) . ' — ' . esc_html($holder) . '</h3>';
+        echo '<h3 class="rtacc-subtitle">' . esc_html($holder) . '</h3>';
 
         // Existing letters for this ticket.
         $letters = $this->letters_for_ticket($ticket_id, get_current_user_id());
         if (!empty($letters)) {
             echo '<ul class="rtacc-visa-list">';
             foreach ($letters as $l) {
-                $dl = wp_nonce_url(add_query_arg(array('action' => 'rt_event_manager_visa_pdf', 'letter_id' => $l['id']), admin_url('admin-ajax.php')), 'rt_visa_pdf_' . $l['id'], 'nonce');
+                $dl = $this->download_url($l['id']);
                 echo '<li>' . esc_html(sprintf(__('Letter %1$s — generated %2$s', 'rt-event-manager'), $l['reference'], $l['created_at']))
                     . ' <a class="uk-button uk-button-default uk-button-small" href="' . esc_url($dl) . '" target="_blank" rel="noopener">' . esc_html__('Download PDF', 'rt-event-manager') . '</a></li>';
             }
             echo '</ul>';
         }
 
-        // Generate form (inline, toggled).
-        echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle">' . esc_html__('Request a letter of invitation', 'rt-event-manager') . '</button>';
-        echo '<form class="rtacc-form uk-form-stacked rtacc-visa-form" style="display:none;margin-top:12px;" data-ticket="' . esc_attr($ticket_id) . '">';
-        echo '<div class="rtacc-visa-eu-note uk-alert-primary" uk-alert style="display:none;"><p></p></div>';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Date of birth', 'rt-event-manager') . '</label><input type="date" class="uk-input" name="dob" required /></p>';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Nationality', 'rt-event-manager') . '</label>' . $this->country_select('nationality', $b['country']) . '</p>';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Street and number', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="addr1" value="' . esc_attr($b['addr1']) . '" required /></p>';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Address line 2', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="addr2" value="' . esc_attr($b['addr2']) . '" /></p>';
-        echo '<div class="rtacc-visa-row">';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Postcode', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="postcode" value="' . esc_attr($b['postcode']) . '" required /></p>';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('City', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="city" value="' . esc_attr($b['city']) . '" required /></p>';
-        echo '</div>';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Country of residence', 'rt-event-manager') . '</label>' . $this->country_select('country', $b['country']) . '</p>';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Phone', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="phone" value="' . esc_attr($b['phone']) . '" /></p>';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('E-mail', 'rt-event-manager') . '</label><input type="email" class="uk-input" name="email" value="' . esc_attr($b['email']) . '" /></p>';
-        echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
-        echo '<p class="rtacc-actions"><button type="submit" class="uk-button uk-button-primary">' . esc_html__('Generate letter', 'rt-event-manager') . '</button><span class="rtacc-status" aria-live="polite"></span></p>';
-        echo '</form>';
+        // Attendee letter form — only when they don't already have one (one per person).
+        if ($this->person_has_letter($ticket_id, get_current_user_id(), false, '')) {
+            echo '<p class="rtacc-muted">' . esc_html__('A letter of invitation has already been generated for this person.', 'rt-event-manager') . '</p>';
+        } else {
+            echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle">' . esc_html__('Request a letter of invitation', 'rt-event-manager') . '</button>';
+            echo '<form class="rtacc-form uk-form-stacked rtacc-visa-form" style="display:none;margin-top:12px;" data-ticket="' . esc_attr($ticket_id) . '">';
+            echo '<div class="rtacc-visa-result uk-alert" uk-alert style="display:none;"></div>';
+            echo $this->visa_fields_html($b, $dob_prefill);
+            echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
+            echo '<p class="rtacc-actions"><button type="submit" class="uk-button uk-button-primary">' . esc_html__('Generate letter', 'rt-event-manager') . '</button><span class="rtacc-status" aria-live="polite"></span></p>';
+            echo '</form>';
+        }
+
+        // Accompanying-child letter (under the Future member minimum age), only
+        // offered from an adult event ticket (the child's guardian).
+        if ('event' === $kind) {
+            $min = RT_Event_Manager::get_minor_min_age();
+            echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle" style="margin-top:8px;">' . esc_html(sprintf(__('Request a letter for an accompanying child (under %d)', 'rt-event-manager'), $min)) . '</button>';
+            echo '<form class="rtacc-form uk-form-stacked rtacc-visa-form" style="display:none;margin-top:12px;" data-ticket="' . esc_attr($ticket_id) . '">';
+            echo '<input type="hidden" name="for_child" value="1" />';
+            echo '<div class="rtacc-visa-result uk-alert" uk-alert style="display:none;"></div>';
+            echo '<p class="rtacc-hint">' . esc_html(sprintf(__('The letter will state that the child is accompanying their guardian, %s.', 'rt-event-manager'), $holder)) . '</p>';
+            echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Child\'s name', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="child_name" required /></p>';
+            echo $this->visa_fields_html($b, '');
+            echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
+            echo '<p class="rtacc-actions"><button type="submit" class="uk-button uk-button-primary">' . esc_html__('Generate letter', 'rt-event-manager') . '</button><span class="rtacc-status" aria-live="polite"></span></p>';
+            echo '</form>';
+        }
 
         echo '</section>';
     }
@@ -441,6 +481,41 @@ class RT_Event_Manager_Visa {
             absint($ticket_id),
             absint($user_id)
         ), ARRAY_A);
+    }
+
+    /**
+     * Whether a letter already exists for a given person under a ticket — the
+     * attendee themselves (for_child=false), or a specific accompanying child by
+     * name (for_child=true). Enforces one letter per person.
+     */
+    private function person_has_letter($ticket_id, $user_id, $for_child, $name) {
+        global $wpdb;
+        $table = self::table();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT applicant_enc FROM $table WHERE ticket_id = %d AND user_id = %d",
+            absint($ticket_id),
+            absint($user_id)
+        ), ARRAY_A);
+        foreach ($rows as $r) {
+            $a = json_decode(self::decrypt($r['applicant_enc']), true);
+            if (!is_array($a)) {
+                continue;
+            }
+            $is_ad_hoc = !empty($a['ad_hoc_child']);
+            if ($for_child) {
+                if ($is_ad_hoc && isset($a['name']) && $this->norm($a['name']) === $this->norm($name)) {
+                    return true;
+                }
+            } elseif (!$is_ad_hoc) {
+                return true; // the ticket's own attendee already has a letter
+            }
+        }
+        return false;
+    }
+
+    private function norm($s) {
+        $s = trim((string) $s);
+        return function_exists('mb_strtolower') ? mb_strtolower($s) : strtolower($s);
     }
 
     /* ---------------------------------------------------------------------
@@ -459,10 +534,12 @@ class RT_Event_Manager_Visa {
         if (!$t || !RT_Event_Manager::user_owns_ticket($t, $user_id)) {
             wp_send_json_error(__('Ticket not found.', 'rt-event-manager'));
         }
-        if ('event' !== RT_Event_Manager::get_ticket_kind($t)) {
-            wp_send_json_error(__('Letters of invitation are issued per event ticket.', 'rt-event-manager'));
+        $kind = RT_Event_Manager::get_ticket_kind($t);
+        if (!in_array($kind, array('event', 'minor'), true)) {
+            wp_send_json_error(__('Letters of invitation are issued per event or Future member ticket.', 'rt-event-manager'));
         }
 
+        $for_child   = !empty($_POST['for_child']);
         $dob         = sanitize_text_field(wp_unslash($_POST['dob'] ?? ''));
         $nationality = strtoupper(sanitize_text_field(wp_unslash($_POST['nationality'] ?? '')));
         $country     = strtoupper(sanitize_text_field(wp_unslash($_POST['country'] ?? '')));
@@ -470,17 +547,49 @@ class RT_Event_Manager_Visa {
             wp_send_json_error(__('Please provide date of birth and nationality.', 'rt-event-manager'));
         }
 
+        // Resolve applicant name + guardian reference.
+        $guardian_name = '';
+        $is_child      = false;
+        if ($for_child) {
+            $applicant_name = sanitize_text_field(wp_unslash($_POST['child_name'] ?? ''));
+            if ('' === $applicant_name) {
+                wp_send_json_error(__('Please enter the child\'s name.', 'rt-event-manager'));
+            }
+            $min = RT_Event_Manager::get_minor_min_age();
+            if ($this->age_at_event($dob) >= $min) {
+                wp_send_json_error(sprintf(__('A child aged %d or older needs a Future member ticket — request their letter from that ticket instead.', 'rt-event-manager'), $min));
+            }
+            $guardian_name = ($t['holder_name'] !== '') ? $t['holder_name'] : '';
+            $is_child      = true;
+        } else {
+            $applicant_name = ($t['holder_name'] !== '') ? $t['holder_name'] : '';
+            if ('minor' === $kind) {
+                $guardian_name = $this->guardian_name_for($t);
+                $is_child      = true;
+            }
+        }
+
+        // One letter per person.
+        if ($this->person_has_letter($ticket_id, $user_id, $for_child, $applicant_name)) {
+            wp_send_json_error($for_child
+                ? __('A letter has already been generated for this child.', 'rt-event-manager')
+                : __('A letter has already been generated for this person. Only one letter per person is allowed.', 'rt-event-manager'));
+        }
+
         $applicant = array(
-            'name'        => ($t['holder_name'] !== '') ? $t['holder_name'] : '',
-            'dob'         => $dob,
-            'nationality' => $nationality,
-            'addr1'       => sanitize_text_field(wp_unslash($_POST['addr1'] ?? '')),
-            'addr2'       => sanitize_text_field(wp_unslash($_POST['addr2'] ?? '')),
-            'postcode'    => sanitize_text_field(wp_unslash($_POST['postcode'] ?? '')),
-            'city'        => sanitize_text_field(wp_unslash($_POST['city'] ?? '')),
-            'country'     => $country,
-            'phone'       => sanitize_text_field(wp_unslash($_POST['phone'] ?? '')),
-            'email'       => sanitize_email(wp_unslash($_POST['email'] ?? '')),
+            'name'          => $applicant_name,
+            'dob'           => $dob,
+            'nationality'   => $nationality,
+            'addr1'         => sanitize_text_field(wp_unslash($_POST['addr1'] ?? '')),
+            'addr2'         => sanitize_text_field(wp_unslash($_POST['addr2'] ?? '')),
+            'postcode'      => sanitize_text_field(wp_unslash($_POST['postcode'] ?? '')),
+            'city'          => sanitize_text_field(wp_unslash($_POST['city'] ?? '')),
+            'country'       => $country,
+            'phone'         => sanitize_text_field(wp_unslash($_POST['phone'] ?? '')),
+            'email'         => sanitize_email(wp_unslash($_POST['email'] ?? '')),
+            'guardian_name' => $guardian_name,
+            'is_child'      => $is_child ? 1 : 0,
+            'ad_hoc_child'  => $for_child ? 1 : 0,
         );
 
         $eu_efta = self::is_eu_efta($nationality) || ($country && self::is_eu_efta($country));
@@ -503,15 +612,59 @@ class RT_Event_Manager_Visa {
         ), array('%d', '%d', '%d', '%s', '%s', '%s', '%d'));
         $letter_id = (int) $wpdb->insert_id;
 
-        $dl = wp_nonce_url(add_query_arg(array('action' => 'rt_event_manager_visa_pdf', 'letter_id' => $letter_id), admin_url('admin-ajax.php')), 'rt_visa_pdf_' . $letter_id, 'nonce');
-
         wp_send_json_success(array(
-            'download_url' => $dl,
+            'download_url' => $this->download_url($letter_id),
             'eu_efta'      => $eu_efta,
             'message'      => $eu_efta
-                ? __('Your nationality/country is in the EU/EFTA, so a visa (and this letter) is normally not required. The letter has still been generated and is ready to download.', 'rt-event-manager')
-                : __('Your letter of invitation has been generated and is ready to download.', 'rt-event-manager'),
+                ? __('Your nationality/country is in the EU/EFTA, so a visa (and this letter) is normally not required. The letter has still been generated — you can download it below.', 'rt-event-manager')
+                : __('Your letter of invitation has been generated — you can download it below.', 'rt-event-manager'),
         ));
+    }
+
+    /** Clean (non-HTML-encoded) nonce'd download URL, safe for JSON/JS. */
+    private function download_url($letter_id) {
+        $letter_id = absint($letter_id);
+        return add_query_arg(array(
+            'action'    => 'rt_event_manager_visa_pdf',
+            'letter_id' => $letter_id,
+            'nonce'     => wp_create_nonce('rt_visa_pdf_' . $letter_id),
+        ), admin_url('admin-ajax.php'));
+    }
+
+    /** Age in whole years at the event date (or today if unset). */
+    private function age_at_event($dob) {
+        $ref = RT_Event_Manager::get_event_date();
+        if ('' === $ref) {
+            $ref = current_time('Y-m-d');
+        }
+        $d = strtotime($dob);
+        $r = strtotime($ref);
+        if (!$d || !$r || $d > $r) {
+            return 0;
+        }
+        return (int) floor(($r - $d) / (365.25 * 86400));
+    }
+
+    /** Guardian holder name for a Future member ticket (resolves one level up). */
+    private function guardian_name_for($t) {
+        $pid = absint(isset($t['parent_ticket_id']) ? $t['parent_ticket_id'] : 0);
+        if (!$pid) {
+            return '';
+        }
+        $p = RT_Event_Manager::get_ticket_by_id($pid);
+        if (!$p) {
+            return '';
+        }
+        if ('minor' === RT_Event_Manager::get_ticket_kind($p)) {
+            $gp = absint(isset($p['parent_ticket_id']) ? $p['parent_ticket_id'] : 0);
+            if ($gp) {
+                $g = RT_Event_Manager::get_ticket_by_id($gp);
+                if ($g) {
+                    $p = $g;
+                }
+            }
+        }
+        return ($p['holder_name'] !== '') ? $p['holder_name'] : '';
     }
 
     public function ajax_download() {
@@ -576,7 +729,19 @@ class RT_Event_Manager_Visa {
             '{stay_from}'             => esc_html($this->fmt_date(self::get_option('stay_from'))),
             '{stay_to}'               => esc_html($this->fmt_date(self::get_option('stay_to'))),
             '{issue_date}'            => esc_html($this->fmt_date(current_time('Y-m-d'))),
+            '{guardian_name}'         => esc_html(isset($applicant['guardian_name']) ? $applicant['guardian_name'] : ''),
         );
+
+        // Guardian note for a child / Future member accompanying their guardian.
+        $guardian_note = '';
+        if (!empty($applicant['is_child']) && !empty($applicant['guardian_name'])) {
+            $guardian_note = '<p>' . esc_html(sprintf(
+                'Das Kind %1$s reist in Begleitung der/des Erziehungsberechtigten %2$s.',
+                $applicant['name'],
+                $applicant['guardian_name']
+            )) . '</p>';
+        }
+        $vars['{guardian_note}'] = $guardian_note;
 
         $template = self::get_option('template');
         if ('' === $template) {
@@ -612,6 +777,9 @@ class RT_Event_Manager_Visa {
             h1 { font-size: 18px; margin: 0 0 16px; }
             h4 { margin: 16px 0 4px; font-size: 13px; }
             p { margin: 0 0 10px; }
+            table.details { width: 100%; border-collapse: collapse; margin: 4px 0 12px; }
+            table.details td { padding: 3px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
+            table.details td.lbl { width: 170px; color: #555; }
         </style></head><body>
             <h1><?php echo esc_html__('Einladungsschreiben', 'rt-event-manager'); ?></h1>
             <?php echo wp_kses_post($body); ?>

@@ -208,6 +208,7 @@ class RT_Event_Manager_Account {
                 'sendWhatsApp' => __('Send WhatsApp', 'rt-event-manager'),
                 'confirmWithdraw' => __('Withdraw the pending transfer for this ticket?', 'rt-event-manager'),
                 'generating'  => __('Generating…', 'rt-event-manager'),
+                'downloadPdf' => __('Download PDF', 'rt-event-manager'),
             ),
         ));
     }

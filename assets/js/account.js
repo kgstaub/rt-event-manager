@@ -59,19 +59,18 @@
         window.location.href = url.toString();
     });
 
-    // ---- Visa letter: toggle the request form ----
+    // ---- Visa letter: toggle the request form (each button toggles its form) ----
     $(document).on('click', '.rtacc-visa-toggle', function () {
-        $(this).closest('.rtacc-panel').find('.rtacc-visa-form').toggle();
+        $(this).nextAll('.rtacc-visa-form').first().toggle();
     });
 
-    // ---- Visa letter: generate ----
+    // ---- Visa letter: generate (spinner in-place, then inline download) ----
     $(document).on('submit', '.rtacc-visa-form', function (e) {
         e.preventDefault();
         var $form   = $(this);
         var $err    = $form.find('.rtacc-modal-error');
         var $status = $form.find('.rtacc-status');
         var $btn    = $form.find('button[type="submit"]');
-        var $note   = $form.find('.rtacc-visa-eu-note');
         $err.hide();
 
         var data = $form.serializeArray();
@@ -80,27 +79,30 @@
         data.push({ name: 'ticket_id', value: $form.data('ticket') });
 
         $btn.prop('disabled', true);
-        setStatus($status, i18n.generating || 'Generating…', null);
+        $status.html('<span uk-spinner="ratio: 0.6"></span> ' + (i18n.generating || 'Generating…')).show();
+
         $.post(cfg.ajaxUrl, $.param(data), function (response) {
-            $btn.prop('disabled', false);
             if (response && response.success && response.data) {
-                setStatus($status, '', null);
-                $status.hide();
-                if (response.data.eu_efta) {
-                    $note.find('p').text(response.data.message);
-                    $note.show();
-                }
+                // Replace the form body with a result + download button. No reload.
+                $form.children().hide();
+                var $res = $form.find('.rtacc-visa-result');
+                $res.removeClass('uk-alert-danger uk-alert-warning uk-alert-success')
+                    .addClass(response.data.eu_efta ? 'uk-alert-warning' : 'uk-alert-success')
+                    .empty()
+                    .append($('<p></p>').text(response.data.message));
                 if (response.data.download_url) {
-                    window.open(response.data.download_url, '_blank');
-                    window.setTimeout(function () { window.location.reload(); }, 800);
+                    $res.append($('<a class="uk-button uk-button-primary uk-button-small" target="_blank" rel="noopener"></a>')
+                        .attr('href', response.data.download_url).text(i18n.downloadPdf || 'Download PDF'));
                 }
+                $res.show();
             } else {
-                setStatus($status, '', null); $status.hide();
+                $btn.prop('disabled', false);
+                $status.hide().text('');
                 $err.text((response && response.data) || i18n.error || 'Error').show();
             }
         }).fail(function () {
             $btn.prop('disabled', false);
-            setStatus($status, '', null); $status.hide();
+            $status.hide().text('');
             $err.text(i18n.requestFail || 'Request failed.').show();
         });
     });
