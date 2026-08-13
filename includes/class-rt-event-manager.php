@@ -1512,19 +1512,20 @@ class RT_Event_Manager {
                 ));
             }
 
-            // Link any Future member added directly (no guardian yet) to this
-            // order's own event ticket — its holder is the buyer/guardian.
+            // Link any Future member or pretour added directly (no parent yet) to
+            // this order's own event ticket — the buyer's ticket.
             $order_tickets   = self::get_tickets_for_order($order_id);
             $event_ticket_id = 0;
             foreach ($order_tickets as $ot) {
-                if ('event' === self::get_ticket_kind($ot) && intval($ot['ticket_index']) === 0) {
+                if ('event' === self::get_ticket_kind($ot) && !absint($ot['parent_ticket_id'])) {
                     $event_ticket_id = absint($ot['id']);
                     break;
                 }
             }
             if ($event_ticket_id) {
                 foreach ($order_tickets as $ot) {
-                    if ('minor' === self::get_ticket_kind($ot) && !absint($ot['parent_ticket_id'])) {
+                    $ot_kind = self::get_ticket_kind($ot);
+                    if (in_array($ot_kind, array('minor', 'pretour'), true) && !absint($ot['parent_ticket_id'])) {
                         $this->update_ticket($ot['id'], array('parent_ticket_id' => $event_ticket_id));
                     }
                 }
@@ -1633,11 +1634,15 @@ class RT_Event_Manager {
                     return false;
                 }
             } elseif (self::is_pretour_product($product_id)) {
-                wc_add_notice(
-                    __('Pretour tickets can only be added from your account, linked to a member\'s ticket.', 'rt-event-manager'),
-                    'error'
-                );
-                return false;
+                // Allowed without an explicit parent if an event ticket is in the
+                // cart — the pretour links to that event ticket at checkout.
+                if (!$this->cart_has_event_ticket()) {
+                    wc_add_notice(
+                        __('Pretour tickets need an event ticket in your cart, or an existing ticket to link to.', 'rt-event-manager'),
+                        'error'
+                    );
+                    return false;
+                }
             }
         }
         return $passed;
