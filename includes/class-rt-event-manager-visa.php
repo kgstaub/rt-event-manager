@@ -479,13 +479,17 @@ class RT_Event_Manager_Visa {
         if (!empty($letters)) {
             echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
             echo '<thead><tr>';
+            echo '<th>' . esc_html__('Traveller', 'rt-event-manager') . '</th>';
             echo '<th>' . esc_html__('Reference', 'rt-event-manager') . '</th>';
             echo '<th>' . esc_html__('Generated', 'rt-event-manager') . '</th>';
             echo '<th>' . esc_html__('Document', 'rt-event-manager') . '</th>';
             echo '</tr></thead><tbody>';
             foreach ($letters as $l) {
-                $dl = $this->download_url($l['id']);
+                $dl        = $this->download_url($l['id']);
+                $applicant = json_decode(self::decrypt(isset($l['applicant_enc']) ? $l['applicant_enc'] : ''), true);
+                $traveller = (is_array($applicant) && !empty($applicant['name'])) ? $applicant['name'] : '—';
                 echo '<tr>';
+                echo '<td data-title="' . esc_attr__('Traveller', 'rt-event-manager') . '">' . esc_html($traveller) . '</td>';
                 echo '<td data-title="' . esc_attr__('Reference', 'rt-event-manager') . '">' . esc_html($l['reference']) . '</td>';
                 echo '<td data-title="' . esc_attr__('Generated', 'rt-event-manager') . '">' . esc_html($l['created_at']) . '</td>';
                 echo '<td data-title="' . esc_attr__('Document', 'rt-event-manager') . '"><a class="uk-button uk-button-default uk-button-small" href="' . esc_url($dl) . '" target="_blank" rel="noopener">' . esc_html__('Download PDF', 'rt-event-manager') . '</a></td>';
@@ -542,7 +546,7 @@ class RT_Event_Manager_Visa {
         global $wpdb;
         $table = self::table();
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT id, reference, created_at, eu_efta FROM $table WHERE ticket_id = %d AND user_id = %d ORDER BY created_at DESC",
+            "SELECT id, reference, created_at, eu_efta, applicant_enc FROM $table WHERE ticket_id = %d AND user_id = %d ORDER BY created_at DESC",
             absint($ticket_id),
             absint($user_id)
         ), ARRAY_A);
