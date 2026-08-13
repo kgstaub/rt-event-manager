@@ -594,7 +594,7 @@ class RT_Event_Manager {
                     echo '<p class="form-row form-row-wide rti-allergy-field" id="' . esc_attr($field_prefix) . '_allergy_field" style="display:none;">';
                     echo '<label for="' . esc_attr($field_prefix) . '_allergy">' . esc_html__('Please specify the allergies', 'rt-event-manager') . '&nbsp;<abbr class="required" title="required">*</abbr></label>';
                     echo '<span class="woocommerce-input-wrapper">';
-                    echo '<input type="text" class="input-text" id="' . esc_attr($field_prefix) . '_allergy" name="' . esc_attr($field_prefix) . '_allergy" value="" list="' . esc_attr($list_id) . '" autocomplete="off" />';
+                    echo '<input type="text" class="input-text" id="' . esc_attr($field_prefix) . '_allergy" name="' . esc_attr($field_prefix) . '_allergy" value="" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" autocomplete="off" />';
                     if (!empty($allergy_suggestions)) {
                         echo '<datalist id="' . esc_attr($list_id) . '">';
                         foreach ($allergy_suggestions as $s) {
@@ -2056,7 +2056,7 @@ class RT_Event_Manager {
         $allergy_val = isset($ticket['allergy_details']) ? $ticket['allergy_details'] : '';
         $allergy_list_id = 'rti-allergy-list-' . absint($ticket['id']);
         $show_allergy = ($ticket['dietary'] === 'allergies') ? 'block' : 'none';
-        echo '<input type="text" class="rti-ticket-field rti-allergy-input" name="rti_ticket[' . esc_attr($ticket['id']) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($allergy_list_id) . '" placeholder="' . esc_attr__('Specify allergies…', 'rt-event-manager') . '" style="width:100%;margin-top:4px;display:' . esc_attr($show_allergy) . ';" />';
+        echo '<input type="text" class="rti-ticket-field rti-allergy-input" name="rti_ticket[' . esc_attr($ticket['id']) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($allergy_list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" style="width:100%;margin-top:4px;display:' . esc_attr($show_allergy) . ';" />';
         $allergy_suggestions = self::get_allergy_suggestions();
         if (!empty($allergy_suggestions)) {
             echo '<datalist id="' . esc_attr($allergy_list_id) . '">';

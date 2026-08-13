@@ -827,7 +827,7 @@ class RT_Event_Manager_Account {
                 }
                 echo '</select>';
                 $list_id = 'rtacc-allergy-list-' . $id;
-                echo '<input type="text" class="rtacc-ticket-field rtacc-allergy-input uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Specify allergies…', 'rt-event-manager') . '" style="margin-top:4px;' . ($t['dietary'] === 'allergies' ? '' : 'display:none;') . '" />';
+                echo '<input type="text" class="rtacc-ticket-field rtacc-allergy-input uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" style="margin-top:4px;' . ($t['dietary'] === 'allergies' ? '' : 'display:none;') . '" />';
                 if (!empty($allergy_suggestions)) {
                     echo '<datalist id="' . esc_attr($list_id) . '">';
                     foreach ($allergy_suggestions as $s) {
@@ -1067,7 +1067,7 @@ class RT_Event_Manager_Account {
         }
         echo '</select></p>';
         echo '<p class="rtacc-field rtacc-modal-allergy-field" style="display:none;"><label class="uk-form-label">' . esc_html__('Please specify the allergies', 'rt-event-manager') . '</label>';
-        echo '<input type="text" class="uk-input rtacc-modal-allergy" name="allergy" list="' . esc_attr($list_id) . '" autocomplete="off" />';
+        echo '<input type="text" class="uk-input rtacc-modal-allergy" name="allergy" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" autocomplete="off" />';
         if (!empty($allergy_suggestions)) {
             echo '<datalist id="' . esc_attr($list_id) . '">';
             foreach ($allergy_suggestions as $s) {
