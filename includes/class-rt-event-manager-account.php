@@ -729,9 +729,10 @@ class RT_Event_Manager_Account {
      * @param bool  $minor_block Whether this is the Future members block.
      */
     private function render_ticket_table($tickets, $can_edit, $by_id, $minor_block = false) {
-        $family_options  = RT_Event_Manager::$family_options;
-        $dietary_options = RT_Event_Manager::get_dietary_options(true);
-        $status_labels   = $this->status_labels();
+        $family_options      = RT_Event_Manager::$family_options;
+        $dietary_options     = RT_Event_Manager::get_dietary_options(true);
+        $allergy_suggestions = RT_Event_Manager::get_allergy_suggestions();
+        $status_labels       = $this->status_labels();
 
         echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
         echo '<thead><tr>';
@@ -792,15 +793,29 @@ class RT_Event_Manager_Account {
                 }
             }
 
-            // Dietary (editable for every kind).
+            // Dietary (+ conditional allergy details), editable for every kind.
+            $allergy_val = isset($t['allergy_details']) ? $t['allergy_details'] : '';
             if ($can_edit) {
-                echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][dietary]">';
+                echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '"><select class="rtacc-ticket-field rtacc-dietary-select uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][dietary]">';
                 foreach ($dietary_options as $dkey => $dlabel) {
                     echo '<option value="' . esc_attr($dkey) . '" ' . selected($t['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
                 }
-                echo '</select></td>';
+                echo '</select>';
+                $list_id = 'rtacc-allergy-list-' . $id;
+                echo '<input type="text" class="rtacc-ticket-field rtacc-allergy-input uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Specify allergies…', 'rt-event-manager') . '" style="margin-top:4px;' . ($t['dietary'] === 'allergies' ? '' : 'display:none;') . '" />';
+                if (!empty($allergy_suggestions)) {
+                    echo '<datalist id="' . esc_attr($list_id) . '">';
+                    foreach ($allergy_suggestions as $s) {
+                        echo '<option value="' . esc_attr($s) . '"></option>';
+                    }
+                    echo '</datalist>';
+                }
+                echo '</td>';
             } else {
                 $dlabel = isset($dietary_options[$t['dietary']]) ? $dietary_options[$t['dietary']] : '—';
+                if ($t['dietary'] === 'allergies' && $allergy_val !== '') {
+                    $dlabel .= ' (' . $allergy_val . ')';
+                }
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '">' . esc_html($dlabel) . '</td>';
             }
 
@@ -1219,6 +1234,15 @@ class RT_Event_Manager_Account {
             }
             if (isset($data['dietary'])) {
                 $allowed['dietary'] = sanitize_text_field($data['dietary']);
+                // Allergy details only meaningful when dietary = allergies.
+                if ('allergies' === $allowed['dietary']) {
+                    $allowed['allergy_details'] = isset($data['allergy_details']) ? sanitize_text_field($data['allergy_details']) : '';
+                    if (trim($allowed['allergy_details']) === '') {
+                        wp_send_json_error(__('Please specify the allergies for each attendee who selected “Allergies”.', 'rt-event-manager'));
+                    }
+                } else {
+                    $allowed['allergy_details'] = '';
+                }
             }
             if (isset($data['rti_family'])) {
                 $allowed['rti_family'] = sanitize_text_field($data['rti_family']);

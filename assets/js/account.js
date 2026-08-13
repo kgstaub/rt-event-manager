@@ -55,6 +55,11 @@
         });
     });
 
+    // ---- Toggle allergy details when dietary = Allergies ----
+    $(document).on('change', '.rtacc-dietary-select', function () {
+        $(this).closest('tr').find('.rtacc-allergy-input').toggle($(this).val() === 'allergies');
+    });
+
     // ---- Ticket save (Event Tickets + Pretour tabs) ----
     $(document).on('submit', '.rtacc-tickets-form', function (e) {
         e.preventDefault();

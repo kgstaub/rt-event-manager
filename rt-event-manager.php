@@ -20,7 +20,7 @@ defined('ABSPATH') || exit;
 
 // Define plugin constants
 define('RT_EVENT_MANAGER_VERSION', '1.6.0');
-define('RT_EVENT_MANAGER_DB_VERSION', '1.8.0');
+define('RT_EVENT_MANAGER_DB_VERSION', '1.9.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -297,6 +297,7 @@ function rt_event_manager_install_db() {
             rti_family varchar(50) NOT NULL DEFAULT '',
             rti_club varchar(255) NOT NULL DEFAULT '',
             dietary varchar(50) NOT NULL DEFAULT '',
+            allergy_details varchar(255) NOT NULL DEFAULT '',
             world_id varchar(100) NOT NULL DEFAULT '',
             qr_code_url varchar(500) NOT NULL DEFAULT '',
             status varchar(20) NOT NULL DEFAULT 'draft',
@@ -365,6 +366,7 @@ function rt_event_manager_install_db() {
             'ticket_kind'      => "ADD COLUMN `ticket_kind` varchar(20) NOT NULL DEFAULT 'event' AFTER `parent_ticket_id`",
             'minor_type'       => "ADD COLUMN `minor_type` varchar(20) NOT NULL DEFAULT '' AFTER `ticket_kind`",
             'dob'              => "ADD COLUMN `dob` varchar(10) NOT NULL DEFAULT '' AFTER `phone`",
+            'allergy_details'  => "ADD COLUMN `allergy_details` varchar(255) NOT NULL DEFAULT '' AFTER `dietary`",
         );
         foreach ($relationship_columns as $column => $ddl) {
             $exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM $table_name LIKE %s", $column));

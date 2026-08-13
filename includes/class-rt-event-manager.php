@@ -572,9 +572,26 @@ class RT_Event_Manager {
                         'type'     => 'select',
                         'label'    => __('Dietary Restrictions', 'rt-event-manager'),
                         'required' => true,
-                        'class'    => array('form-row-wide'),
+                        'class'    => array('form-row-wide', 'rti-dietary-select'),
                         'options'  => self::get_dietary_options(false),
                     ), '');
+
+                    // Conditional allergy details field (shown only when "Allergies"
+                    // is selected), with admin-maintained type-ahead suggestions.
+                    $allergy_suggestions = self::get_allergy_suggestions();
+                    $list_id = $field_prefix . '_allergy_list';
+                    echo '<p class="form-row form-row-wide rti-allergy-field" id="' . esc_attr($field_prefix) . '_allergy_field" style="display:none;">';
+                    echo '<label for="' . esc_attr($field_prefix) . '_allergy">' . esc_html__('Please specify the allergies', 'rt-event-manager') . '&nbsp;<abbr class="required" title="required">*</abbr></label>';
+                    echo '<span class="woocommerce-input-wrapper">';
+                    echo '<input type="text" class="input-text" id="' . esc_attr($field_prefix) . '_allergy" name="' . esc_attr($field_prefix) . '_allergy" value="" list="' . esc_attr($list_id) . '" autocomplete="off" />';
+                    if (!empty($allergy_suggestions)) {
+                        echo '<datalist id="' . esc_attr($list_id) . '">';
+                        foreach ($allergy_suggestions as $s) {
+                            echo '<option value="' . esc_attr($s) . '"></option>';
+                        }
+                        echo '</datalist>';
+                    }
+                    echo '</span></p>';
                 }
 
                 // Hidden field mapping this ticket index to its product ID
@@ -602,6 +619,24 @@ class RT_Event_Manager {
             'placeholder' => __('Name, Phone, Email', 'rt-event-manager'),
         ), $emergency_value);
 
+        // Toggle each ticket's allergy-details field based on its dietary select.
+        ?>
+        <script type="text/javascript">
+        (function () {
+            function toggleAllergy(sel) {
+                var prefix = sel.name.replace(/_dietary$/, '');
+                var field  = document.getElementById(prefix + '_allergy_field');
+                if (field) { field.style.display = (sel.value === 'allergies') ? '' : 'none'; }
+            }
+            var selects = document.querySelectorAll('#rti-ticket-holders select[name$="_dietary"]');
+            selects.forEach(function (sel) {
+                toggleAllergy(sel);
+                sel.addEventListener('change', function () { toggleAllergy(sel); });
+            });
+        })();
+        </script>
+        <?php
+
         echo '</div>';
     }
 
@@ -621,6 +656,16 @@ class RT_Event_Manager {
             if (empty($_POST[$name_key])) {
                 wc_add_notice(sprintf(
                     __('Please enter the name for Ticket %d.', 'rt-event-manager'),
+                    $i + 1
+                ), 'error');
+            }
+
+            // If dietary is "Allergies", the details are required (applies to any
+            // ticket kind, including minors).
+            $dietary_val = isset($_POST[$field_prefix . '_dietary']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_dietary'])) : '';
+            if ('allergies' === $dietary_val && trim((string) ($_POST[$field_prefix . '_allergy'] ?? '')) === '') {
+                wc_add_notice(sprintf(
+                    __('Please specify the allergies for Ticket %d.', 'rt-event-manager'),
                     $i + 1
                 ), 'error');
             }
@@ -1329,6 +1374,7 @@ class RT_Event_Manager {
                 $holder_name  = isset($_POST[$field_prefix . '_name']) ? sanitize_text_field($_POST[$field_prefix . '_name']) : '';
                 $phone        = isset($_POST[$field_prefix . '_phone']) ? self::normalize_phone(wp_unslash($_POST[$field_prefix . '_phone'])) : '';
                 $dietary      = isset($_POST[$field_prefix . '_dietary']) ? sanitize_text_field($_POST[$field_prefix . '_dietary']) : '';
+                $allergy      = ('allergies' === $dietary && isset($_POST[$field_prefix . '_allergy'])) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_allergy'])) : '';
                 $product_id   = isset($ticket_product_map[$i]) ? $ticket_product_map[$i] : 0;
                 $combo_id     = isset($combination_map[$i]) ? $combination_map[$i] : 0;
                 $kind         = isset($kind_map[$i]) ? $kind_map[$i] : 'event';
@@ -1379,6 +1425,7 @@ class RT_Event_Manager {
                     'rti_family'       => $ticket_family,
                     'rti_club'         => $ticket_club,
                     'dietary'          => $dietary,
+                    'allergy_details'  => $allergy,
                     'world_id'         => $world_id,
                     'qr_code_url'      => $qr_code_url,
                     'status'           => $ticket_status,
@@ -1654,8 +1701,8 @@ class RT_Event_Manager {
         // Checked-in status must never be clobbered by a re-submit.
         $sql = $wpdb->prepare(
             "INSERT INTO $table_name
-                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, dob, rti_family, rti_club, dietary, world_id, qr_code_url, status)
-             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, dob, rti_family, rti_club, dietary, allergy_details, world_id, qr_code_url, status)
+             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
              ON DUPLICATE KEY UPDATE
                 product_id       = VALUES(product_id),
                 combination_id   = VALUES(combination_id),
@@ -1668,6 +1715,7 @@ class RT_Event_Manager {
                 rti_family       = VALUES(rti_family),
                 rti_club         = VALUES(rti_club),
                 dietary          = VALUES(dietary),
+                allergy_details  = VALUES(allergy_details),
                 world_id         = VALUES(world_id),
                 qr_code_url      = VALUES(qr_code_url),
                 status           = IF(status = 'checked_in', status, VALUES(status))",
@@ -1684,6 +1732,7 @@ class RT_Event_Manager {
             sanitize_text_field($data['rti_family']),
             sanitize_text_field($data['rti_club']),
             sanitize_text_field($data['dietary']),
+            sanitize_text_field(isset($data['allergy_details']) ? $data['allergy_details'] : ''),
             sanitize_text_field($data['world_id']),
             sanitize_text_field($data['qr_code_url']),
             isset($data['status']) ? sanitize_text_field($data['status']) : 'draft'
@@ -1761,11 +1810,30 @@ class RT_Event_Manager {
         $options = array(
             'none'       => __('None', 'rt-event-manager'),
             'vegetarian' => __('Vegetarian', 'rt-event-manager'),
+            'allergies'  => __('Allergies', 'rt-event-manager'),
         );
         if ($include_empty) {
             $options = array('' => '—') + $options;
         }
         return $options;
+    }
+
+    /**
+     * Admin-maintained allergy suggestions (type-ahead), as a list.
+     *
+     * @return string[]
+     */
+    public static function get_allergy_suggestions() {
+        $raw   = (string) get_option('rt_event_manager_allergy_suggestions', '');
+        $lines = preg_split('/\r\n|\r|\n/', $raw);
+        $out   = array();
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line !== '') {
+                $out[] = $line;
+            }
+        }
+        return $out;
     }
 
     /**
@@ -1789,6 +1857,7 @@ class RT_Event_Manager {
             'rti_family'       => '%s',
             'rti_club'         => '%s',
             'dietary'          => '%s',
+            'allergy_details'  => '%s',
             'world_id'         => '%s',
             'qr_code_url'      => '%s',
             'status'           => '%s',
@@ -1934,13 +2003,26 @@ class RT_Event_Manager {
         // Club
         echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][rti_club]" value="' . esc_attr($ticket['rti_club']) . '" style="width:100%;" /></td>';
 
-        // Dietary
-        echo '<td><select class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][dietary]" style="width:100%;">';
+        // Dietary (+ conditional allergy details)
+        echo '<td><select class="rti-ticket-field rti-dietary-select" name="rti_ticket[' . esc_attr($ticket['id']) . '][dietary]" style="width:100%;">';
         $dietary_options = self::get_dietary_options(true);
         foreach ($dietary_options as $dkey => $dlabel) {
             echo '<option value="' . esc_attr($dkey) . '" ' . selected($ticket['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
         }
-        echo '</select></td>';
+        echo '</select>';
+        $allergy_val = isset($ticket['allergy_details']) ? $ticket['allergy_details'] : '';
+        $allergy_list_id = 'rti-allergy-list-' . absint($ticket['id']);
+        $show_allergy = ($ticket['dietary'] === 'allergies') ? 'block' : 'none';
+        echo '<input type="text" class="rti-ticket-field rti-allergy-input" name="rti_ticket[' . esc_attr($ticket['id']) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($allergy_list_id) . '" placeholder="' . esc_attr__('Specify allergies…', 'rt-event-manager') . '" style="width:100%;margin-top:4px;display:' . esc_attr($show_allergy) . ';" />';
+        $allergy_suggestions = self::get_allergy_suggestions();
+        if (!empty($allergy_suggestions)) {
+            echo '<datalist id="' . esc_attr($allergy_list_id) . '">';
+            foreach ($allergy_suggestions as $s) {
+                echo '<option value="' . esc_attr($s) . '"></option>';
+            }
+            echo '</datalist>';
+        }
+        echo '</td>';
 
         // .WORLD ID
         echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][world_id]" value="' . esc_attr($ticket['world_id']) . '" style="width:100%;" /></td>';
@@ -2135,6 +2217,11 @@ class RT_Event_Manager {
         jQuery(document).ready(function($) {
             var orderId = $('#rti-tickets-order-id').val();
             var nonce   = $('#rti_tickets_nonce').val();
+
+            // ---- Toggle allergy details when dietary = Allergies ----
+            $('#rti-tickets-tbody').on('change', '.rti-dietary-select', function() {
+                $(this).closest('tr').find('.rti-allergy-input').toggle($(this).val() === 'allergies');
+            });
 
             // ---- Save existing tickets ----
             $('#rti-save-tickets').on('click', function(e) {
@@ -2497,6 +2584,7 @@ class RT_Event_Manager {
             'Function / Role',
             'Ticket Phone',
             'Date of Birth',
+            'Allergy details',
         );
 
         $col = 1;
@@ -2530,6 +2618,8 @@ class RT_Event_Manager {
             $dietary_label = $ticket['dietary'] ?: '';
             if ($dietary_label === 'none') $dietary_label = 'None';
             if ($dietary_label === 'vegetarian') $dietary_label = 'Vegetarian';
+            if ($dietary_label === 'allergies') $dietary_label = 'Allergies';
+            $allergy_details = isset($ticket['allergy_details']) ? $ticket['allergy_details'] : '';
 
             // Ticket type (Event / Pretour / Future) and parent reference.
             $ticket_type   = self::ticket_kind_label($ticket);
@@ -2565,6 +2655,7 @@ class RT_Event_Manager {
             $sheet->setCellValueByColumnAndRow(16, $row, $buyer_function);
             $sheet->setCellValueByColumnAndRow(17, $row, isset($ticket['phone']) ? $ticket['phone'] : '');
             $sheet->setCellValueByColumnAndRow(18, $row, isset($ticket['dob']) ? $ticket['dob'] : '');
+            $sheet->setCellValueByColumnAndRow(19, $row, $allergy_details);
 
             $row++;
         }
@@ -3224,6 +3315,12 @@ class RT_Event_Manager {
                             $dietary_label = $ticket['dietary'] ?: '—';
                             if ($dietary_label === 'none') $dietary_label = 'None';
                             if ($dietary_label === 'vegetarian') $dietary_label = 'Vegetarian';
+                            if ($dietary_label === 'allergies') {
+                                $dietary_label = 'Allergies';
+                                if (!empty($ticket['allergy_details'])) {
+                                    $dietary_label .= ' (' . $ticket['allergy_details'] . ')';
+                                }
+                            }
 
                             $ticket_status = isset($ticket['status']) ? $ticket['status'] : 'draft';
                             $badge_color = isset($status_colors[$ticket_status]) ? $status_colors[$ticket_status] : '#999';
@@ -3656,6 +3753,15 @@ class RT_Event_Manager {
                 'desc_tip' => true,
             ),
             array(
+                'title'    => __('Allergy suggestions', 'rt-event-manager'),
+                'desc'     => __('One suggestion per line. These appear as type-ahead options when "Allergies" is chosen for dietary; attendees can still type a custom value.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_allergy_suggestions',
+                'type'     => 'textarea',
+                'css'      => 'min-width:400px;min-height:120px;',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
                 'title'   => __('Preselect a default Function / Role', 'rt-event-manager'),
                 'desc'    => __('Prefill the field with the default value below for members who have not set one.', 'rt-event-manager'),
                 'id'      => 'rt_event_manager_function_preselect_enabled',
@@ -4052,6 +4158,12 @@ class RT_Event_Manager {
                 $dietary_label = $ticket['dietary'] ?: '—';
                 if ($dietary_label === 'none') $dietary_label = 'None';
                 if ($dietary_label === 'vegetarian') $dietary_label = 'Vegetarian';
+                if ($dietary_label === 'allergies') {
+                    $dietary_label = 'Allergies';
+                    if (!empty($ticket['allergy_details'])) {
+                        $dietary_label .= ' (' . $ticket['allergy_details'] . ')';
+                    }
+                }
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '">' . esc_html($dietary_label) . '</td>';
 
                 // Buyer info columns (only on first ticket)
