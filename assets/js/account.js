@@ -36,12 +36,13 @@
         $btn.prop('disabled', true);
         setStatus($status, i18n.saving || 'Saving…', null);
 
-        $.post(cfg.ajaxUrl, {
-            action:            'rt_event_manager_save_profile',
-            nonce:             cfg.profileNonce,
-            emergency_contact: $form.find('[name="emergency_contact"]').val(),
-            'function':        $form.find('[name="function"]').val()
-        }, function (response) {
+        // Serialize the whole form so membership fields (shown for non-SSO
+        // accounts) are included alongside emergency contact / function.
+        var data = $form.serializeArray();
+        data.push({ name: 'action', value: 'rt_event_manager_save_profile' });
+        data.push({ name: 'nonce', value: cfg.profileNonce });
+
+        $.post(cfg.ajaxUrl, $.param(data), function (response) {
             $btn.prop('disabled', false);
             if (response && response.success) {
                 setStatus($status, i18n.saved || 'Saved!', 'success');

@@ -316,6 +316,7 @@ class RT_Event_Manager_Account {
     private function render_profile() {
         $user_id = get_current_user_id();
         $sso     = $this->get_sso_profile($user_id);
+        $is_sso  = $this->user_is_sso($user_id);
 
         $emergency = get_user_meta($user_id, 'rti_emergency_contact', true);
         $function  = get_user_meta($user_id, 'rti_function', true);
@@ -329,43 +330,52 @@ class RT_Event_Manager_Account {
 
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('My Profile', 'rt-event-manager') . '</h2>';
 
-        // --- Read-only .WORLD SSO block ---
-        echo '<section class="rtacc-panel rtacc-panel--readonly uk-card uk-card-secondary uk-card-body">';
-        echo '<h3 class="rtacc-subtitle">' . esc_html__('Member details (from .WORLD)', 'rt-event-manager') . '</h3>';
-        echo '<p class="rtacc-hint">' . esc_html__('These details are provided by .WORLD single sign-on and cannot be changed here.', 'rt-event-manager') . '</p>';
+        // Membership details are read-only ONLY for accounts created through
+        // .WORLD SSO (that data is owned by .WORLD). Manually-created accounts
+        // edit the same fields directly in the form below.
+        if ($is_sso) {
+            echo '<section class="rtacc-panel rtacc-panel--readonly uk-card uk-card-secondary uk-card-body">';
+            echo '<h3 class="rtacc-subtitle">' . esc_html__('Member details (from .WORLD)', 'rt-event-manager') . '</h3>';
+            echo '<p class="rtacc-hint">' . esc_html__('These details are provided by .WORLD single sign-on and cannot be changed here.', 'rt-event-manager') . '</p>';
 
-        if (!empty($sso['profile_pic'])) {
-            echo '<img class="rtacc-avatar" src="' . esc_url($sso['profile_pic']) . '" alt="" />';
+            if (!empty($sso['profile_pic'])) {
+                echo '<img class="rtacc-avatar" src="' . esc_url($sso['profile_pic']) . '" alt="" />';
+            }
+
+            $rows = array(
+                __('Name', 'rt-event-manager')      => $sso['name'],
+                __('Email', 'rt-event-manager')     => $sso['email'],
+                __('.WORLD ID', 'rt-event-manager') => $sso['id'],
+                __('Family', 'rt-event-manager')    => $sso['club']['family'],
+                __('Club', 'rt-event-manager')      => $sso['club']['name'],
+            );
+            echo '<dl class="rtacc-deflist uk-description-list uk-description-list-divider">';
+            foreach ($rows as $label => $value) {
+                echo '<dt>' . esc_html($label) . '</dt>';
+                echo '<dd>' . ($value !== '' ? esc_html($value) : '<span class="rtacc-muted">—</span>') . '</dd>';
+            }
+
+            $addr = $sso['address'];
+            $addr_parts = array_filter(array(
+                $addr['street1'], $addr['street2'],
+                trim($addr['postal_code'] . ' ' . $addr['city']),
+                $addr['country'],
+            ));
+            echo '<dt>' . esc_html__('Address', 'rt-event-manager') . '</dt>';
+            echo '<dd>' . (!empty($addr_parts) ? nl2br(esc_html(implode("\n", $addr_parts))) : '<span class="rtacc-muted">—</span>') . '</dd>';
+            echo '</dl>';
+            echo '</section>';
         }
 
-        $rows = array(
-            __('Name', 'rt-event-manager')        => $sso['name'],
-            __('Email', 'rt-event-manager')       => $sso['email'],
-            __('.WORLD ID', 'rt-event-manager')   => $sso['id'],
-            __('Family', 'rt-event-manager')      => $sso['club']['family'],
-            __('Club', 'rt-event-manager')        => $sso['club']['name'],
-        );
-        echo '<dl class="rtacc-deflist uk-description-list uk-description-list-divider">';
-        foreach ($rows as $label => $value) {
-            echo '<dt>' . esc_html($label) . '</dt>';
-            echo '<dd>' . ($value !== '' ? esc_html($value) : '<span class="rtacc-muted">—</span>') . '</dd>';
-        }
-
-        $addr = $sso['address'];
-        $addr_parts = array_filter(array(
-            $addr['street1'], $addr['street2'],
-            trim($addr['postal_code'] . ' ' . $addr['city']),
-            $addr['country'],
-        ));
-        echo '<dt>' . esc_html__('Address', 'rt-event-manager') . '</dt>';
-        echo '<dd>' . (!empty($addr_parts) ? nl2br(esc_html(implode("\n", $addr_parts))) : '<span class="rtacc-muted">—</span>') . '</dd>';
-        echo '</dl>';
-        echo '</section>';
-
-        // --- Editable local block ---
+        // --- Editable block ---
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Your details', 'rt-event-manager') . '</h3>';
         echo '<form id="rtacc-profile-form" class="rtacc-form uk-form-stacked">';
+
+        // Manually-created accounts can edit their membership details here.
+        if (!$is_sso) {
+            $this->render_editable_membership_fields($user_id);
+        }
 
         echo '<p class="rtacc-field">';
         echo '<label class="uk-form-label" for="rtacc-emergency">' . esc_html__('Emergency Contact', 'rt-event-manager') . '</label>';
@@ -391,6 +401,63 @@ class RT_Event_Manager_Account {
 
         echo '</form>';
         echo '</section>';
+    }
+
+    /**
+     * Whether the account was created through .WORLD SSO (its membership data is
+     * then owned by .WORLD and shown read-only).
+     *
+     * @param int $user_id
+     * @return bool
+     */
+    private function user_is_sso($user_id) {
+        if (class_exists('Multi_OAuth_SSO_User_Handler')) {
+            return (bool) Multi_OAuth_SSO_User_Handler::is_sso_user($user_id);
+        }
+        return (bool) get_user_meta($user_id, 'oauth_sso_provider', true);
+    }
+
+    /**
+     * Editable membership fields for manually-created (non-SSO) accounts.
+     *
+     * @param int $user_id
+     */
+    private function render_editable_membership_fields($user_id) {
+        $user       = get_userdata($user_id);
+        $rti_family = get_user_meta($user_id, 'rti_family', true);
+
+        $text_fields = array(
+            'first_name'        => array(__('First name', 'rt-event-manager'), $user ? $user->first_name : ''),
+            'last_name'         => array(__('Last name', 'rt-event-manager'), $user ? $user->last_name : ''),
+        );
+        foreach ($text_fields as $name => $spec) {
+            echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-' . esc_attr($name) . '">' . esc_html($spec[0]) . '</label>';
+            echo '<input type="text" id="rtacc-' . esc_attr($name) . '" class="uk-input" name="' . esc_attr($name) . '" value="' . esc_attr($spec[1]) . '" /></p>';
+        }
+
+        echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-email">' . esc_html__('Email', 'rt-event-manager') . '</label>';
+        echo '<input type="email" id="rtacc-email" class="uk-input" name="email" value="' . esc_attr($user ? $user->user_email : '') . '" /></p>';
+
+        echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-family">' . esc_html__('Family', 'rt-event-manager') . '</label>';
+        echo '<select id="rtacc-family" class="uk-select" name="rti_family">';
+        echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
+        foreach (RT_Event_Manager::$family_options as $key => $label) {
+            echo '<option value="' . esc_attr($key) . '" ' . selected($rti_family, (string) $key, false) . '>' . esc_html($label) . '</option>';
+        }
+        echo '</select></p>';
+
+        $meta_fields = array(
+            'rti_club'          => __('Club', 'rt-event-manager'),
+            'billing_address_1' => __('Address line 1', 'rt-event-manager'),
+            'billing_address_2' => __('Address line 2', 'rt-event-manager'),
+            'billing_city'      => __('City', 'rt-event-manager'),
+            'billing_postcode'  => __('Postcode', 'rt-event-manager'),
+            'billing_country'   => __('Country', 'rt-event-manager'),
+        );
+        foreach ($meta_fields as $name => $label) {
+            echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-' . esc_attr($name) . '">' . esc_html($label) . '</label>';
+            echo '<input type="text" id="rtacc-' . esc_attr($name) . '" class="uk-input" name="' . esc_attr($name) . '" value="' . esc_attr(get_user_meta($user_id, $name, true)) . '" /></p>';
+        }
     }
 
     /* ---------------------------------------------------------------------
@@ -1053,11 +1120,45 @@ class RT_Event_Manager_Account {
 
         $user_id = get_current_user_id();
 
+        // Always-editable local fields.
         if (isset($_POST['emergency_contact'])) {
             update_user_meta($user_id, 'rti_emergency_contact', sanitize_text_field(wp_unslash($_POST['emergency_contact'])));
         }
         if (isset($_POST['function'])) {
             update_user_meta($user_id, 'rti_function', sanitize_text_field(wp_unslash($_POST['function'])));
+        }
+
+        // Membership fields: editable only for manually-created (non-SSO)
+        // accounts. For SSO accounts these are owned by .WORLD and ignored here.
+        if (!$this->user_is_sso($user_id)) {
+            $userdata = array('ID' => $user_id);
+            if (isset($_POST['first_name'])) {
+                $userdata['first_name'] = sanitize_text_field(wp_unslash($_POST['first_name']));
+            }
+            if (isset($_POST['last_name'])) {
+                $userdata['last_name'] = sanitize_text_field(wp_unslash($_POST['last_name']));
+            }
+            if (isset($_POST['email'])) {
+                $email = sanitize_email(wp_unslash($_POST['email']));
+                if ($email && is_email($email)) {
+                    $existing = email_exists($email);
+                    if (!$existing || (int) $existing === (int) $user_id) {
+                        $userdata['user_email'] = $email;
+                    } else {
+                        wp_send_json_error(__('That email address is already in use.', 'rt-event-manager'));
+                    }
+                }
+            }
+            if (count($userdata) > 1) {
+                wp_update_user($userdata);
+            }
+
+            $meta_map = array('rti_family', 'rti_club', 'billing_address_1', 'billing_address_2', 'billing_city', 'billing_postcode', 'billing_country');
+            foreach ($meta_map as $key) {
+                if (isset($_POST[$key])) {
+                    update_user_meta($user_id, $key, sanitize_text_field(wp_unslash($_POST[$key])));
+                }
+            }
         }
 
         wp_send_json_success();
