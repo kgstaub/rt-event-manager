@@ -1282,10 +1282,9 @@ class RT_Event_Manager_Account {
         }
 
         if (!$readonly && $can_edit && $has_rows) {
-            echo '<p class="rtacc-actions">';
-            echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Save ticket details', 'rt-event-manager') . '</button>';
-            echo '<span class="rtacc-status" aria-live="polite"></span>';
-            echo '</p>';
+            // No save button — fields auto-save on exit; this line shows the
+            // "Saving…/Saved!" status.
+            echo '<p class="rtacc-actions"><span class="rtacc-status" aria-live="polite"></span></p>';
         }
 
         echo $readonly ? '</div>' : '</form>';
