@@ -1087,7 +1087,7 @@ class RT_Event_Manager_Account {
         echo '<div class="rtacc-show-cancelled-wrap uk-margin-small">';
         echo '<label class="uk-form-label">';
         echo '<input type="checkbox" class="uk-checkbox rtacc-show-cancelled"' . ($checked ? ' checked' : '') . ' /> ';
-        echo esc_html__('Show cancelled tickets', 'rt-event-manager');
+        echo esc_html__('Show cancelled or refunded tickets', 'rt-event-manager');
         echo '</label></div>';
     }
 
