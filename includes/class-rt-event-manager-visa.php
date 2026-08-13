@@ -472,7 +472,7 @@ class RT_Event_Manager_Visa {
         if ($has_attendee) {
             echo '<p class="rtacc-muted" style="margin:0;">' . esc_html__('A letter of invitation has already been generated for this person.', 'rt-event-manager') . '</p>';
         } else {
-            echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle" data-visa-form="visa-attendee-' . esc_attr($ticket_id) . '">' . esc_html__('Request a letter of invitation', 'rt-event-manager') . '</button>';
+            echo '<button type="button" class="uk-button uk-button-primary uk-button-small rtacc-visa-toggle" data-visa-form="visa-attendee-' . esc_attr($ticket_id) . '">' . esc_html__('Request a letter of invitation', 'rt-event-manager') . '</button>';
         }
         if ($is_event) {
             echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle" data-visa-form="visa-child-' . esc_attr($ticket_id) . '">' . esc_html(sprintf(__('Request a letter for an accompanying child (under %d)', 'rt-event-manager'), $child_max)) . '</button>';

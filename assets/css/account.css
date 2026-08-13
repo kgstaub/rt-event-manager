@@ -324,9 +324,16 @@
 .rtacc-visa-actions {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: stretch;
     gap: 10px;
     margin-top: 8px;
+}
+/* Equal-width request buttons that wrap on narrow screens. */
+.rtacc-visa-actions .rtacc-visa-toggle {
+    flex: 1 1 240px;
+    text-align: center;
+    white-space: normal;
+    height: auto;
 }
 .rtacc-visa-row {
     display: flex;
