@@ -402,6 +402,21 @@ class RT_Event_Manager {
             'description' => __('Show a dietary restrictions dropdown for each ticket holder. Only applies when "Is Ticket" is enabled.', 'rt-event-manager'),
         ));
 
+        woocommerce_wp_text_input(array(
+            'id'          => '_rti_start',
+            'label'       => __('Starts (date & time)', 'rt-event-manager'),
+            'type'        => 'datetime-local',
+            'desc_tip'    => true,
+            'description' => __('When this ticket / tour begins — shown in the customer event calendar.', 'rt-event-manager'),
+        ));
+        woocommerce_wp_text_input(array(
+            'id'          => '_rti_end',
+            'label'       => __('Ends (date & time)', 'rt-event-manager'),
+            'type'        => 'datetime-local',
+            'desc_tip'    => true,
+            'description' => __('When this ticket / tour ends — shown in the customer event calendar.', 'rt-event-manager'),
+        ));
+
         echo '</div>';
     }
 
@@ -413,6 +428,8 @@ class RT_Event_Manager {
     public function save_ticket_product_options($post_id) {
         update_post_meta($post_id, '_rti_is_ticket', isset($_POST['_rti_is_ticket']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rti_ticket_dietary', isset($_POST['_rti_ticket_dietary']) ? 'yes' : 'no');
+        update_post_meta($post_id, '_rti_start', sanitize_text_field(wp_unslash($_POST['_rti_start'] ?? '')));
+        update_post_meta($post_id, '_rti_end', sanitize_text_field(wp_unslash($_POST['_rti_end'] ?? '')));
     }
 
     /**
@@ -3630,6 +3647,15 @@ class RT_Event_Manager {
             array($this, 'render_transfers_page')
         );
 
+        add_submenu_page(
+            'rt-event-manager',
+            __('Event Agenda', 'rt-event-manager'),
+            __('Event Agenda', 'rt-event-manager'),
+            'manage_options',
+            'rt-event-manager-agenda',
+            array($this, 'render_agenda_page')
+        );
+
         // Badge Template submenu (admin only)
         add_submenu_page(
             'rt-event-manager',
@@ -4605,6 +4631,16 @@ class RT_Event_Manager {
                 'class'    => 'wc-enhanced-select',
             ),
             array(
+                'title'    => __('Day Tour Category', 'rt-event-manager'),
+                'desc'     => __('Ticket products in this category are shown as Day tours in the customer event calendar.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_daytour_category',
+                'type'     => 'select',
+                'options'  => self::get_product_category_options(),
+                'default'  => '',
+                'desc_tip' => true,
+                'class'    => 'wc-enhanced-select',
+            ),
+            array(
                 'type' => 'sectionend',
                 'id'   => 'rti_ticket_settings',
             ),
@@ -4780,6 +4816,135 @@ class RT_Event_Manager {
      */
     public static function get_future_category_id() {
         return absint(get_option('rt_event_manager_future_category', 0));
+    }
+
+    /**
+     * Configured Day Tour product category term id (0 if unset).
+     *
+     * @return int
+     */
+    public static function get_daytour_category_id() {
+        return absint(get_option('rt_event_manager_daytour_category', 0));
+    }
+
+    /**
+     * Calendar category for a product: 'pretour' | 'daytour' | 'event'.
+     *
+     * @param int $product_id
+     * @return string
+     */
+    public static function get_calendar_category($product_id) {
+        $product_id = absint($product_id);
+        $pretour = self::get_pretour_category_id();
+        $daytour = self::get_daytour_category_id();
+        if ($pretour && has_term($pretour, 'product_cat', $product_id)) {
+            return 'pretour';
+        }
+        if ($daytour && has_term($daytour, 'product_cat', $product_id)) {
+            return 'daytour';
+        }
+        return 'event';
+    }
+
+    /* ---------------------------------------------------------------------
+     * Official event agenda (backend-managed) for the customer calendar
+     * ------------------------------------------------------------------- */
+
+    /**
+     * The official agenda: an array of items, each
+     * array('id'=>string, 'title'=>string, 'start'=>'Y-m-d H:i', 'end'=>'Y-m-d H:i', 'location'=>string).
+     *
+     * @return array
+     */
+    public static function get_agenda() {
+        $items = get_option('rt_event_manager_agenda', array());
+        return is_array($items) ? $items : array();
+    }
+
+    public static function save_agenda($items) {
+        update_option('rt_event_manager_agenda', array_values((array) $items));
+    }
+
+    /** Admin page: manage the official agenda shown in the customer calendar. */
+    public function render_agenda_page() {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
+        }
+
+        $items = self::get_agenda();
+
+        if (isset($_POST['rt_agenda_add']) && check_admin_referer('rt_agenda_save')) {
+            $title = sanitize_text_field(wp_unslash($_POST['agenda_title'] ?? ''));
+            $start = sanitize_text_field(wp_unslash($_POST['agenda_start'] ?? ''));
+            $end   = sanitize_text_field(wp_unslash($_POST['agenda_end'] ?? ''));
+            $loc   = sanitize_text_field(wp_unslash($_POST['agenda_location'] ?? ''));
+            if ('' !== $title && '' !== $start) {
+                $items[] = array(
+                    'id'       => uniqid('ag_'),
+                    'title'    => $title,
+                    'start'    => $start,
+                    'end'      => $end,
+                    'location' => $loc,
+                );
+                self::save_agenda($items);
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Agenda item added.', 'rt-event-manager') . '</p></div>';
+            } else {
+                echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('A title and start time are required.', 'rt-event-manager') . '</p></div>';
+            }
+        }
+
+        if (!empty($_POST['rt_agenda_delete']) && check_admin_referer('rt_agenda_save')) {
+            $del   = sanitize_text_field(wp_unslash($_POST['rt_agenda_delete']));
+            $items = array_values(array_filter($items, function ($i) use ($del) {
+                return $i['id'] !== $del;
+            }));
+            self::save_agenda($items);
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Agenda item removed.', 'rt-event-manager') . '</p></div>';
+        }
+
+        // Sort by start for display.
+        usort($items, function ($a, $b) {
+            return strcmp($a['start'], $b['start']);
+        });
+
+        echo '<div class="wrap"><h1>' . esc_html__('Event Agenda', 'rt-event-manager') . '</h1>';
+        echo '<p class="description">' . esc_html__('These official agenda items appear in every attendee\'s event calendar.', 'rt-event-manager') . '</p>';
+
+        // Add form.
+        echo '<form method="post" style="margin:16px 0;padding:16px;background:#fff;border:1px solid #ccd0d4;max-width:640px;">';
+        wp_nonce_field('rt_agenda_save');
+        echo '<h2 style="margin-top:0;">' . esc_html__('Add an item', 'rt-event-manager') . '</h2>';
+        echo '<p><label>' . esc_html__('Title', 'rt-event-manager') . '<br><input type="text" name="agenda_title" class="regular-text" required /></label></p>';
+        echo '<p><label>' . esc_html__('Location', 'rt-event-manager') . '<br><input type="text" name="agenda_location" class="regular-text" /></label></p>';
+        echo '<p><label>' . esc_html__('Start', 'rt-event-manager') . '<br><input type="datetime-local" name="agenda_start" required /></label>';
+        echo ' &nbsp; <label>' . esc_html__('End', 'rt-event-manager') . '<br><input type="datetime-local" name="agenda_end" /></label></p>';
+        echo '<p><button type="submit" name="rt_agenda_add" value="1" class="button button-primary">' . esc_html__('Add item', 'rt-event-manager') . '</button></p>';
+        echo '</form>';
+
+        // List.
+        if (empty($items)) {
+            echo '<p>' . esc_html__('No agenda items yet.', 'rt-event-manager') . '</p></div>';
+            return;
+        }
+        echo '<table class="wp-list-table widefat fixed striped"><thead><tr>';
+        echo '<th>' . esc_html__('Title', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Location', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Start', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('End', 'rt-event-manager') . '</th>';
+        echo '<th></th></tr></thead><tbody>';
+        foreach ($items as $i) {
+            echo '<tr>';
+            echo '<td>' . esc_html($i['title']) . '</td>';
+            echo '<td>' . esc_html($i['location']) . '</td>';
+            echo '<td>' . esc_html(str_replace('T', ' ', $i['start'])) . '</td>';
+            echo '<td>' . esc_html(str_replace('T', ' ', $i['end'])) . '</td>';
+            echo '<td><form method="post" onsubmit="return confirm(\'' . esc_js(__('Remove this agenda item?', 'rt-event-manager')) . '\');" style="margin:0;">';
+            wp_nonce_field('rt_agenda_save');
+            echo '<input type="hidden" name="rt_agenda_delete" value="' . esc_attr($i['id']) . '" />';
+            echo '<button type="submit" class="button button-link-delete">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
+            echo '</form></td></tr>';
+        }
+        echo '</tbody></table></div>';
     }
 
     /**
