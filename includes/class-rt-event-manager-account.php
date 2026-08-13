@@ -39,6 +39,11 @@ class RT_Event_Manager_Account {
         // Assets (also enqueued on demand inside the shortcode as a fallback).
         add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_assets'));
 
+        // Show the merged ".WORLD" SSO login buttons above the WooCommerce
+        // registration form (WC uses its own form, which the SSO module's
+        // WP-core register_form hook does not reach).
+        add_action('woocommerce_register_form_start', array($this, 'render_sso_login_buttons'));
+
         // AJAX (logged-in only — the whole portal requires authentication).
         add_action('wp_ajax_rt_event_manager_save_profile', array($this, 'ajax_save_profile'));
         add_action('wp_ajax_rt_event_manager_account_save_tickets', array($this, 'ajax_save_tickets'));
@@ -126,6 +131,17 @@ class RT_Event_Manager_Account {
                 'needParent'  => __('Please choose which ticket to attach this to.', 'rt-event-manager'),
             ),
         ));
+    }
+
+    /**
+     * Render the merged .WORLD SSO login buttons (via the module's shortcode)
+     * at the top of the WooCommerce registration form. No-op if the SSO module
+     * is unavailable.
+     */
+    public function render_sso_login_buttons() {
+        if (shortcode_exists('world_sso_login')) {
+            echo do_shortcode('[world_sso_login]');
+        }
     }
 
     /* ---------------------------------------------------------------------
@@ -260,20 +276,23 @@ class RT_Event_Manager_Account {
     public function get_sso_profile($user_id) {
         $user = get_userdata($user_id);
 
+        $family_raw = get_user_meta($user_id, 'rti_family', true);
+
         $profile = array(
-            'id'              => get_user_meta($user_id, 'world_id', true),
-            'email'           => $user ? $user->user_email : '',
-            'first_name'      => $user ? $user->first_name : '',
-            'last_name'       => $user ? $user->last_name : '',
-            'name'            => $user ? trim($user->first_name . ' ' . $user->last_name) : '',
-            'profile_pic'     => '',
-            'club'            => array(
+            'id'          => get_user_meta($user_id, 'world_id', true),
+            'email'       => $user ? $user->user_email : '',
+            'first_name'  => $user ? $user->first_name : '',
+            'last_name'   => $user ? $user->last_name : '',
+            'name'        => $user ? trim($user->first_name . ' ' . $user->last_name) : '',
+            // Profile picture: the merged .WORLD SSO module filters get_avatar_url.
+            'profile_pic' => get_avatar_url($user_id),
+            'club'        => array(
                 'name'      => get_user_meta($user_id, 'rti_club', true),
-                'family'    => RT_Event_Manager::get_family_label(get_user_meta($user_id, 'rti_family', true)),
-                'subdomain' => '',
-                'level'     => '',
+                'family'    => ($family_raw !== '') ? RT_Event_Manager::get_family_label($family_raw) : '',
+                // SSO stores the club domain in rti_club_domain (club.subdomain).
+                'subdomain' => get_user_meta($user_id, 'rti_club_domain', true),
             ),
-            'address'         => array(
+            'address'     => array(
                 'street1'     => get_user_meta($user_id, 'billing_address_1', true),
                 'street2'     => get_user_meta($user_id, 'billing_address_2', true),
                 'city'        => get_user_meta($user_id, 'billing_city', true),
@@ -301,6 +320,13 @@ class RT_Event_Manager_Account {
         $emergency = get_user_meta($user_id, 'rti_emergency_contact', true);
         $function  = get_user_meta($user_id, 'rti_function', true);
 
+        // Function / Role: typeable field with admin-maintained suggestions and
+        // an optional preselected default (applied only when the user has none).
+        $function_suggestions = RT_Event_Manager::get_function_suggestions();
+        if ($function === '') {
+            $function = RT_Event_Manager::get_function_preselect();
+        }
+
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('My Profile', 'rt-event-manager') . '</h2>';
 
         // --- Read-only .WORLD SSO block ---
@@ -318,7 +344,7 @@ class RT_Event_Manager_Account {
             __('.WORLD ID', 'rt-event-manager')   => $sso['id'],
             __('Family', 'rt-event-manager')      => $sso['club']['family'],
             __('Club', 'rt-event-manager')        => $sso['club']['name'],
-            __('Club level', 'rt-event-manager')  => $sso['club']['level'],
+            __('Club domain', 'rt-event-manager') => $sso['club']['subdomain'],
         );
         echo '<dl class="rtacc-deflist uk-description-list uk-description-list-divider">';
         foreach ($rows as $label => $value) {
@@ -349,7 +375,14 @@ class RT_Event_Manager_Account {
 
         echo '<p class="rtacc-field">';
         echo '<label class="uk-form-label" for="rtacc-function">' . esc_html__('Function / Role', 'rt-event-manager') . '</label>';
-        echo '<input type="text" id="rtacc-function" class="uk-input" name="function" value="' . esc_attr($function) . '" />';
+        echo '<input type="text" id="rtacc-function" class="uk-input" name="function" value="' . esc_attr($function) . '" list="rtacc-function-suggestions" autocomplete="off" />';
+        if (!empty($function_suggestions)) {
+            echo '<datalist id="rtacc-function-suggestions">';
+            foreach ($function_suggestions as $suggestion) {
+                echo '<option value="' . esc_attr($suggestion) . '"></option>';
+            }
+            echo '</datalist>';
+        }
         echo '</p>';
 
         echo '<p class="rtacc-actions">';

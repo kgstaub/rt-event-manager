@@ -24,11 +24,37 @@ define('RT_EVENT_MANAGER_DB_VERSION', '1.7.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
 
+// Constants for the merged "Sign in with .WORLD" SSO module. Its code uses the
+// WORLD_SSO_* / MULTI_OAUTH_SSO_* constants for versioning and asset paths;
+// point them at this plugin so its assets (assets/admin.css, admin.js, icon.svg)
+// resolve correctly.
+define('WORLD_SSO_VERSION', '1.2.0');
+define('WORLD_SSO_PLUGIN_DIR', RT_EVENT_MANAGER_PLUGIN_DIR);
+define('WORLD_SSO_PLUGIN_URL', RT_EVENT_MANAGER_PLUGIN_URL);
+define('MULTI_OAUTH_SSO_VERSION', WORLD_SSO_VERSION);
+define('MULTI_OAUTH_SSO_PLUGIN_DIR', WORLD_SSO_PLUGIN_DIR);
+define('MULTI_OAUTH_SSO_PLUGIN_URL', WORLD_SSO_PLUGIN_URL);
+
 // Load Composer autoloader for badge generation dependencies (DOMPDF, QR Code)
 $composer_autoload = RT_EVENT_MANAGER_PLUGIN_DIR . 'vendor/autoload.php';
 if (file_exists($composer_autoload)) {
     require_once $composer_autoload;
 }
+
+// Load the merged .WORLD SSO module (independent of WooCommerce). Required at
+// file scope so the classes are available during activation.
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-oauth-client.php';
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-attribute-mapper.php';
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-admin-settings.php';
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-user-handler.php';
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-world-sso.php';
+
+// Boot the SSO module (registers login buttons, OAuth callback, avatar, etc.).
+add_action('plugins_loaded', function () {
+    if (class_exists('Multi_OAuth_SSO')) {
+        Multi_OAuth_SSO::get_instance();
+    }
+}, 5);
 
 /**
  * Check if WooCommerce is active
@@ -438,6 +464,14 @@ function rt_event_manager_determine_ticket_status($order, $holder_name) {
  */
 function rt_event_manager_activate() {
     rt_event_manager_install_db();
+
+    // Set up the merged .WORLD SSO module: create its OAuth clients table and
+    // seed the default .WORLD providers. (check_upgrade() also self-heals this
+    // on admin_init, but do it immediately on activation.)
+    if (class_exists('Multi_OAuth_SSO')) {
+        Multi_OAuth_SSO::get_instance()->activate();
+    }
+
     flush_rewrite_rules();
 }
 register_activation_hook(__FILE__, 'rt_event_manager_activate');

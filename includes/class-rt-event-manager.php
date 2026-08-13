@@ -3840,7 +3840,72 @@ class RT_Event_Manager {
                 'type' => 'sectionend',
                 'id'   => 'rti_shop_settings',
             ),
+
+            array(
+                'title' => __('Member Profile', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('Controls for the Function / Role field in the customer account profile.', 'rt-event-manager'),
+                'id'    => 'rti_profile_settings',
+            ),
+            array(
+                'title'    => __('Function / Role suggestions', 'rt-event-manager'),
+                'desc'     => __('One suggestion per line. These appear as type-ahead options for the Function / Role field; members can still type a custom value.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_function_suggestions',
+                'type'     => 'textarea',
+                'css'      => 'min-width:400px;min-height:120px;',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'   => __('Preselect a default Function / Role', 'rt-event-manager'),
+                'desc'    => __('Prefill the field with the default value below for members who have not set one.', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_function_preselect_enabled',
+                'type'    => 'checkbox',
+                'default' => 'no',
+            ),
+            array(
+                'title'    => __('Default Function / Role', 'rt-event-manager'),
+                'desc'     => __('Used only when the preselection option above is enabled.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_function_preselect_value',
+                'type'     => 'text',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_profile_settings',
+            ),
         );
+    }
+
+    /**
+     * Function / Role type-ahead suggestions (admin-maintained), as a list.
+     *
+     * @return string[]
+     */
+    public static function get_function_suggestions() {
+        $raw   = (string) get_option('rt_event_manager_function_suggestions', '');
+        $lines = preg_split('/\r\n|\r|\n/', $raw);
+        $out   = array();
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line !== '') {
+                $out[] = $line;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The default Function / Role to preselect, or '' when preselection is off.
+     *
+     * @return string
+     */
+    public static function get_function_preselect() {
+        if ('yes' !== get_option('rt_event_manager_function_preselect_enabled', 'no')) {
+            return '';
+        }
+        return (string) get_option('rt_event_manager_function_preselect_value', '');
     }
 
     /**
