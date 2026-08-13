@@ -59,10 +59,36 @@
         window.location.href = url.toString();
     });
 
+    // Age in whole years at the event date (or today if unset).
+    function ageAtEvent(dobStr) {
+        if (!dobStr) { return null; }
+        var dob = new Date(dobStr);
+        var ref = cfg.visaEventDate ? new Date(cfg.visaEventDate) : new Date();
+        if (isNaN(dob.getTime()) || isNaN(ref.getTime())) { return null; }
+        var age = ref.getFullYear() - dob.getFullYear();
+        var m = ref.getMonth() - dob.getMonth();
+        if (m < 0 || (m === 0 && ref.getDate() < dob.getDate())) { age--; }
+        return age;
+    }
+
     // ---- Visa letter: toggle the request form (each button targets its form by id) ----
     $(document).on('click', '.rtacc-visa-toggle', function () {
         var id = $(this).data('visa-form');
         if (id) { $('#' + id).toggle(); }
+    });
+
+    // ---- Accompanying child: live age check on date of birth ----
+    $(document).on('change', '.rtacc-visa-form input[name="for_child"] ~ .rtacc-field input[name="dob"], .rtacc-visa-form input[name="dob"]', function () {
+        var $form = $(this).closest('.rtacc-visa-form');
+        if (!$form.find('input[name="for_child"]').length) { return; }
+        var $warn = $form.find('.rtacc-visa-child-warn');
+        var age = ageAtEvent($(this).val());
+        if (age !== null && cfg.visaChildMax && age >= cfg.visaChildMax) {
+            $warn.find('p').text(i18n.childTooOld || 'This child needs their own Future member ticket.');
+            $warn.show();
+        } else {
+            $warn.hide();
+        }
     });
 
     // ---- Visa letter: generate (spinner in-place, then inline download) ----
@@ -73,6 +99,16 @@
         var $status = $form.find('.rtacc-status');
         var $btn    = $form.find('button[type="submit"]');
         $err.hide();
+
+        // Accompanying child must be younger than the cutoff at the event.
+        if ($form.find('input[name="for_child"]').length) {
+            var age = ageAtEvent($form.find('input[name="dob"]').val());
+            if (age !== null && cfg.visaChildMax && age >= cfg.visaChildMax) {
+                $form.find('.rtacc-visa-child-warn p').text(i18n.childTooOld || 'This child needs their own Future member ticket.');
+                $form.find('.rtacc-visa-child-warn').show();
+                return;
+            }
+        }
 
         var data = $form.serializeArray();
         data.push({ name: 'action', value: 'rt_event_manager_generate_visa' });

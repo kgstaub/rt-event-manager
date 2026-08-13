@@ -184,6 +184,8 @@ class RT_Event_Manager_Account {
             'declineNonce' => wp_create_nonce('rt_event_manager_decline_transfer'),
             'withdrawNonce' => wp_create_nonce('rt_event_manager_withdraw_transfer'),
             'visaNonce'    => wp_create_nonce('rt_event_manager_visa'),
+            'visaEventDate' => RT_Event_Manager::get_event_date(),
+            'visaChildMax' => RT_Event_Manager_Visa::child_letter_max_age(),
             'i18n'         => array(
                 'saving'      => __('Saving…', 'rt-event-manager'),
                 'saved'       => __('Saved!', 'rt-event-manager'),
@@ -209,6 +211,7 @@ class RT_Event_Manager_Account {
                 'confirmWithdraw' => __('Withdraw the pending transfer for this ticket?', 'rt-event-manager'),
                 'generating'  => __('Generating…', 'rt-event-manager'),
                 'downloadPdf' => __('Download PDF', 'rt-event-manager'),
+                'childTooOld' => __('This child is old enough to need their own Future Tabler / Future Circler ticket. Please register them for a ticket instead.', 'rt-event-manager'),
             ),
         ));
     }

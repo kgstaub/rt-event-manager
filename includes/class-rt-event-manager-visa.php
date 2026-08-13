@@ -134,6 +134,11 @@ class RT_Event_Manager_Visa {
         return in_array(strtoupper((string) $code), self::eu_efta_codes(), true);
     }
 
+    /** Accompanying-child letters are only for children younger than this age. */
+    public static function child_letter_max_age() {
+        return (int) apply_filters('rt_event_manager_child_letter_max_age', 6);
+    }
+
     /** ISO2 => country name, from WooCommerce. */
     private function country_options() {
         if (function_exists('WC') && WC() && WC()->countries) {
@@ -451,7 +456,7 @@ class RT_Event_Manager_Visa {
 
         $has_attendee = $this->person_has_letter($ticket_id, get_current_user_id(), false, '');
         $is_event     = ('event' === $kind);
-        $min          = RT_Event_Manager::get_minor_min_age();
+        $child_max    = self::child_letter_max_age();
 
         // Toggle buttons, inline on one row.
         echo '<div class="rtacc-visa-actions">';
@@ -461,7 +466,7 @@ class RT_Event_Manager_Visa {
             echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle" data-visa-form="visa-attendee-' . esc_attr($ticket_id) . '">' . esc_html__('Request a letter of invitation', 'rt-event-manager') . '</button>';
         }
         if ($is_event) {
-            echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle" data-visa-form="visa-child-' . esc_attr($ticket_id) . '">' . esc_html(sprintf(__('Request a letter for an accompanying child (under %d)', 'rt-event-manager'), $min)) . '</button>';
+            echo '<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-visa-toggle" data-visa-form="visa-child-' . esc_attr($ticket_id) . '">' . esc_html(sprintf(__('Request a letter for an accompanying child (under %d)', 'rt-event-manager'), $child_max)) . '</button>';
         }
         echo '</div>';
 
@@ -482,6 +487,7 @@ class RT_Event_Manager_Visa {
             echo '<input type="hidden" name="for_child" value="1" />';
             echo '<div class="rtacc-visa-result uk-alert" uk-alert style="display:none;"></div>';
             echo '<p class="rtacc-hint">' . esc_html(sprintf(__('The letter will state that the child is accompanying their guardian, %s.', 'rt-event-manager'), $holder)) . '</p>';
+            echo '<div class="rtacc-visa-child-warn uk-alert-warning" uk-alert style="display:none;"><p></p></div>';
             echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Child\'s name', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="child_name" required /></p>';
             echo $this->visa_fields_html($b, '');
             echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
@@ -574,9 +580,9 @@ class RT_Event_Manager_Visa {
             if ('' === $applicant_name) {
                 wp_send_json_error(__('Please enter the child\'s name.', 'rt-event-manager'));
             }
-            $min = RT_Event_Manager::get_minor_min_age();
-            if ($this->age_at_event($dob) >= $min) {
-                wp_send_json_error(sprintf(__('A child aged %d or older needs a Future member ticket — request their letter from that ticket instead.', 'rt-event-manager'), $min));
+            $max = self::child_letter_max_age();
+            if ($this->age_at_event($dob) >= $max) {
+                wp_send_json_error(sprintf(__('This child is %d or older and needs their own Future Tabler / Future Circler ticket. Please register them for a ticket instead.', 'rt-event-manager'), $max));
             }
             $guardian_name = ($t['holder_name'] !== '') ? $t['holder_name'] : '';
             $is_child      = true;
