@@ -33,44 +33,18 @@
     align-items: flex-start;
 }
 
-/* ---- Navigation (bespoke sidebar, brand-colored) ---- */
+/* ---- Navigation: skin from UIkit uk-nav; only width + logout accent here ---- */
 .rtacc-nav {
     flex: 0 0 220px;
     max-width: 220px;
 }
-.rtacc-nav ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    border: 1px solid var(--rtacc-border);
-    border-radius: 6px;
-    overflow: hidden;
-}
-.rtacc-nav-item + .rtacc-nav-item {
-    border-top: 1px solid #ececec;
-}
-.rtacc-nav-item a {
-    display: block;
-    padding: 12px 16px;
-    text-decoration: none;
+/* Logout item stands out in the brand colour. */
+.rtacc-nav .rtacc-nav-logout > a {
     color: var(--rtacc-primary);
-}
-.rtacc-nav-item a:hover {
-    background: var(--rtacc-secondary-bg);
-    color: var(--rtacc-primary-hover);
-}
-.rtacc-nav-item.is-active a {
-    background: var(--rtacc-primary);
-    color: #fff;
     font-weight: 600;
 }
-.rtacc-nav-logout a {
-    background: var(--rtacc-primary);
-    color: #fff;
-}
-.rtacc-nav-logout a:hover {
-    background: var(--rtacc-primary-hover);
-    color: #fff;
+.rtacc-nav .rtacc-nav-logout > a:hover {
+    color: var(--rtacc-primary-hover);
 }
 
 /* ---- Content ---- */

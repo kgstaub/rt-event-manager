@@ -412,18 +412,18 @@ class RT_Event_Manager_Account {
     }
 
     private function render_nav($current) {
-        echo '<nav class="rtacc-nav" aria-label="' . esc_attr__('Account navigation', 'rt-event-manager') . '"><ul>';
+        echo '<nav class="rtacc-nav" aria-label="' . esc_attr__('Account navigation', 'rt-event-manager') . '">';
+        echo '<ul class="uk-nav uk-nav-default uk-nav-divider">';
         foreach ($this->get_tabs() as $key => $label) {
-            $active = ($key === $current) ? ' is-active' : '';
             printf(
-                '<li class="rtacc-nav-item%s"><a href="%s">%s</a></li>',
-                esc_attr($active),
+                '<li class="%s"><a href="%s">%s</a></li>',
+                ($key === $current) ? 'uk-active' : '',
                 esc_url($this->tab_url($key)),
                 esc_html($label)
             );
         }
         printf(
-            '<li class="rtacc-nav-item rtacc-nav-logout"><a href="%s">%s</a></li>',
+            '<li class="rtacc-nav-logout"><a href="%s">%s</a></li>',
             esc_url(wp_logout_url($this->account_base_url())),
             esc_html__('Log out', 'rt-event-manager')
         );
