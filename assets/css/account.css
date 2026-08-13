@@ -525,12 +525,15 @@
         letter-spacing: 0.03em;
         color: var(--rtacc-muted);
     }
-    /* Editable controls fill the value side of the row. */
+    /* Editable controls fill the value side without overflowing (min-width:0
+       lets the flex item shrink below its intrinsic width). */
     .rtacc-tickets td .uk-input,
     .rtacc-tickets td .uk-select {
-        flex: 1 1 auto;
+        flex: 1 1 0;
+        min-width: 0;
         max-width: none;
-        width: auto;
+        width: 100%;
+        box-sizing: border-box;
     }
     .rtacc-tickets td .rtacc-row-actions {
         justify-content: flex-end;
