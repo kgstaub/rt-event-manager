@@ -485,6 +485,15 @@
     }
 }
 
+/* Keep the sidebar in view while scrolling on larger screens. */
+@media (min-width: 721px) {
+    .rtacc-nav {
+        position: sticky;
+        top: 20px;
+        align-self: flex-start;
+    }
+}
+
 /* Stack ticket/order tables into label + value cards on tablets & phones. */
 @media (max-width: 900px) {
     .rtacc-tickets,
