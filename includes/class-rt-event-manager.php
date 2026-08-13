@@ -2330,6 +2330,29 @@ class RT_Event_Manager {
     }
 
     /**
+     * Per-unit list price for a ticket BEFORE any coupon/voucher discount, taken
+     * from the order line subtotal (including tax). Use alongside
+     * get_ticket_paid_amount() to show original vs paid.
+     *
+     * @param array $ticket Ticket row.
+     * @return float
+     */
+    public static function get_ticket_original_amount($ticket) {
+        $order = wc_get_order(absint($ticket['order_id']));
+        if (!$order) {
+            return 0.0;
+        }
+        $product_id = absint($ticket['product_id']);
+        foreach ($order->get_items() as $item) {
+            if (absint($item->get_product_id()) === $product_id) {
+                $qty = max(1, (int) $item->get_quantity());
+                return ((float) $item->get_subtotal() + (float) $item->get_subtotal_tax()) / $qty;
+            }
+        }
+        return 0.0;
+    }
+
+    /**
      * Currency code of the order a ticket belongs to (for formatting amounts).
      *
      * @param array $ticket Ticket row.

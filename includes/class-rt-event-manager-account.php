@@ -890,9 +890,11 @@ class RT_Event_Manager_Account {
         $ename    = $product ? $product->get_name() : __('Event ticket', 'rt-event-manager');
         $currency = RT_Event_Manager::get_ticket_currency($event);
 
-        $total = RT_Event_Manager::get_ticket_paid_amount($event);
+        $original = RT_Event_Manager::get_ticket_original_amount($event);
+        $paid     = RT_Event_Manager::get_ticket_paid_amount($event);
         foreach ($pretours as $p) {
-            $total += RT_Event_Manager::get_ticket_paid_amount($p);
+            $original += RT_Event_Manager::get_ticket_original_amount($p);
+            $paid     += RT_Event_Manager::get_ticket_paid_amount($p);
         }
 
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
@@ -905,7 +907,8 @@ class RT_Event_Manager_Account {
         }
         echo '</ul>';
 
-        echo '<p><strong>' . esc_html__('Original price paid:', 'rt-event-manager') . '</strong> ' . wp_kses_post(wc_price($total, array('currency' => $currency))) . '</p>';
+        echo '<p><strong>' . esc_html__('Original price (before vouchers):', 'rt-event-manager') . '</strong> ' . wp_kses_post(wc_price($original, array('currency' => $currency))) . '</p>';
+        echo '<p><strong>' . esc_html__('Price paid (after coupons):', 'rt-event-manager') . '</strong> ' . wp_kses_post(wc_price($paid, array('currency' => $currency))) . '</p>';
         echo '<p class="rtacc-muted">' . esc_html__('Accepting does not charge you and does not refund the current holder. Any repayment or compensation is to be agreed directly between you and the current holder.', 'rt-event-manager') . '</p>';
 
         echo '<form class="rtacc-form rtacc-accept-form">';
