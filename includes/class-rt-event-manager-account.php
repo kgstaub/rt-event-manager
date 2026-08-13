@@ -774,14 +774,12 @@ class RT_Event_Manager_Account {
 
     private function render_tickets() {
         $user_id       = get_current_user_id();
-        $show_cancelled = $this->show_cancelled();
-        $tickets  = RT_Event_Manager::get_tickets_for_user($user_id, $show_cancelled);
+        $tickets  = RT_Event_Manager::get_tickets_for_user($user_id);
         $can_edit = RT_Event_Manager::instance()->is_frontend_editing_allowed();
         $by_id    = $this->index_by_id($tickets);
 
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Event Tickets', 'rt-event-manager') . '</h2>';
         $this->maybe_cutoff_notice($can_edit);
-        $this->render_show_cancelled_toggle($show_cancelled);
 
         // Classify event tickets; Future members (minors) go in their own block.
         // "My Ticket" is the user's OWN event ticket (their first parentless one);
@@ -851,9 +849,8 @@ class RT_Event_Manager_Account {
     }
 
     private function render_pretour() {
-        $user_id       = get_current_user_id();
-        $show_cancelled = $this->show_cancelled();
-        $tickets  = RT_Event_Manager::get_tickets_for_user($user_id, $show_cancelled);
+        $user_id  = get_current_user_id();
+        $tickets  = RT_Event_Manager::get_tickets_for_user($user_id);
         $can_edit = RT_Event_Manager::instance()->is_frontend_editing_allowed();
         $by_id    = $this->index_by_id($tickets);
 
@@ -906,7 +903,6 @@ class RT_Event_Manager_Account {
         echo '</div>';
 
         $this->maybe_cutoff_notice($can_edit);
-        $this->render_show_cancelled_toggle($show_cancelled);
 
         // Pretour tickets are read-only (Tour + Holder + Status; Guardian for
         // Future members). Their details are managed on the Event Tickets tab.
@@ -1073,20 +1069,6 @@ class RT_Event_Manager_Account {
      * @param array $tickets
      * @return int 0 when the user has no event ticket of their own.
      */
-    /** Whether the "show cancelled tickets" toggle is on (query flag). */
-    private function show_cancelled() {
-        return !empty($_GET['show_cancelled']);
-    }
-
-    /** Render the "Show cancelled tickets" checkbox (UIkit styling). */
-    private function render_show_cancelled_toggle($checked) {
-        echo '<div class="rtacc-show-cancelled-wrap uk-margin-small">';
-        echo '<label class="uk-form-label">';
-        echo '<input type="checkbox" class="uk-checkbox rtacc-show-cancelled"' . ($checked ? ' checked' : '') . ' /> ';
-        echo esc_html__('Show cancelled or refunded tickets', 'rt-event-manager');
-        echo '</label></div>';
-    }
-
     private function own_event_ticket_id($tickets) {
         foreach ($tickets as $t) {
             // Skip cancelled/refunded tickets so a fresh registration becomes the
