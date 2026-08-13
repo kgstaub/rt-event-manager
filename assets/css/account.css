@@ -117,14 +117,32 @@
 .rtacc-card--invalid .rtacc-card-count { color: var(--rtacc-invalid); }
 .rtacc-card--checked_in .rtacc-card-count { color: var(--rtacc-checked-in); }
 
+.rtacc-ticket-groups {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.rtacc-ticket-group {
+    padding: 8px 0;
+    border-bottom: 1px solid #ececec;
+}
+.rtacc-ticket-group > strong {
+    display: block;
+    margin-bottom: 4px;
+}
 .rtacc-ticket-summary {
     list-style: none;
     margin: 0;
     padding: 0;
 }
+.rtacc-ticket-group .rtacc-ticket-summary {
+    padding-left: 12px;
+}
 .rtacc-ticket-summary li {
-    padding: 6px 0;
-    border-bottom: 1px solid #f0f0f0;
+    padding: 4px 0;
+}
+.rtacc-ticket-group .rtacc-ticket-summary li {
+    border-bottom: none;
 }
 
 /* ---- Status badges (bespoke, semantic colors) ---- */

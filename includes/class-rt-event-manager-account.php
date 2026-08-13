@@ -245,14 +245,27 @@ class RT_Event_Manager_Account {
         if (empty($tickets)) {
             echo '<p>' . esc_html__('You do not have any event tickets yet.', 'rt-event-manager') . '</p>';
         } else {
-            echo '<ul class="rtacc-ticket-summary">';
+            // Group tickets by the person holding them.
+            $groups = array();
             foreach ($tickets as $t) {
-                $status = isset($t['status']) ? $t['status'] : 'draft';
                 $holder = $t['holder_name'] !== '' ? $t['holder_name'] : __('Unassigned', 'rt-event-manager');
-                echo '<li>';
-                echo '<span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span> ';
-                echo esc_html($holder) . ' <span class="rtacc-muted">· ' . esc_html(RT_Event_Manager::ticket_kind_label($t)) . '</span>';
-                echo '</li>';
+                $groups[$holder][] = $t;
+            }
+
+            echo '<ul class="rtacc-ticket-groups">';
+            foreach ($groups as $holder => $rows) {
+                echo '<li class="rtacc-ticket-group"><strong>' . esc_html($holder) . '</strong>';
+                echo '<ul class="rtacc-ticket-summary">';
+                foreach ($rows as $t) {
+                    $status  = isset($t['status']) ? $t['status'] : 'draft';
+                    $product = wc_get_product($t['product_id']);
+                    $what    = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
+                    echo '<li>';
+                    echo '<span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span> ';
+                    echo esc_html($what);
+                    echo '</li>';
+                }
+                echo '</ul></li>';
             }
             echo '</ul>';
         }
@@ -609,33 +622,36 @@ class RT_Event_Manager_Account {
             }
         }
 
-        $mine        = array();
-        $companions  = array();
-        $minors      = array();
-        $pretour_ids = array();
+        // Future member (minor) ticket ids, so pretours bought for a minor land
+        // in the Future members block rather than "Travelling with me".
+        $minor_ids = array();
         foreach ($tickets as $t) {
-            if ('pretour' === $this->effective_kind($t)) {
-                $pretour_ids[absint($t['id'])] = true;
-                $parent = absint($t['parent_ticket_id']);
-                if (!$parent || isset($my_event_ids[$parent])) {
-                    $mine[] = $t;
-                } else {
-                    $companions[] = $t;
-                }
+            if ('minor' === $this->effective_kind($t)) {
+                $minor_ids[absint($t['id'])] = true;
             }
         }
-        // Future members attached to a pretour ticket get their own block.
-        $pretour_parents = array_merge($mine, $companions);
+
+        $mine       = array();
+        $companions = array();
+        $minors     = array();
         foreach ($tickets as $t) {
-            if ('minor' === $this->effective_kind($t) && isset($pretour_ids[absint($t['parent_ticket_id'])])) {
-                $minors[] = $t;
+            if ('pretour' !== $this->effective_kind($t)) {
+                continue;
+            }
+            $parent = absint($t['parent_ticket_id']);
+            if (isset($minor_ids[$parent])) {
+                $minors[] = $t; // pretour purchased for a Future member
+            } elseif (!$parent || isset($my_event_ids[$parent])) {
+                $mine[] = $t;
+            } else {
+                $companions[] = $t;
             }
         }
 
         $this->render_editable_sections('rtacc-pretour-form', array(
-            array('label' => __('My Pretour', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a pretour ticket yet.', 'rt-event-manager')),
-            array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional pretour tickets yet.', 'rt-event-manager')),
-            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true),
+            array('label' => __('My Pretour', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a pretour ticket yet.', 'rt-event-manager'), 'show_product' => true),
+            array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional pretour tickets yet.', 'rt-event-manager'), 'show_product' => true),
+            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'show_product' => true),
         ), $by_id, $can_edit);
 
         // Bulk pretour add: any group member (event ticket or Future member) who
@@ -728,7 +744,7 @@ class RT_Event_Manager_Account {
                 echo '<p>' . esc_html($sec['empty']) . '</p>';
             } else {
                 $has_rows = true;
-                $this->render_ticket_table($sec['tickets'], $can_edit, $by_id, !empty($sec['minor']), isset($sec['guardian_options']) ? $sec['guardian_options'] : array());
+                $this->render_ticket_table($sec['tickets'], $can_edit, $by_id, !empty($sec['minor']), isset($sec['guardian_options']) ? $sec['guardian_options'] : array(), !empty($sec['show_product']));
             }
             // Optional action for this section (already-escaped HTML).
             if (!empty($sec['after'])) {
@@ -757,8 +773,9 @@ class RT_Event_Manager_Account {
      * @param array $by_id       id => ticket, for resolving guardian labels.
      * @param bool  $minor_block      Whether this is the Future members block.
      * @param array $guardian_options id => label for the editable Guardian select.
+     * @param bool  $show_product     Whether to show a Tour (product name) column.
      */
-    private function render_ticket_table($tickets, $can_edit, $by_id, $minor_block = false, $guardian_options = array()) {
+    private function render_ticket_table($tickets, $can_edit, $by_id, $minor_block = false, $guardian_options = array(), $show_product = false) {
         $family_options      = RT_Event_Manager::$family_options;
         $dietary_options     = RT_Event_Manager::get_dietary_options(true);
         $allergy_suggestions = RT_Event_Manager::get_allergy_suggestions();
@@ -767,6 +784,9 @@ class RT_Event_Manager_Account {
         echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
         echo '<thead><tr>';
         echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
+        if ($show_product) {
+            echo '<th>' . esc_html__('Tour', 'rt-event-manager') . '</th>';
+        }
         echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
         if (!$minor_block) {
             echo '<th>' . esc_html__('Phone', 'rt-event-manager') . '</th>';
@@ -793,6 +813,12 @@ class RT_Event_Manager_Account {
 
             echo '<tr data-ticket-id="' . esc_attr($id) . '">';
             echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '">' . esc_html(RT_Event_Manager::ticket_kind_label($t)) . '</td>';
+
+            if ($show_product) {
+                $product = wc_get_product($t['product_id']);
+                $pname   = $product ? $product->get_name() : __('(deleted product)', 'rt-event-manager');
+                echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($pname) . '</td>';
+            }
 
             // Holder name (editable for every kind).
             if ($can_edit) {
@@ -859,7 +885,15 @@ class RT_Event_Manager_Account {
                     }
                     echo '</select></td>';
                 } elseif ($parent_id && isset($by_id[$parent_id])) {
-                    $p      = $by_id[$parent_id];
+                    // If the direct parent is itself a Future member (a pretour
+                    // bought for a minor), resolve to that minor's guardian.
+                    $p = $by_id[$parent_id];
+                    if ('minor' === RT_Event_Manager::get_ticket_kind($p)) {
+                        $gp = absint($p['parent_ticket_id']);
+                        if ($gp && isset($by_id[$gp])) {
+                            $p = $by_id[$gp];
+                        }
+                    }
                     $plabel = ($p['holder_name'] !== '') ? $p['holder_name'] : ('#' . $parent_id);
                     echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html($plabel) . '</td>';
                 } elseif ($parent_id) {
@@ -1299,8 +1333,8 @@ class RT_Event_Manager_Account {
 
     private function status_labels() {
         return array(
-            'valid'      => __('Valid', 'rt-event-manager'),
-            'draft'      => __('Draft', 'rt-event-manager'),
+            'valid'      => __('Confirmed', 'rt-event-manager'),
+            'draft'      => __('Pending Confirmation', 'rt-event-manager'),
             'invalid'    => __('Invalid', 'rt-event-manager'),
             'checked_in' => __('Checked In', 'rt-event-manager'),
         );
