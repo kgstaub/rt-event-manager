@@ -441,6 +441,8 @@ class RT_Event_Manager {
                     // Details entered in the account "customize ticket" modal
                     // before checkout (holder name, phone, family, etc.).
                     'prefill'         => isset($cart_item['rti_prefill']) && is_array($cart_item['rti_prefill']) ? $cart_item['rti_prefill'] : array(),
+                    // Minor gender chosen at add-to-cart (empty when added directly).
+                    'minor_gender'    => isset($cart_item['rti_minor_gender']) ? $cart_item['rti_minor_gender'] : '',
                 );
             }
         }
@@ -533,6 +535,22 @@ class RT_Event_Manager {
                         ),
                         'custom_attributes' => $dob_attrs,
                     ), '');
+
+                    // Gender/type — only asked here when it wasn't already chosen
+                    // when the ticket was added (i.e. added directly from the cart).
+                    $item_gender = isset($item['minor_gender']) ? $item['minor_gender'] : '';
+                    if ('' === $item_gender) {
+                        woocommerce_form_field($field_prefix . '_minor_gender', array(
+                            'type'     => 'select',
+                            'label'    => __('Type', 'rt-event-manager'),
+                            'required' => true,
+                            'class'    => array('form-row-wide'),
+                            'options'  => array(
+                                'tabler'  => __('Future Tabler', 'rt-event-manager'),
+                                'circler' => __('Future Circler', 'rt-event-manager'),
+                            ),
+                        ), '');
+                    }
                 } else {
                     woocommerce_form_field($field_prefix . '_phone', array(
                         'type'              => 'tel',
@@ -731,6 +749,17 @@ class RT_Event_Manager {
                         self::get_minor_min_age(),
                         self::get_minor_max_age()
                     ), 'error');
+                }
+                // When the type/gender is asked on the form (added directly), it
+                // must be chosen.
+                if (isset($_POST[$field_prefix . '_minor_gender'])) {
+                    $g = sanitize_key(wp_unslash($_POST[$field_prefix . '_minor_gender']));
+                    if (!in_array($g, array('tabler', 'circler'), true)) {
+                        wc_add_notice(sprintf(
+                            __('Please choose the type for Ticket %d.', 'rt-event-manager'),
+                            $i + 1
+                        ), 'error');
+                    }
                 }
                 continue;
             }
@@ -1428,6 +1457,15 @@ class RT_Event_Manager {
                 $is_additional = ($i > 0) || ($parent_id > 0);
                 $dob          = ($is_minor && isset($_POST[$field_prefix . '_dob'])) ? self::sanitize_dob(wp_unslash($_POST[$field_prefix . '_dob'])) : '';
 
+                // Gender/type from the checkout form when it wasn't chosen at
+                // add-to-cart (Future member added directly alongside an event ticket).
+                if ($is_minor && '' === $minor_type && isset($_POST[$field_prefix . '_minor_gender'])) {
+                    $g = sanitize_key(wp_unslash($_POST[$field_prefix . '_minor_gender']));
+                    if (in_array($g, array('tabler', 'circler'), true)) {
+                        $minor_type = $g;
+                    }
+                }
+
                 // The purchaser's own ticket inherits their family / club / .WORLD
                 // ID. Additional travellers carry their OWN details entered on the
                 // checkout form. Minors carry none of these.
@@ -1472,6 +1510,24 @@ class RT_Event_Manager {
                     'qr_code_url'      => $qr_code_url,
                     'status'           => $ticket_status,
                 ));
+            }
+
+            // Link any Future member added directly (no guardian yet) to this
+            // order's own event ticket — its holder is the buyer/guardian.
+            $order_tickets   = self::get_tickets_for_order($order_id);
+            $event_ticket_id = 0;
+            foreach ($order_tickets as $ot) {
+                if ('event' === self::get_ticket_kind($ot) && intval($ot['ticket_index']) === 0) {
+                    $event_ticket_id = absint($ot['id']);
+                    break;
+                }
+            }
+            if ($event_ticket_id) {
+                foreach ($order_tickets as $ot) {
+                    if ('minor' === self::get_ticket_kind($ot) && !absint($ot['parent_ticket_id'])) {
+                        $this->update_ticket($ot['id'], array('parent_ticket_id' => $event_ticket_id));
+                    }
+                }
             }
         }
 
@@ -1567,13 +1623,16 @@ class RT_Event_Manager {
     public function validate_future_add_to_cart($passed, $product_id, $quantity) {
         if (empty($_REQUEST['rti_parent_ticket_id'])) {
             if (self::is_future_product($product_id)) {
-                wc_add_notice(
-                    __('Future member tickets can only be added as a co-traveller from your account.', 'rt-event-manager'),
-                    'error'
-                );
-                return false;
-            }
-            if (self::is_pretour_product($product_id)) {
+                // Allowed without an explicit parent if an event ticket is in the
+                // cart — the Future member links to that event ticket at checkout.
+                if (!$this->cart_has_event_ticket()) {
+                    wc_add_notice(
+                        __('Future member tickets need an event ticket in your cart, or an existing ticket to link to.', 'rt-event-manager'),
+                        'error'
+                    );
+                    return false;
+                }
+            } elseif (self::is_pretour_product($product_id)) {
                 wc_add_notice(
                     __('Pretour tickets can only be added from your account, linked to a member\'s ticket.', 'rt-event-manager'),
                     'error'
@@ -1582,6 +1641,25 @@ class RT_Event_Manager {
             }
         }
         return $passed;
+    }
+
+    /**
+     * Whether the cart currently contains an event ticket (used to allow adding
+     * a Future member ticket alongside it).
+     *
+     * @return bool
+     */
+    private function cart_has_event_ticket() {
+        if (!function_exists('WC') || !WC()->cart) {
+            return false;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            if ($pid && self::is_ticket_product($pid) && 'event' === self::get_ticket_kind_for_product($pid)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
