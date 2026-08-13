@@ -582,20 +582,16 @@ class RT_Event_Manager_Account {
             echo '</section>';
         }
 
-        // --- Editable block ---
+        // --- Editable block (one form spanning the subsections below) ---
+        echo '<form id="rtacc-profile-form" class="rtacc-form uk-form-stacked">';
+
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Your details', 'rt-event-manager') . '</h3>';
-        echo '<form id="rtacc-profile-form" class="rtacc-form uk-form-stacked">';
 
         // Manually-created accounts can edit their membership details here.
         if (!$is_sso) {
             $this->render_editable_membership_fields($user_id);
         }
-
-        echo '<p class="rtacc-field">';
-        echo '<label class="uk-form-label" for="rtacc-emergency">' . esc_html__('Emergency Contact', 'rt-event-manager') . '</label>';
-        echo '<input type="text" id="rtacc-emergency" class="uk-input" name="emergency_contact" value="' . esc_attr($emergency) . '" placeholder="' . esc_attr__('Name, Phone, Email', 'rt-event-manager') . '" />';
-        echo '</p>';
 
         echo '<p class="rtacc-field">';
         echo '<label class="uk-form-label" for="rtacc-function">' . esc_html__('Function / Role', 'rt-event-manager') . '</label>';
@@ -608,6 +604,16 @@ class RT_Event_Manager_Account {
             echo '</datalist>';
         }
         echo '</p>';
+        echo '</section>';
+
+        // Emergency Contact — its own subsection.
+        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html__('Emergency Contact', 'rt-event-manager') . '</h3>';
+        echo '<p class="rtacc-field">';
+        echo '<label class="uk-form-label" for="rtacc-emergency">' . esc_html__('Emergency contact', 'rt-event-manager') . '</label>';
+        echo '<input type="text" id="rtacc-emergency" class="uk-input" name="emergency_contact" value="' . esc_attr($emergency) . '" placeholder="' . esc_attr__('Name, Phone, Email', 'rt-event-manager') . '" />';
+        echo '</p>';
+        echo '</section>';
 
         echo '<p class="rtacc-actions">';
         echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button>';
@@ -615,7 +621,6 @@ class RT_Event_Manager_Account {
         echo '</p>';
 
         echo '</form>';
-        echo '</section>';
     }
 
     /**
