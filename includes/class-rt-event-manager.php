@@ -531,8 +531,9 @@ class RT_Event_Manager {
                     ), '');
                 }
 
-                // RTI Family dropdown for subsequent tickets (ticket #1 inherits from
-                // billing). Minors never carry a family organization.
+                // Additional travellers carry their OWN organization details (they
+                // are not the purchaser). Ticket #1 inherits the buyer's family /
+                // club / .WORLD ID; minors carry none of these.
                 if ($ticket_index > 0 && !$is_minor) {
                     woocommerce_form_field($field_prefix . '_family', array(
                         'type'     => 'select',
@@ -541,6 +542,21 @@ class RT_Event_Manager {
                         'class'    => array('form-row-wide'),
                         'options'  => array('' => __('— Select Organization —', 'rt-event-manager')) + self::$family_options,
                     ), '9');
+
+                    woocommerce_form_field($field_prefix . '_club', array(
+                        'type'     => 'text',
+                        'label'    => __('Club', 'rt-event-manager'),
+                        'required' => false,
+                        'class'    => array('form-row-wide'),
+                    ), '');
+
+                    woocommerce_form_field($field_prefix . '_world_id', array(
+                        'type'        => 'text',
+                        'label'       => __('.WORLD ID', 'rt-event-manager'),
+                        'required'    => false,
+                        'class'       => array('form-row-wide'),
+                        'description' => __('Optional — used to generate this attendee\'s badge QR code.', 'rt-event-manager'),
+                    ), '');
                 }
 
                 if ($item['require_dietary']) {
@@ -1313,18 +1329,23 @@ class RT_Event_Manager {
                 $is_minor     = ('minor' === $kind);
                 $dob          = ($is_minor && isset($_POST[$field_prefix . '_dob'])) ? self::sanitize_dob(wp_unslash($_POST[$field_prefix . '_dob'])) : '';
 
-                // Ticket #1 uses the buyer's family; subsequent tickets have their own
-                // selector. Minors never carry a family organization.
+                // Ticket #1 is the purchaser and inherits their family / club /
+                // .WORLD ID. Additional travellers carry their OWN details entered
+                // on the checkout form. Minors carry none of these.
                 if ($is_minor) {
                     $ticket_family = '';
+                    $ticket_club   = '';
+                    $world_id      = '';
                 } elseif ($i === 0) {
                     $ticket_family = $buyer_family;
+                    $ticket_club   = $buyer_club;
+                    $world_id      = $user_id ? $buyer_world_id : '';
                 } else {
                     $ticket_family = isset($_POST[$field_prefix . '_family']) ? sanitize_text_field($_POST[$field_prefix . '_family']) : '9';
+                    $ticket_club   = isset($_POST[$field_prefix . '_club']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_club'])) : '';
+                    $world_id      = isset($_POST[$field_prefix . '_world_id']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_world_id'])) : '';
                 }
 
-                // Ticket #1 always gets the buyer's .WORLD ID and QR code — but never a minor.
-                $world_id    = (!$is_minor && $i === 0 && $user_id) ? $buyer_world_id : '';
                 $qr_code_url = '';
                 if (!empty($world_id)) {
                     $qr_code_url = 'tablerworld:///member?id=' . $world_id;
@@ -1345,7 +1366,7 @@ class RT_Event_Manager {
                     'phone'            => $phone,
                     'dob'              => $dob,
                     'rti_family'       => $ticket_family,
-                    'rti_club'         => $is_minor ? '' : $buyer_club,
+                    'rti_club'         => $ticket_club,
                     'dietary'          => $dietary,
                     'world_id'         => $world_id,
                     'qr_code_url'      => $qr_code_url,
