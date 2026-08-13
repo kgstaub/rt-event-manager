@@ -907,7 +907,7 @@ class RT_Event_Manager_Account {
         }
         echo '</ul>';
 
-        echo '<p><strong>' . esc_html__('Original price (before vouchers):', 'rt-event-manager') . '</strong> ' . wp_kses_post(wc_price($original, array('currency' => $currency))) . '</p>';
+        echo '<p><strong>' . esc_html__('Original price:', 'rt-event-manager') . '</strong> ' . wp_kses_post(wc_price($original, array('currency' => $currency))) . '</p>';
         echo '<p><strong>' . esc_html__('Price paid (after coupons):', 'rt-event-manager') . '</strong> ' . wp_kses_post(wc_price($paid, array('currency' => $currency))) . '</p>';
         echo '<p class="rtacc-muted">' . esc_html__('Accepting does not charge you and does not refund the current holder. Any repayment or compensation is to be agreed directly between you and the current holder.', 'rt-event-manager') . '</p>';
 
