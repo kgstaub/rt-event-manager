@@ -669,6 +669,10 @@ class RT_Event_Manager {
         $summary_bits = array_filter(array($val('name'), $val('phone')));
         echo '<p class="rti-prefilled-summary">' . esc_html(implode(' — ', $summary_bits)) . ' <em>(' . esc_html__('details entered', 'rt-event-manager') . ')</em></p>';
 
+        // Marker so checkout validation skips this ticket — it was already
+        // validated when it was added from the account.
+        echo '<input type="hidden" name="' . esc_attr($field_prefix . '_prefilled') . '" value="1" />';
+
         foreach (array('name', 'phone', 'family', 'club', 'world_id', 'dietary', 'allergy', 'dob') as $key) {
             echo '<input type="hidden" name="' . esc_attr($field_prefix . '_' . $key) . '" value="' . esc_attr($val($key)) . '" />';
         }
@@ -686,6 +690,12 @@ class RT_Event_Manager {
             $field_prefix = 'rti_ticket_' . $i;
             $name_key = $field_prefix . '_name';
             $phone_key = $field_prefix . '_phone';
+
+            // Prefilled tickets (added and validated from the account) are not
+            // re-validated at checkout.
+            if (!empty($_POST[$field_prefix . '_prefilled'])) {
+                continue;
+            }
 
             if (empty($_POST[$name_key])) {
                 wc_add_notice(sprintf(

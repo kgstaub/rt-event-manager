@@ -572,7 +572,7 @@ class RT_Event_Manager_Account {
         $this->render_editable_sections('rtacc-tickets-form', array(
             array('label' => __('My Ticket', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a ticket assigned to yourself yet.', 'rt-event-manager')),
             array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional tickets yet.', 'rt-event-manager'), 'after' => $add_ticket_button),
-            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'after' => $future_button),
+            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'after' => $future_button, 'guardian_options' => $future_options),
         ), $by_id, $can_edit);
 
         // Customize-ticket modals (rendered once, opened by the section buttons).
@@ -650,6 +650,10 @@ class RT_Event_Manager_Account {
                 }
             }
         }
+        // Also treat pretours already in the cart (unpaid) as booked.
+        foreach ($this->get_cart_pretour_products() as $pp => $pids) {
+            $has_pretour[$pp] = true;
+        }
         $candidates = array();
         foreach ($tickets as $t) {
             $k = $this->effective_kind($t);
@@ -724,7 +728,7 @@ class RT_Event_Manager_Account {
                 echo '<p>' . esc_html($sec['empty']) . '</p>';
             } else {
                 $has_rows = true;
-                $this->render_ticket_table($sec['tickets'], $can_edit, $by_id, !empty($sec['minor']));
+                $this->render_ticket_table($sec['tickets'], $can_edit, $by_id, !empty($sec['minor']), isset($sec['guardian_options']) ? $sec['guardian_options'] : array());
             }
             // Optional action for this section (already-escaped HTML).
             if (!empty($sec['after'])) {
@@ -751,9 +755,10 @@ class RT_Event_Manager_Account {
      * @param array $tickets
      * @param bool  $can_edit
      * @param array $by_id       id => ticket, for resolving guardian labels.
-     * @param bool  $minor_block Whether this is the Future members block.
+     * @param bool  $minor_block      Whether this is the Future members block.
+     * @param array $guardian_options id => label for the editable Guardian select.
      */
-    private function render_ticket_table($tickets, $can_edit, $by_id, $minor_block = false) {
+    private function render_ticket_table($tickets, $can_edit, $by_id, $minor_block = false, $guardian_options = array()) {
         $family_options      = RT_Event_Manager::$family_options;
         $dietary_options     = RT_Event_Manager::get_dietary_options(true);
         $allergy_suggestions = RT_Event_Manager::get_allergy_suggestions();
@@ -844,9 +849,16 @@ class RT_Event_Manager_Account {
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '">' . esc_html($dlabel) . '</td>';
             }
 
-            // Guardian (parent ticket holder) — only in the Future members block.
+            // Guardian (parent ticket) — only in the Future members block.
+            // Editable when guardian options are available.
             if ($minor_block) {
-                if ($parent_id && isset($by_id[$parent_id])) {
+                if ($can_edit && !empty($guardian_options)) {
+                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][parent_ticket_id]">';
+                    foreach ($guardian_options as $gid => $glabel) {
+                        echo '<option value="' . esc_attr($gid) . '" ' . selected($parent_id, absint($gid), false) . '>' . esc_html($glabel) . '</option>';
+                    }
+                    echo '</select></td>';
+                } elseif ($parent_id && isset($by_id[$parent_id])) {
                     $p      = $by_id[$parent_id];
                     $plabel = ($p['holder_name'] !== '') ? $p['holder_name'] : ('#' . $parent_id);
                     echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html($plabel) . '</td>';
@@ -1409,6 +1421,14 @@ class RT_Event_Manager_Account {
             if (isset($data['rti_family'])) {
                 $allowed['rti_family'] = sanitize_text_field($data['rti_family']);
             }
+            // Guardian re-assignment (Future members): only to one of the user's
+            // own tickets.
+            if (isset($data['parent_ticket_id'])) {
+                $new_parent = absint($data['parent_ticket_id']);
+                if ($new_parent && isset($owned[$new_parent])) {
+                    $allowed['parent_ticket_id'] = $new_parent;
+                }
+            }
             if (isset($data['phone'])) {
                 $phone_raw = $data['phone'];
                 if (trim($phone_raw) === '' || !RT_Event_Manager::is_valid_intl_phone($phone_raw)) {
@@ -1538,6 +1558,26 @@ class RT_Event_Manager_Account {
      * AJAX: add a pretour for each selected group member (bulk), then checkout.
      * ------------------------------------------------------------------- */
 
+    /**
+     * Member ticket id => [pretour product ids] currently in the cart (added but
+     * not yet paid). Used to prevent a second pretour for the same person.
+     *
+     * @return array
+     */
+    private function get_cart_pretour_products() {
+        $map = array();
+        if (function_exists('WC') && WC()->cart) {
+            foreach (WC()->cart->get_cart() as $ci) {
+                $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+                $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+                if ($pid && $parent && RT_Event_Manager::is_pretour_product($pid)) {
+                    $map[$parent][] = $pid;
+                }
+            }
+        }
+        return $map;
+    }
+
     public function ajax_add_pretours_to_cart() {
         check_ajax_referer('rt_event_manager_add_ticket', 'nonce');
 
@@ -1565,16 +1605,26 @@ class RT_Event_Manager_Account {
             wp_send_json_error(__('Please select at least one member joining the tour.', 'rt-event-manager'));
         }
 
-        // Index the user's tickets and record who already has a pretour.
-        $by_id       = array();
-        $has_pretour = array();
+        // Index the user's tickets, record who already has a pretour (one per
+        // person) and which pretour products each member already holds.
+        $by_id            = array();
+        $has_pretour      = array();
+        $pretour_products = array(); // member ticket id => [product_id, ...]
         foreach (RT_Event_Manager::get_tickets_for_user(get_current_user_id()) as $t) {
             $by_id[absint($t['id'])] = $t;
             if ('pretour' === RT_Event_Manager::get_ticket_kind($t)) {
                 $pp = absint($t['parent_ticket_id']);
                 if ($pp) {
-                    $has_pretour[$pp] = true;
+                    $has_pretour[$pp]        = true;
+                    $pretour_products[$pp][] = absint($t['product_id']);
                 }
+            }
+        }
+        // Also count pretours already sitting in the cart (not yet paid).
+        foreach ($this->get_cart_pretour_products() as $pp => $pids) {
+            $has_pretour[$pp] = true;
+            foreach ($pids as $p) {
+                $pretour_products[$pp][] = $p;
             }
         }
 
@@ -1587,6 +1637,22 @@ class RT_Event_Manager_Account {
             $kind = RT_Event_Manager::get_ticket_kind($m);
             if (!in_array($kind, array('event', 'minor'), true)) {
                 continue; // pretours attach to event tickets or Future members
+            }
+
+            // A Future member may only join the same tour as their guardian: the
+            // guardian must be getting this pretour in the batch, or already have
+            // one for this product.
+            if ('minor' === $kind) {
+                $guardian    = absint($m['parent_ticket_id']);
+                $guardian_ok = in_array($guardian, $members, true)
+                    || (isset($pretour_products[$guardian]) && in_array($product_id, $pretour_products[$guardian], true));
+                if (!$guardian_ok) {
+                    $who = ($m['holder_name'] !== '') ? $m['holder_name'] : ('#' . $mid);
+                    wp_send_json_error(sprintf(
+                        __('%s can only join the same tour as their guardian — please also select their guardian.', 'rt-event-manager'),
+                        $who
+                    ));
+                }
             }
 
             $prefill = array(
