@@ -148,7 +148,6 @@ class RT_Event_Manager {
         // AJAX handlers for ticket management
         add_action('wp_ajax_rti_save_tickets', array($this, 'ajax_save_tickets'));
         add_action('wp_ajax_rti_add_ticket', array($this, 'ajax_add_ticket'));
-        add_action('wp_ajax_rti_update_ticket_combination', array($this, 'ajax_update_ticket_combination'));
         add_action('wp_ajax_rti_export_tickets_xlsx', array($this, 'ajax_export_tickets_xlsx'));
 
         // Frontend ticket display on order view (My Account > Orders > View)
@@ -1743,82 +1742,21 @@ class RT_Event_Manager {
         $ticket_num   = intval($ticket['ticket_index']) + 1;
         $product      = wc_get_product($ticket['product_id']);
         $product_name = $product ? $product->get_name() : __('(deleted)', 'rt-event-manager');
-        $product_id   = absint($ticket['product_id']);
-        $combo_id     = isset($ticket['combination_id']) ? absint($ticket['combination_id']) : 0;
-        $is_mto       = $product && 'make_to_order' === $product->get_type();
-
-        // Lazy-load caches if not pre-built (e.g. from AJAX add).
-        if ($is_mto && class_exists('WC_MTO_Combinations')) {
-            if (!isset($this->_mto_combos_cache)) {
-                $this->_mto_combos_cache = array();
-            }
-            if (empty($this->_mto_combos_cache[$product_id])) {
-                $this->_mto_combos_cache[$product_id] = WC_MTO_Combinations::get_all_for_product($product_id);
-            }
-        }
-        if ($is_mto && class_exists('WC_MTO_Attributes')) {
-            if (!isset($this->_mto_attrs_cache)) {
-                $this->_mto_attrs_cache = array();
-            }
-            if (empty($this->_mto_attrs_cache[$product_id])) {
-                $this->_mto_attrs_cache[$product_id] = WC_MTO_Attributes::get_for_product($product_id);
-            }
-        }
-
-        // Build lookup: attribute_id => selected option_id for the current combination.
-        $combo_selections = array(); // attribute_id => option_id
-        if ($is_mto && $combo_id && !empty($this->_mto_combos_cache[$product_id])) {
-            foreach ($this->_mto_combos_cache[$product_id] as $combo) {
-                if ((int) $combo->combination_id === $combo_id && !empty($combo->items)) {
-                    foreach ($combo->items as $ci) {
-                        $combo_selections[absint($ci->attribute_id)] = absint($ci->option_id);
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Build lookup: attribute_id => first option_id (= "Yes").
-        $first_options = array(); // attribute_id => first option_id
-        if ($is_mto && !empty($this->_mto_attrs_cache[$product_id])) {
-            foreach ($this->_mto_attrs_cache[$product_id] as $attr) {
-                if (!empty($attr->options)) {
-                    $first_options[absint($attr->attribute_id)] = absint($attr->options[0]->option_id);
-                }
-            }
-        }
-
-        // Determine the ordered attribute IDs for columns.
-        $attr_ids_order = isset($this->_mto_attr_ids_order) ? $this->_mto_attr_ids_order : array();
 
         echo '<tr data-ticket-id="' . esc_attr($ticket['id']) . '">';
 
         // Ticket number
         echo '<td class="rti-ticket-num">' . esc_html($ticket_num) . '</td>';
 
+        // Type (Event / Pretour / Future Tabler|Circler)
+        echo '<td>' . esc_html(self::ticket_kind_label($ticket)) . '</td>';
+
         // Product name (read-only)
         echo '<td>' . esc_html($product_name) . '</td>';
 
-        // Per-attribute columns: ✓ if first option selected, — otherwise
-        foreach ($attr_ids_order as $attr_id) {
-            echo '<td style="text-align:center;">';
-            if ($is_mto && isset($combo_selections[$attr_id])) {
-                $is_yes = isset($first_options[$attr_id]) && $combo_selections[$attr_id] === $first_options[$attr_id];
-                echo $is_yes ? '<span style="color:#00a32a;font-weight:bold;">✓</span>' : '<span style="color:#999;">—</span>';
-            } else {
-                echo '<span style="color:#ccc;">—</span>';
-            }
-            echo '</td>';
-        }
-
-        // Editable Combo ID
-        echo '<td>';
-        if ($is_mto && !empty($this->_mto_combos_cache[$product_id])) {
-            echo '<input type="number" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][combination_id]" value="' . esc_attr($combo_id) . '" style="width:60px;" min="0" />';
-        } else {
-            echo '<span style="color:#999;">&mdash;</span>';
-        }
-        echo '</td>';
+        // Parent event/pretour ticket (for pretour and future co-travellers)
+        $parent_label = self::ticket_parent_label($ticket);
+        echo '<td>' . ($parent_label !== '' ? esc_html($parent_label) : '<span style="color:#999;">&mdash;</span>') . '</td>';
 
         // Holder name
         echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][holder_name]" value="' . esc_attr($ticket['holder_name']) . '" style="width:100%;" /></td>';
@@ -1934,66 +1872,12 @@ class RT_Event_Manager {
             }
         }
 
-        // Pre-load MTO combinations and attributes for all MTO products.
-        $mto_combinations_by_product = array();
-        $mto_attributes_by_product = array();
-        if (class_exists('WC_MTO_Combinations') && class_exists('WC_MTO_Attributes')) {
-            foreach ($ticket_product_posts as $tp) {
-                $product = wc_get_product($tp->ID);
-                if ($product && 'make_to_order' === $product->get_type()) {
-                    $combos = WC_MTO_Combinations::get_all_for_product($tp->ID);
-                    if (!empty($combos)) {
-                        $mto_combinations_by_product[$tp->ID] = $combos;
-                    }
-                    $attrs = WC_MTO_Attributes::get_for_product($tp->ID);
-                    if (!empty($attrs)) {
-                        $mto_attributes_by_product[$tp->ID] = $attrs;
-                    }
-                }
-            }
-        }
-        // Store for use in render_ticket_row.
-        $this->_mto_combos_cache = $mto_combinations_by_product;
-        $this->_mto_attrs_cache  = $mto_attributes_by_product;
-
-        // Collect all unique MTO attribute labels across products for column headers.
-        $all_attr_labels = array(); // ordered list of attribute_id => label
-        $all_attr_short_labels = array(); // attribute_id => short label
-
-        // Abbreviation map for attribute labels
-        $attr_abbrev_map = array(
-            'full weekend' => 'FW',
-            'friday'       => 'Fr',
-            'saturday'     => 'Sa',
-            'pretour'      => 'PT',
-            'pre-tour'     => 'PT',
-            'pre tour'     => 'PT',
-            'friday + saturday' => 'Fr+Sa',
-        );
-
-        foreach ($mto_attributes_by_product as $pid => $attrs) {
-            foreach ($attrs as $attr) {
-                $aid = absint($attr->attribute_id);
-                if (!isset($all_attr_labels[$aid])) {
-                    $all_attr_labels[$aid] = $attr->attribute_label;
-                    $lbl_lower = strtolower(trim($attr->attribute_label));
-                    $all_attr_short_labels[$aid] = isset($attr_abbrev_map[$lbl_lower])
-                        ? $attr_abbrev_map[$lbl_lower]
-                        : mb_substr($attr->attribute_label, 0, 2);
-                }
-            }
-        }
-
         echo '<table class="rti-tickets-table widefat striped">';
         echo '<thead><tr>';
         echo '<th>' . esc_html__('#', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Product', 'rt-event-manager') . '</th>';
-        // One column per MTO attribute (abbreviated header)
-        foreach ($all_attr_labels as $attr_id => $attr_label) {
-            $short_label = isset($all_attr_short_labels[$attr_id]) ? $all_attr_short_labels[$attr_id] : $attr_label;
-            echo '<th style="text-align:center;width:40px;" title="' . esc_attr($attr_label) . '">' . esc_html($short_label) . '</th>';
-        }
-        echo '<th style="width:70px;">' . esc_html__('Combo ID', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Parent', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Ticket Phone', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('RTI Family', 'rt-event-manager') . '</th>';
@@ -2009,8 +1893,6 @@ class RT_Event_Manager {
             echo '<th style="width:50px;">' . esc_html__('Print', 'rt-event-manager') . '</th>';
         }
         echo '</tr></thead>';
-        // Store attribute IDs order for use in render_ticket_row.
-        $this->_mto_attr_ids_order = array_keys($all_attr_labels);
 
         // Pre-fetch order-level buyer info for use in render_ticket_row.
         if ($order) {
@@ -2026,7 +1908,7 @@ class RT_Event_Manager {
         echo '<tbody id="rti-tickets-tbody">';
 
         if (empty($tickets)) {
-            $total_cols = 13 + count($all_attr_labels) + 1 + (current_user_can('manage_options') ? 1 : 0); // 13 base cols + attribute cols + combo ID col + print col
+            $total_cols = 15 + (current_user_can('manage_options') ? 1 : 0); // 15 base cols + optional print col
             echo '<tr id="rti-no-tickets-row"><td colspan="' . intval($total_cols) . '" style="text-align:center;color:#999;">';
             echo esc_html__('No tickets yet.', 'rt-event-manager');
             echo '</td></tr>';
@@ -2045,19 +1927,6 @@ class RT_Event_Manager {
                 }
             }
 
-            // Build a map of product_id => combination_id from the order line items
-            // so tickets with combination_id=0 can inherit from their order item.
-            $order_combo_map = array(); // product_id => combination_id
-            if ($order) {
-                foreach ($order->get_items() as $item) {
-                    $pid = absint($item->get_product_id());
-                    $item_combo = absint($item->get_meta('_mto_combination_id'));
-                    if ($item_combo && !isset($order_combo_map[$pid])) {
-                        $order_combo_map[$pid] = $item_combo;
-                    }
-                }
-            }
-
             foreach ($tickets as &$ticket) {
                 // Auto-fill .WORLD ID and QR code for ticket #1 if empty
                 if (intval($ticket['ticket_index']) === 0 && empty($ticket['world_id']) && !empty($customer_world_id)) {
@@ -2068,16 +1937,6 @@ class RT_Event_Manager {
                     $this->update_ticket($ticket['id'], array(
                         'world_id'    => $customer_world_id,
                         'qr_code_url' => 'tablerworld:///member?id=' . $customer_world_id,
-                    ));
-                }
-
-                // Backfill combination_id from order item if ticket has none.
-                $ticket_pid = absint($ticket['product_id']);
-                $ticket_combo = isset($ticket['combination_id']) ? absint($ticket['combination_id']) : 0;
-                if (!$ticket_combo && isset($order_combo_map[$ticket_pid])) {
-                    $ticket['combination_id'] = $order_combo_map[$ticket_pid];
-                    $this->update_ticket($ticket['id'], array(
-                        'combination_id' => $order_combo_map[$ticket_pid],
                     ));
                 }
 
@@ -2324,6 +2183,7 @@ class RT_Event_Manager {
             'order_id'       => $order_id,
             'product_id'     => $product_id,
             'combination_id' => $combo_id,
+            'ticket_kind'    => self::get_ticket_kind_for_product($product_id),
             'ticket_index'   => $next_index,
             'holder_name'    => '',
             'phone'          => '',
@@ -2378,28 +2238,6 @@ class RT_Event_Manager {
         $row_html = ob_get_clean();
 
         wp_send_json_success(array('row_html' => $row_html, 'ticket_id' => $ticket_id));
-    }
-
-    /**
-     * AJAX handler to update a single ticket's combination_id.
-     * Used from the RT Event Manager dashboard overview.
-     */
-    public function ajax_update_ticket_combination() {
-        check_ajax_referer('rti_overview_combination', 'nonce');
-
-        if (!current_user_can('edit_shop_orders')) {
-            wp_send_json_error(__('Permission denied.', 'rt-event-manager'));
-        }
-
-        $ticket_id      = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
-        $combination_id = isset($_POST['combination_id']) ? absint($_POST['combination_id']) : 0;
-
-        if (!$ticket_id) {
-            wp_send_json_error(__('Invalid ticket.', 'rt-event-manager'));
-        }
-
-        $this->update_ticket($ticket_id, array('combination_id' => $combination_id));
-        wp_send_json_success();
     }
 
     /**
@@ -2476,60 +2314,6 @@ class RT_Event_Manager {
             ? $wpdb->get_results($query, ARRAY_A)
             : $wpdb->get_results($wpdb->prepare($query, $params), ARRAY_A);
 
-        // Build combination ID => human-readable label lookup
-        $combo_labels = array();
-        if (class_exists('WC_MTO_Combinations') && class_exists('WC_MTO_Attributes')) {
-            $combo_product_ids = array_unique(array_filter(array_column($tickets, 'product_id')));
-            foreach ($combo_product_ids as $cpid) {
-                $cpid = absint($cpid);
-                $p = wc_get_product($cpid);
-                if (!$p || 'make_to_order' !== $p->get_type()) {
-                    continue;
-                }
-                $combos = WC_MTO_Combinations::get_all_for_product($cpid);
-                $attrs  = WC_MTO_Attributes::get_for_product($cpid);
-                $first_opts = array();
-                foreach ($attrs as $attr) {
-                    if (!empty($attr->options)) {
-                        $first_opts[absint($attr->attribute_id)] = absint($attr->options[0]->option_id);
-                    }
-                }
-                foreach ($combos as $combo) {
-                    $cid = absint($combo->combination_id);
-                    if (isset($combo_labels[$cid])) {
-                        continue;
-                    }
-                    $yes_attrs = array();
-                    if (!empty($combo->items)) {
-                        foreach ($combo->items as $ci) {
-                            $aid = absint($ci->attribute_id);
-                            if (isset($first_opts[$aid]) && absint($ci->option_id) === $first_opts[$aid]) {
-                                $yes_attrs[] = strtolower($ci->attribute_label);
-                            }
-                        }
-                    }
-                    $yes_str = implode(',', $yes_attrs);
-                    $has_friday   = strpos($yes_str, 'friday') !== false || strpos($yes_str, 'fr') !== false;
-                    $has_saturday = strpos($yes_str, 'saturday') !== false || strpos($yes_str, 'sa') !== false;
-                    $has_pretour  = strpos($yes_str, 'pretour') !== false || strpos($yes_str, 'pre-tour') !== false || strpos($yes_str, 'pre tour') !== false || strpos($yes_str, 'pt') !== false;
-
-                    if (count($yes_attrs) >= 3 || ($has_friday && $has_saturday && $has_pretour)) {
-                        $combo_labels[$cid] = 'Full Weekend';
-                    } elseif ($has_friday && $has_saturday) {
-                        $combo_labels[$cid] = 'Friday + Saturday';
-                    } elseif ($has_saturday && !$has_friday && !$has_pretour) {
-                        $combo_labels[$cid] = 'Saturday';
-                    } elseif ($has_pretour && !$has_friday && !$has_saturday) {
-                        $combo_labels[$cid] = 'Pretour';
-                    } elseif (count($yes_attrs) === count($combo->items) && count($yes_attrs) > 0) {
-                        $combo_labels[$cid] = 'Full Weekend';
-                    } else {
-                        $combo_labels[$cid] = 'Full Weekend';
-                    }
-                }
-            }
-        }
-
         // Create spreadsheet
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -2549,7 +2333,7 @@ class RT_Event_Manager {
             'Dietary',
             '.WORLD ID',
             'QR Code URL',
-            'Combination ID',
+            'Parent Ticket',
             'Voucher',
             'Phone',
             'Function / Role',
@@ -2588,9 +2372,9 @@ class RT_Event_Manager {
             if ($dietary_label === 'none') $dietary_label = 'None';
             if ($dietary_label === 'vegetarian') $dietary_label = 'Vegetarian';
 
-            // Ticket type from combination label
-            $combo_id = absint($ticket['combination_id']);
-            $ticket_type = ($combo_id && isset($combo_labels[$combo_id])) ? $combo_labels[$combo_id] : '';
+            // Ticket type (Event / Pretour / Future) and parent reference.
+            $ticket_type   = self::ticket_kind_label($ticket);
+            $parent_label  = self::ticket_parent_label($ticket);
 
             // Buyer info (only on first ticket of each order)
             $is_first_ticket = intval($ticket['ticket_index']) === 0;
@@ -2616,7 +2400,7 @@ class RT_Event_Manager {
             $sheet->setCellValueByColumnAndRow(10, $row, $dietary_label);
             $sheet->setCellValueByColumnAndRow(11, $row, $ticket['world_id']);
             $sheet->setCellValueByColumnAndRow(12, $row, $ticket['qr_code_url']);
-            $sheet->setCellValueByColumnAndRow(13, $row, $ticket['combination_id'] ?: '');
+            $sheet->setCellValueByColumnAndRow(13, $row, $parent_label);
             $sheet->setCellValueByColumnAndRow(14, $row, $buyer_voucher);
             $sheet->setCellValueByColumnAndRow(15, $row, $buyer_phone);
             $sheet->setCellValueByColumnAndRow(16, $row, $buyer_function);
@@ -3067,77 +2851,15 @@ class RT_Event_Manager {
             $family_counts[$fs['rti_family']] = intval($fs['cnt']);
         }
 
-        // Tickets per MTO Combination (only valid + draft)
-        $combo_stats = $wpdb->get_results(
-            "SELECT combination_id, COUNT(*) AS cnt FROM $tickets_table WHERE status IN ('valid', 'draft') AND combination_id > 0 GROUP BY combination_id ORDER BY combination_id ASC",
+        // Tickets per Type (event / pretour / minor), only valid + draft.
+        $kind_stats = $wpdb->get_results(
+            "SELECT ticket_kind, COUNT(*) AS cnt FROM $tickets_table WHERE status IN ('valid', 'draft') GROUP BY ticket_kind",
             ARRAY_A
         );
-        $combo_counts = array(); // combination_id => count
-        foreach ($combo_stats as $cs) {
-            $combo_counts[absint($cs['combination_id'])] = intval($cs['cnt']);
-        }
-
-        // Build combination labels - map Yes/No patterns to friendly names
-        // Full Weekend = all Yes, Friday + Saturday = Fr+Sa Yes, Saturday = only Sa Yes, Pretour = PT Yes
-        $combo_labels = array(); // combination_id => label
-        $combo_short_labels = array(); // combination_id => short label for KPI tiles
-        if (!empty($combo_counts) && class_exists('WC_MTO_Combinations')) {
-            // Get all unique product IDs that have tickets with combinations
-            $combo_product_ids = $wpdb->get_col(
-                "SELECT DISTINCT product_id FROM $tickets_table WHERE combination_id > 0 AND status != 'invalid'"
-            );
-            foreach ($combo_product_ids as $cpid) {
-                $combos = WC_MTO_Combinations::get_all_for_product(absint($cpid));
-                foreach ($combos as $combo) {
-                    $cid = absint($combo->combination_id);
-                    if (isset($combo_counts[$cid]) && !isset($combo_labels[$cid])) {
-                        // Determine which options are "Yes" (first option = Yes)
-                        $yes_attrs = array();
-                        if (!empty($combo->items) && class_exists('WC_MTO_Attributes')) {
-                            $attrs = WC_MTO_Attributes::get_for_product(absint($cpid));
-                            $first_opts = array();
-                            foreach ($attrs as $attr) {
-                                if (!empty($attr->options)) {
-                                    $first_opts[absint($attr->attribute_id)] = absint($attr->options[0]->option_id);
-                                }
-                            }
-                            foreach ($combo->items as $ci) {
-                                $aid = absint($ci->attribute_id);
-                                if (isset($first_opts[$aid]) && absint($ci->option_id) === $first_opts[$aid]) {
-                                    $yes_attrs[] = strtolower($ci->attribute_label);
-                                }
-                            }
-                        }
-                        // Map to friendly names based on which attrs are Yes
-                        $yes_str = implode(',', $yes_attrs);
-                        $has_friday = strpos($yes_str, 'friday') !== false || strpos($yes_str, 'fr') !== false;
-                        $has_saturday = strpos($yes_str, 'saturday') !== false || strpos($yes_str, 'sa') !== false;
-                        $has_pretour = strpos($yes_str, 'pretour') !== false || strpos($yes_str, 'pre-tour') !== false || strpos($yes_str, 'pre tour') !== false || strpos($yes_str, 'pt') !== false;
-
-                        if (count($yes_attrs) >= 3 || ($has_friday && $has_saturday && $has_pretour)) {
-                            $combo_labels[$cid] = 'Full Weekend';
-                            $combo_short_labels[$cid] = 'FW';
-                        } elseif ($has_friday && $has_saturday) {
-                            $combo_labels[$cid] = 'Friday + Saturday';
-                            $combo_short_labels[$cid] = 'Fr+Sa';
-                        } elseif ($has_saturday && !$has_friday && !$has_pretour) {
-                            $combo_labels[$cid] = 'Saturday';
-                            $combo_short_labels[$cid] = 'Sa';
-                        } elseif ($has_pretour && !$has_friday && !$has_saturday) {
-                            $combo_labels[$cid] = 'Pretour';
-                            $combo_short_labels[$cid] = 'PT';
-                        } elseif (count($yes_attrs) === count($combo->items) && count($yes_attrs) > 0) {
-                            // All options are Yes = Full Weekend
-                            $combo_labels[$cid] = 'Full Weekend';
-                            $combo_short_labels[$cid] = 'FW';
-                        } else {
-                            // Fallback - default to Full Weekend for unknown patterns
-                            $combo_labels[$cid] = 'Full Weekend';
-                            $combo_short_labels[$cid] = 'FW';
-                        }
-                    }
-                }
-            }
+        $kind_counts = array(); // kind => count
+        foreach ($kind_stats as $ks) {
+            $kind = $ks['ticket_kind'] !== '' ? $ks['ticket_kind'] : 'event';
+            $kind_counts[$kind] = isset($kind_counts[$kind]) ? $kind_counts[$kind] + intval($ks['cnt']) : intval($ks['cnt']);
         }
 
         ?>
@@ -3191,17 +2913,21 @@ class RT_Event_Manager {
                 <?php endforeach; ?>
             </div>
 
-            <?php if (!empty($combo_counts)) : ?>
-            <!-- Tickets per Combination -->
+            <?php if (!empty($kind_counts)) : ?>
+            <!-- Tickets per Type -->
             <div class="rti-overview-stats" style="display:flex;gap:15px;margin:0 0 20px;flex-wrap:wrap;">
                 <?php
-                $combo_color = '#8e44ad'; // Purple for combinations
-                foreach ($combo_counts as $cid => $ccount) :
-                    $clabel = isset($combo_labels[$cid]) ? $combo_labels[$cid] : '#' . $cid;
+                $kind_meta = array(
+                    'event'   => array(__('Event', 'rt-event-manager'), '#2271b1'),
+                    'pretour' => array(__('Pretour', 'rt-event-manager'), '#8e44ad'),
+                    'minor'   => array(__('Future member', 'rt-event-manager'), '#c0392b'),
+                );
+                foreach ($kind_meta as $kkey => $km) :
+                    $kcount = isset($kind_counts[$kkey]) ? $kind_counts[$kkey] : 0;
                 ?>
-                <div class="rti-stat-box" style="background:#fff;border:1px solid #c3c4c7;border-left:4px solid <?php echo esc_attr($combo_color); ?>;padding:12px 18px;border-radius:3px;min-width:120px;">
-                    <div style="font-size:28px;font-weight:600;color:<?php echo esc_attr($combo_color); ?>;"><?php echo intval($ccount); ?></div>
-                    <div style="color:#646970;font-size:13px;" title="<?php echo esc_attr($clabel); ?>"><?php echo esc_html($clabel); ?></div>
+                <div class="rti-stat-box" style="background:#fff;border:1px solid #c3c4c7;border-left:4px solid <?php echo esc_attr($km[1]); ?>;padding:12px 18px;border-radius:3px;min-width:120px;">
+                    <div style="font-size:28px;font-weight:600;color:<?php echo esc_attr($km[1]); ?>;"><?php echo intval($kcount); ?></div>
+                    <div style="color:#646970;font-size:13px;"><?php echo esc_html($km[0]); ?></div>
                 </div>
                 <?php endforeach; ?>
             </div>
@@ -3297,60 +3023,6 @@ class RT_Event_Manager {
                 ?>
             </p>
 
-            <?php
-            // Pre-load MTO combinations and attributes for dashboard display.
-            $overview_combos_cache = array();
-            $overview_attrs_cache = array();
-            $overview_all_attr_labels = array(); // attribute_id => label (ordered)
-            $overview_attr_short_labels = array(); // attribute_id => short label for table headers
-            $overview_first_options = array(); // attribute_id => first option_id ("Yes")
-
-            // Abbreviation map for attribute labels
-            $attr_abbrev_map = array(
-                'full weekend' => 'FW',
-                'friday'       => 'Fr',
-                'saturday'     => 'Sa',
-                'pretour'      => 'PT',
-                'pre-tour'     => 'PT',
-                'pre tour'     => 'PT',
-                'friday + saturday' => 'Fr+Sa',
-            );
-
-            if (class_exists('WC_MTO_Combinations') && class_exists('WC_MTO_Attributes')) {
-                // Collect unique product_ids from tickets.
-                $overview_product_ids = array_unique(array_column($tickets, 'product_id'));
-                foreach ($overview_product_ids as $opid) {
-                    $opid = absint($opid);
-                    $p = wc_get_product($opid);
-                    if ($p && 'make_to_order' === $p->get_type()) {
-                        $combos = WC_MTO_Combinations::get_all_for_product($opid);
-                        if (!empty($combos)) {
-                            $overview_combos_cache[$opid] = $combos;
-                        }
-                        $attrs = WC_MTO_Attributes::get_for_product($opid);
-                        if (!empty($attrs)) {
-                            $overview_attrs_cache[$opid] = $attrs;
-                            foreach ($attrs as $attr) {
-                                $aid = absint($attr->attribute_id);
-                                if (!isset($overview_all_attr_labels[$aid])) {
-                                    $overview_all_attr_labels[$aid] = $attr->attribute_label;
-                                    // Generate short label
-                                    $lbl_lower = strtolower(trim($attr->attribute_label));
-                                    $overview_attr_short_labels[$aid] = isset($attr_abbrev_map[$lbl_lower])
-                                        ? $attr_abbrev_map[$lbl_lower]
-                                        : mb_substr($attr->attribute_label, 0, 2);
-                                }
-                                if (!empty($attr->options) && !isset($overview_first_options[$aid])) {
-                                    $overview_first_options[$aid] = absint($attr->options[0]->option_id);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            $overview_attr_ids = array_keys($overview_all_attr_labels);
-            ?>
-
             <!-- Tickets table -->
             <table class="wp-list-table widefat fixed striped" id="rti-overview-table">
                 <thead>
@@ -3358,13 +3030,9 @@ class RT_Event_Manager {
                         <th style="width:70px;"><?php esc_html_e('Status', 'rt-event-manager'); ?></th>
                         <th style="width:60px;"><?php esc_html_e('Order', 'rt-event-manager'); ?></th>
                         <th style="width:40px;"><?php esc_html_e('#', 'rt-event-manager'); ?></th>
+                        <th><?php esc_html_e('Type', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Product', 'rt-event-manager'); ?></th>
-                        <?php foreach ($overview_all_attr_labels as $ov_aid => $ov_alabel) :
-                            $ov_short = isset($overview_attr_short_labels[$ov_aid]) ? $overview_attr_short_labels[$ov_aid] : $ov_alabel;
-                        ?>
-                            <th style="text-align:center;width:40px;" title="<?php echo esc_attr($ov_alabel); ?>"><?php echo esc_html($ov_short); ?></th>
-                        <?php endforeach; ?>
-                        <th style="width:70px;"><?php esc_html_e('Combo ID', 'rt-event-manager'); ?></th>
+                        <th><?php esc_html_e('Parent', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Holder Name', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Ticket Phone', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Country', 'rt-event-manager'); ?></th>
@@ -3384,7 +3052,7 @@ class RT_Event_Manager {
                 <tbody>
                     <?php if (empty($tickets)) : ?>
                         <tr>
-                            <td colspan="<?php echo intval(15 + count($overview_attr_ids) + (current_user_can('manage_options') ? 1 : 0)); ?>" style="text-align:center;color:#999;padding:20px;">
+                            <td colspan="<?php echo intval(17 + (current_user_can('manage_options') ? 1 : 0)); ?>" style="text-align:center;color:#999;padding:20px;">
                                 <?php esc_html_e('No tickets found.', 'rt-event-manager'); ?>
                             </td>
                         </tr>
@@ -3433,42 +3101,10 @@ class RT_Event_Manager {
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo esc_html($ticket_num); ?></td>
+                                <td><?php echo esc_html(self::ticket_kind_label($ticket)); ?></td>
                                 <td><?php echo esc_html($product_name); ?></td>
-                                <?php
-                                $ov_pid = absint($ticket['product_id']);
-                                $ov_combo_id = isset($ticket['combination_id']) ? absint($ticket['combination_id']) : 0;
-                                // Build selections for this ticket's combination.
-                                $ov_combo_sels = array(); // attribute_id => option_id
-                                if (!empty($overview_combos_cache[$ov_pid]) && $ov_combo_id) {
-                                    foreach ($overview_combos_cache[$ov_pid] as $ov_combo) {
-                                        if ((int) $ov_combo->combination_id === $ov_combo_id && !empty($ov_combo->items)) {
-                                            foreach ($ov_combo->items as $ov_ci) {
-                                                $ov_combo_sels[absint($ov_ci->attribute_id)] = absint($ov_ci->option_id);
-                                            }
-                                            break;
-                                        }
-                                    }
-                                }
-                                // Render per-attribute cells.
-                                foreach ($overview_attr_ids as $ov_attr_id) :
-                                ?>
-                                <td style="text-align:center;">
-                                    <?php if (isset($ov_combo_sels[$ov_attr_id])) :
-                                        $ov_is_yes = isset($overview_first_options[$ov_attr_id]) && $ov_combo_sels[$ov_attr_id] === $overview_first_options[$ov_attr_id];
-                                    ?>
-                                        <?php echo $ov_is_yes ? '<span style="color:#00a32a;font-weight:bold;">✓</span>' : '<span style="color:#999;">—</span>'; ?>
-                                    <?php else : ?>
-                                        <span style="color:#ccc;">—</span>
-                                    <?php endif; ?>
-                                </td>
-                                <?php endforeach; ?>
-                                <td>
-                                    <?php if (!empty($overview_combos_cache[$ov_pid])) : ?>
-                                        <input type="number" class="rti-overview-combo-input" data-ticket-id="<?php echo esc_attr($ticket['id']); ?>" value="<?php echo esc_attr($ov_combo_id); ?>" style="width:60px;" min="0" />
-                                    <?php else : ?>
-                                        <span style="color:#999;">&mdash;</span>
-                                    <?php endif; ?>
-                                </td>
+                                <?php $ov_parent_label = self::ticket_parent_label($ticket); ?>
+                                <td><?php echo $ov_parent_label !== '' ? esc_html($ov_parent_label) : '<span style="color:#999;">&mdash;</span>'; ?></td>
                                 <td>
                                     <?php if (!empty($ticket['holder_name'])) : ?>
                                         <strong><?php echo esc_html($ticket['holder_name']); ?></strong>
@@ -3549,38 +3185,6 @@ class RT_Event_Manager {
             }
             ?>
         </div>
-
-        <?php if (!empty($overview_combos_cache)) : ?>
-        <script type="text/javascript">
-        jQuery(function($) {
-            var comboNonce = '<?php echo esc_js(wp_create_nonce('rti_overview_combination')); ?>';
-            $('#rti-overview-table').on('change', '.rti-overview-combo-input', function() {
-                var $inp = $(this);
-                var ticketId = $inp.data('ticket-id');
-                var combinationId = $inp.val();
-                $inp.css('opacity', '0.5');
-                $.post(ajaxurl, {
-                    action: 'rti_update_ticket_combination',
-                    nonce: comboNonce,
-                    ticket_id: ticketId,
-                    combination_id: combinationId
-                }, function(response) {
-                    $inp.css('opacity', '1');
-                    if (response.success) {
-                        // Reload to reflect updated ✓/— marks.
-                        location.reload();
-                    } else {
-                        alert(response.data || 'Error');
-                    }
-                }).fail(function() {
-                    $inp.css('opacity', '1');
-                    alert('Request failed.');
-                });
-            });
-        });
-        </script>
-        <?php endif; ?>
-
         <?php
     }
 
@@ -3982,6 +3586,71 @@ class RT_Event_Manager {
             return 'pretour';
         }
         return 'event';
+    }
+
+    /**
+     * Effective kind for a ticket row: prefer the stored ticket_kind, fall back
+     * to deriving from the product (handles rows created before kind existed).
+     *
+     * @param array $row Ticket row (ARRAY_A)
+     * @return string 'event' | 'pretour' | 'minor'
+     */
+    public static function get_ticket_kind($row) {
+        $k = isset($row['ticket_kind']) ? $row['ticket_kind'] : '';
+        if (in_array($k, array('pretour', 'minor'), true)) {
+            return $k;
+        }
+        return self::get_ticket_kind_for_product(isset($row['product_id']) ? $row['product_id'] : 0);
+    }
+
+    /**
+     * Human label for a ticket row's kind (minors show their gender).
+     *
+     * @param array $row
+     * @return string
+     */
+    public static function ticket_kind_label($row) {
+        $kind = self::get_ticket_kind($row);
+        if ('minor' === $kind) {
+            $mt = isset($row['minor_type']) ? $row['minor_type'] : '';
+            return ('circler' === $mt) ? __('Future Circler', 'rt-event-manager') : __('Future Tabler', 'rt-event-manager');
+        }
+        if ('pretour' === $kind) {
+            return __('Pretour', 'rt-event-manager');
+        }
+        return __('Event', 'rt-event-manager');
+    }
+
+    /**
+     * Fetch a single ticket row by id, or null.
+     *
+     * @param int $ticket_id
+     * @return array|null
+     */
+    public static function get_ticket_by_id($ticket_id) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", absint($ticket_id)), ARRAY_A);
+        return $row ?: null;
+    }
+
+    /**
+     * Short "parent" reference label for a ticket row, or '' if none.
+     * Resolves the parent ticket's holder name when available.
+     *
+     * @param array $row
+     * @return string
+     */
+    public static function ticket_parent_label($row) {
+        $parent_id = isset($row['parent_ticket_id']) ? absint($row['parent_ticket_id']) : 0;
+        if (!$parent_id) {
+            return '';
+        }
+        $parent = self::get_ticket_by_id($parent_id);
+        if ($parent && $parent['holder_name'] !== '') {
+            return sprintf('%s (#%d)', $parent['holder_name'], $parent_id);
+        }
+        return '#' . $parent_id;
     }
 
     /**
