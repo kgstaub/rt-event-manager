@@ -291,16 +291,11 @@
     font-weight: 600;
     margin: 0 0 10px;
 }
-.rtacc-sharelink-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 0 0 10px;
-}
 .rtacc-sharelink {
-    flex: 1 1 auto;
+    display: block;
     font-size: 12px;
     word-break: break-all;
+    margin: 0 0 12px;
 }
 .rtacc-copy-link {
     flex: 0 0 auto;

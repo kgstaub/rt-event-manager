@@ -378,7 +378,7 @@
         }, function (response) {
             if (response && response.success) {
                 $form.find('.rtacc-transfer-intro, .rtacc-transfer-final, .rtacc-transfer-step1, .rtacc-transfer-step2, .rtacc-modal-target').hide();
-                $err.removeClass().addClass('rtacc-modal-error uk-text-success')
+                $err.removeClass().addClass('rtacc-modal-error')
                     .text(i18n.linkReady || 'Transfer link ready — share it with the new holder.').show();
                 // Surface the accept link and ways to share it with the new holder.
                 if (response.data && response.data.accept_url) {
@@ -398,15 +398,14 @@
                         i18n.shareWarn || 'You can also share this link directly, however anyone with this link can accept the transfer!'
                     ));
 
-                    var $row = $('<p class="rtacc-sharelink-row"></p>');
-                    $row.append($('<a target="_blank" rel="noopener" class="rtacc-sharelink"></a>').attr('href', url).text(url));
-                    $row.append(
+                    // The link on its own line, then all buttons below it.
+                    $wrap.append($('<a target="_blank" rel="noopener" class="rtacc-sharelink"></a>').attr('href', url).text(url));
+
+                    var $share = $('<p class="rtacc-share-row"></p>');
+                    $share.append(
                         $('<button type="button" class="uk-button uk-button-secondary rtacc-copy-link"></button>')
                             .text(i18n.copyLink || 'Copy link').attr('data-url', url)
                     );
-                    $wrap.append($row);
-
-                    var $share = $('<p class="rtacc-share-row"></p>');
                     $share.append($('<a class="uk-button uk-button-primary" target="_blank" rel="noopener"></a>')
                         .attr('href', mailto).text(i18n.sendEmail || 'Send email'));
                     $share.append($('<a class="uk-button uk-button-primary" target="_blank" rel="noopener"></a>')
