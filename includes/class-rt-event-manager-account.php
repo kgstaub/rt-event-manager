@@ -218,7 +218,7 @@ class RT_Event_Manager_Account {
         }
 
         echo '<div class="rtacc-cart-add">';
-        echo '<h3 class="rtacc-cart-add-title">' . esc_html__('Add more to your booking', 'rt-event-manager') . '</h3>';
+        echo '<h3 class="rtacc-cart-add-title">' . esc_html__('Add more to your registration', 'rt-event-manager') . '</h3>';
         echo '<p class="rtacc-cart-add-hint">' . esc_html__('Attendee details are collected at checkout.', 'rt-event-manager') . '</p>';
         echo '<div class="rtacc-cart-add-buttons">' . $buttons . '</div>';
         echo '</div>';

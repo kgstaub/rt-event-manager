@@ -1513,20 +1513,44 @@ class RT_Event_Manager {
             }
 
             // Link any Future member or pretour added directly (no parent yet) to
-            // this order's own event ticket — the buyer's ticket.
-            $order_tickets   = self::get_tickets_for_order($order_id);
-            $event_ticket_id = 0;
+            // this order's own event tickets. Future members attach to the buyer's
+            // event ticket (their guardian); pretours are spread one-per-event
+            // ticket so no event ticket ends up with more than one pretour.
+            $order_tickets    = self::get_tickets_for_order($order_id);
+            $event_ticket_ids = array();
+            $pretour_taken    = array(); // event ticket id => already has a pretour
             foreach ($order_tickets as $ot) {
                 if ('event' === self::get_ticket_kind($ot) && !absint($ot['parent_ticket_id'])) {
-                    $event_ticket_id = absint($ot['id']);
-                    break;
+                    $event_ticket_ids[] = absint($ot['id']);
                 }
             }
-            if ($event_ticket_id) {
+            foreach ($order_tickets as $ot) {
+                if ('pretour' === self::get_ticket_kind($ot) && absint($ot['parent_ticket_id'])) {
+                    $pretour_taken[absint($ot['parent_ticket_id'])] = true;
+                }
+            }
+            $primary_event = !empty($event_ticket_ids) ? $event_ticket_ids[0] : 0;
+            if ($primary_event) {
                 foreach ($order_tickets as $ot) {
+                    if (absint($ot['parent_ticket_id'])) {
+                        continue;
+                    }
                     $ot_kind = self::get_ticket_kind($ot);
-                    if (in_array($ot_kind, array('minor', 'pretour'), true) && !absint($ot['parent_ticket_id'])) {
-                        $this->update_ticket($ot['id'], array('parent_ticket_id' => $event_ticket_id));
+                    if ('minor' === $ot_kind) {
+                        $this->update_ticket($ot['id'], array('parent_ticket_id' => $primary_event));
+                    } elseif ('pretour' === $ot_kind) {
+                        $target = 0;
+                        foreach ($event_ticket_ids as $eid) {
+                            if (empty($pretour_taken[$eid])) {
+                                $target = $eid;
+                                break;
+                            }
+                        }
+                        if (!$target) {
+                            $target = $primary_event;
+                        }
+                        $pretour_taken[$target] = true;
+                        $this->update_ticket($ot['id'], array('parent_ticket_id' => $target));
                     }
                 }
             }
@@ -1622,7 +1646,9 @@ class RT_Event_Manager {
      * @return bool
      */
     public function validate_future_add_to_cart($passed, $product_id, $quantity) {
-        if (empty($_REQUEST['rti_parent_ticket_id'])) {
+        $parent_id = isset($_REQUEST['rti_parent_ticket_id']) ? absint($_REQUEST['rti_parent_ticket_id']) : 0;
+
+        if (!$parent_id) {
             if (self::is_future_product($product_id)) {
                 // Allowed without an explicit parent if an event ticket is in the
                 // cart — the Future member links to that event ticket at checkout.
@@ -1643,9 +1669,94 @@ class RT_Event_Manager {
                     );
                     return false;
                 }
+                // One pretour per event ticket: an unparented pretour links to an
+                // event ticket in this cart at checkout, so the number of pretours
+                // may not exceed the number of event tickets available to host one.
+                $event_tickets   = $this->count_cart_event_tickets();
+                $cart_pretours   = $this->count_cart_unlinked_pretours();
+                if ($cart_pretours + 1 > $event_tickets) {
+                    wc_add_notice(
+                        __('Each event ticket can have only one pretour. Please remove a pretour from your cart before adding another.', 'rt-event-manager'),
+                        'error'
+                    );
+                    return false;
+                }
+            }
+        } elseif (self::is_pretour_product($product_id)) {
+            // Explicit parent chosen (linked add): block if that ticket already
+            // has a pretour — stored on a previous order, or sitting in the cart.
+            if (self::ticket_has_pretour($parent_id) || $this->cart_has_pretour_for_parent($parent_id)) {
+                wc_add_notice(
+                    __('This ticket already has a pretour. Each event ticket can have only one pretour.', 'rt-event-manager'),
+                    'error'
+                );
+                return false;
             }
         }
         return $passed;
+    }
+
+    /**
+     * Count event tickets currently in the cart (each can host one pretour).
+     *
+     * @return int
+     */
+    private function count_cart_event_tickets() {
+        $count = 0;
+        if (!function_exists('WC') || !WC()->cart) {
+            return 0;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $qty = isset($ci['quantity']) ? absint($ci['quantity']) : 1;
+            if ($pid && self::is_ticket_product($pid) && 'event' === self::get_ticket_kind_for_product($pid)) {
+                $count += max(1, $qty);
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Count pretours in the cart that have no explicit parent (they link to an
+     * event ticket in the same cart at checkout).
+     *
+     * @return int
+     */
+    private function count_cart_unlinked_pretours() {
+        $count = 0;
+        if (!function_exists('WC') || !WC()->cart) {
+            return 0;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+            $qty    = isset($ci['quantity']) ? absint($ci['quantity']) : 1;
+            if ($pid && !$parent && self::is_pretour_product($pid)) {
+                $count += max(1, $qty);
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Whether the cart already holds a pretour linked to a specific parent ticket.
+     *
+     * @param int $parent_id
+     * @return bool
+     */
+    private function cart_has_pretour_for_parent($parent_id) {
+        $parent_id = absint($parent_id);
+        if (!$parent_id || !function_exists('WC') || !WC()->cart) {
+            return false;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+            if ($pid && $parent === $parent_id && self::is_pretour_product($pid)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -4107,6 +4218,30 @@ class RT_Event_Manager {
         $table_name = $wpdb->prefix . 'rti_tickets';
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", absint($ticket_id)), ARRAY_A);
         return $row ?: null;
+    }
+
+    /**
+     * Whether an event/Future member ticket already hosts a pretour (one per
+     * ticket). Counts stored pretour rows whose parent is this ticket and which
+     * are not cancelled/invalid.
+     *
+     * @param int $ticket_id
+     * @return bool
+     */
+    public static function ticket_has_pretour($ticket_id) {
+        global $wpdb;
+        $ticket_id = absint($ticket_id);
+        if (!$ticket_id) {
+            return false;
+        }
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $count = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table_name WHERE parent_ticket_id = %d AND ticket_kind = %s AND status <> %s",
+            $ticket_id,
+            'pretour',
+            'invalid'
+        ));
+        return $count > 0;
     }
 
     /**
