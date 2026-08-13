@@ -113,7 +113,7 @@ class RT_Event_Manager_Account {
      * @return array
      */
     private function get_tabs() {
-        return array(
+        $tabs = array(
             'dashboard' => __('Dashboard', 'rt-event-manager'),
             'profile'   => __('My Profile', 'rt-event-manager'),
             'emergency' => __('Emergency Contact', 'rt-event-manager'),
@@ -124,6 +124,15 @@ class RT_Event_Manager_Account {
             'travel'    => __('Travel and Visa', 'rt-event-manager'),
             'shop'      => __('Shop', 'rt-event-manager'),
         );
+
+        // Backend show/hide toggles for the optional tabs.
+        foreach (array('pretour', 'calendar', 'travel', 'shop') as $key) {
+            if ('yes' !== get_option('rt_event_manager_show_' . $key, 'yes')) {
+                unset($tabs[$key]);
+            }
+        }
+
+        return $tabs;
     }
 
     private function current_tab() {

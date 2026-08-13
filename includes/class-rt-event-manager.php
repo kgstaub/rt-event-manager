@@ -4646,6 +4646,45 @@ class RT_Event_Manager {
             ),
 
             array(
+                'title' => __('Customer Account Tabs', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('Show or hide these sections in the customer account portal.', 'rt-event-manager'),
+                'id'    => 'rti_account_tabs',
+            ),
+            array(
+                'title'   => __('Pretour', 'rt-event-manager'),
+                'desc'    => __('Show the Pretour tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_pretour',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'title'   => __('My Calendar', 'rt-event-manager'),
+                'desc'    => __('Show the My Calendar tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_calendar',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'title'   => __('Travel and Visa', 'rt-event-manager'),
+                'desc'    => __('Show the Travel and Visa tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_travel',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'title'   => __('Shop', 'rt-event-manager'),
+                'desc'    => __('Show the Shop tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_shop',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_account_tabs',
+            ),
+
+            array(
                 'title' => __('Shop Settings', 'rt-event-manager'),
                 'type'  => 'title',
                 'desc'  => __('Control the merchandise shown in the customer account Shop tab.', 'rt-event-manager'),
