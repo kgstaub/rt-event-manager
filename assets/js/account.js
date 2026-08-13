@@ -385,8 +385,9 @@
                     $form.find('.rtacc-sharelink-wrap').remove();
                     var url = response.data.accept_url;
 
-                    var intro = i18n.shareIntro || "I'd like to transfer my event ticket to you. Accept it here:";
-                    var msg   = intro + '\n\n' + url; // link kept in the message body
+                    // Message body with the link embedded.
+                    var tpl = i18n.shareMessage || 'Hey,\n\nhere is a link so you can accept the transfer of my RTI HYM 2027 Ticket: %s\n\nYours in Tabling';
+                    var msg = tpl.replace('%s', url);
                     var mailto = 'mailto:?subject=' + encodeURIComponent(i18n.shareSubject || 'Event ticket transfer') +
                                  '&body=' + encodeURIComponent(msg);
                     var wa = 'https://wa.me/?text=' + encodeURIComponent(msg);
