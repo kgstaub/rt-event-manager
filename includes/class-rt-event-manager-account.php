@@ -852,31 +852,21 @@ class RT_Event_Manager_Account {
 
         // "Mine" is the user's OWN event ticket (their first parentless one). Adult
         // co-travellers are separate, so their pretours belong under "Travelling
-        // with me". Also collect Future member ticket ids so pretours bought for a
-        // minor land in the Future members block.
+        // with me" — this now includes Future member (child) pretours too.
         $this->own_event_id = $this->own_event_ticket_id($tickets);
         $my_event_ids = $this->own_event_id ? array($this->own_event_id => true) : array();
-        $minor_ids    = array();
-        foreach ($tickets as $t) {
-            if ('minor' === $this->effective_kind($t)) {
-                $minor_ids[absint($t['id'])] = true;
-            }
-        }
 
         $mine       = array();
         $companions = array();
-        $minors     = array();
         foreach ($tickets as $t) {
             if ('pretour' !== $this->effective_kind($t)) {
                 continue;
             }
             $parent = absint($t['parent_ticket_id']);
-            if (isset($minor_ids[$parent])) {
-                $minors[] = $t; // pretour purchased for a Future member
-            } elseif (isset($my_event_ids[$parent])) {
-                $mine[] = $t;   // the buyer's own pretour
+            if (isset($my_event_ids[$parent])) {
+                $mine[] = $t;       // the buyer's own pretour
             } else {
-                $companions[] = $t; // adult co-traveller pretours
+                $companions[] = $t; // co-travellers and Future members
             }
         }
 
@@ -916,7 +906,6 @@ class RT_Event_Manager_Account {
         $this->render_editable_sections('rtacc-pretour-form', array(
             array('label' => __('My Pretour', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a pretour ticket yet.', 'rt-event-manager'), 'pretour_view' => true),
             array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional pretour tickets yet.', 'rt-event-manager'), 'pretour_view' => true),
-            array('label' => __('Future Tablers / Future Circlers', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'pretour_view' => true),
         ), $by_id, $can_edit, true);
 
         // The bulk pretour modal (hidden; opened by the title-line button).
@@ -1246,7 +1235,11 @@ class RT_Event_Manager_Account {
                 echo '<tr>';
                 echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($pname) . '</td>';
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($t['holder_name'] ?: '—');
-                if ($minor_block) {
+                // Show the guardian sub-line for a Future member's pretour (its
+                // parent ticket is a minor), regardless of which block it's in.
+                $parent = isset($t['parent_ticket_id']) ? absint($t['parent_ticket_id']) : 0;
+                $is_minor_pretour = $parent && isset($by_id[$parent]) && 'minor' === RT_Event_Manager::get_ticket_kind($by_id[$parent]);
+                if ($minor_block || $is_minor_pretour) {
                     $g = $this->guardian_label($t, $by_id);
                     if ($g !== '') {
                         echo '<br><span class="rtacc-muted rtacc-guardian-line">' . esc_html(sprintf(__('Guardian: %s', 'rt-event-manager'), $g)) . '</span>';
