@@ -2385,6 +2385,7 @@ class RT_Event_Manager {
         $options = array(
             'none'       => __('None', 'rt-event-manager'),
             'vegetarian' => __('Vegetarian', 'rt-event-manager'),
+            'vegan'      => __('Vegan', 'rt-event-manager'),
             'allergies'  => __('Allergies', 'rt-event-manager'),
         );
         if ($include_empty) {

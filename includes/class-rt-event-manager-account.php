@@ -687,7 +687,7 @@ class RT_Event_Manager_Account {
         echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Items', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Total', 'rt-event-manager') . '</th>';
-        echo '<th>' . esc_html__('Receipt', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Document', 'rt-event-manager') . '</th>';
         echo '</tr></thead><tbody>';
 
         foreach ($orders as $order) {
@@ -696,14 +696,22 @@ class RT_Event_Manager_Account {
                 $item_names[] = $item->get_name() . ' × ' . $item->get_quantity();
             }
 
-            $receipt_url = wp_nonce_url(
-                add_query_arg(array(
-                    'action'   => 'rt_event_manager_receipt',
-                    'order_id' => $order->get_id(),
-                ), admin_url('admin-ajax.php')),
-                'rt_event_manager_receipt_' . $order->get_id(),
-                'nonce'
-            );
+            // A paid order gets a "receipt"; an unpaid/draft order gets an
+            // "invoice". Prefer a WooCommerce PDF plugin's document if present.
+            $is_paid = $order->is_paid();
+            $label   = $is_paid ? __('Download receipt', 'rt-event-manager') : __('Download invoice', 'rt-event-manager');
+            $doc_url = $this->wc_pdf_document_url($order, $is_paid ? 'receipt' : 'invoice');
+            if ('' === $doc_url) {
+                $doc_url = wp_nonce_url(
+                    add_query_arg(array(
+                        'action'   => 'rt_event_manager_receipt',
+                        'order_id' => $order->get_id(),
+                        'doc'      => $is_paid ? 'receipt' : 'invoice',
+                    ), admin_url('admin-ajax.php')),
+                    'rt_event_manager_receipt_' . $order->get_id(),
+                    'nonce'
+                );
+            }
 
             echo '<tr>';
             echo '<td>#' . esc_html($order->get_order_number()) . '</td>';
@@ -711,11 +719,38 @@ class RT_Event_Manager_Account {
             echo '<td>' . esc_html(wc_get_order_status_name($order->get_status())) . '</td>';
             echo '<td>' . esc_html(implode(', ', $item_names)) . '</td>';
             echo '<td>' . wp_kses_post($order->get_formatted_order_total()) . '</td>';
-            echo '<td><a class="uk-button uk-button-default uk-button-small" href="' . esc_url($receipt_url) . '" target="_blank" rel="noopener">' . esc_html__('Download PDF', 'rt-event-manager') . '</a></td>';
+            echo '<td><a class="uk-button uk-button-default uk-button-small" href="' . esc_url($doc_url) . '" target="_blank" rel="noopener">' . esc_html($label) . '</a></td>';
             echo '</tr>';
         }
 
         echo '</tbody></table>';
+    }
+
+    /**
+     * Return a WooCommerce PDF plugin's customer document link for an order, or
+     * '' when none is available. Currently supports "PDF Invoices & Packing
+     * Slips" (WPO WCPDF). Falls back (empty) to our own generator otherwise.
+     *
+     * @param WC_Order $order
+     * @param string   $doc  'receipt' | 'invoice' (advisory; WPO uses 'invoice').
+     * @return string
+     */
+    private function wc_pdf_document_url($order, $doc = 'invoice') {
+        if (function_exists('WPO_WCPDF')) {
+            $wcpdf = WPO_WCPDF();
+            if (is_object($wcpdf) && isset($wcpdf->endpoint) && is_object($wcpdf->endpoint)
+                && method_exists($wcpdf->endpoint, 'get_document_link')) {
+                try {
+                    $link = $wcpdf->endpoint->get_document_link($order, 'invoice');
+                    if (is_string($link) && '' !== $link) {
+                        return $link;
+                    }
+                } catch (\Throwable $e) {
+                    // Fall through to our own generator.
+                }
+            }
+        }
+        return '';
     }
 
     /* ---------------------------------------------------------------------
@@ -2468,14 +2503,17 @@ class RT_Event_Manager_Account {
             wp_die(esc_html__('Receipt generator not available.', 'rt-event-manager'));
         }
 
-        $pdf = RT_Event_Manager_Receipt::instance()->generate_receipt_pdf($order_id);
+        // Draft/unpaid orders get an invoice; paid orders get a receipt.
+        $doc_type = (isset($_GET['doc']) && 'invoice' === $_GET['doc']) ? 'invoice' : 'receipt';
+
+        $pdf = RT_Event_Manager_Receipt::instance()->generate_receipt_pdf($order_id, $doc_type);
         if (!$pdf) {
-            wp_die(esc_html__('Failed to generate receipt PDF.', 'rt-event-manager'));
+            wp_die(esc_html__('Failed to generate the PDF.', 'rt-event-manager'));
         }
 
         nocache_headers();
         header('Content-Type: application/pdf');
-        header('Content-Disposition: inline; filename="receipt-order-' . $order_id . '.pdf"');
+        header('Content-Disposition: inline; filename="' . $doc_type . '-order-' . $order_id . '.pdf"');
         header('Content-Length: ' . strlen($pdf));
         echo $pdf;
         exit;

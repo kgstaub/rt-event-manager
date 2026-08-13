@@ -34,7 +34,7 @@ class RT_Event_Manager_Receipt {
      * @param int $order_id
      * @return string|false Raw PDF bytes, or false on failure.
      */
-    public function generate_receipt_pdf($order_id) {
+    public function generate_receipt_pdf($order_id, $doc_type = 'receipt') {
         if (!class_exists('Dompdf\\Dompdf')) {
             return false;
         }
@@ -44,8 +44,10 @@ class RT_Event_Manager_Receipt {
             return false;
         }
 
+        $doc_type = ('invoice' === $doc_type) ? 'invoice' : 'receipt';
+
         try {
-            $html = $this->build_html($order);
+            $html = $this->build_html($order, $doc_type);
 
             $options = new Options();
             $options->set('isRemoteEnabled', true);
@@ -71,7 +73,10 @@ class RT_Event_Manager_Receipt {
      * @param WC_Order $order
      * @return string
      */
-    private function build_html($order) {
+    private function build_html($order, $doc_type = 'receipt') {
+        $is_invoice = ('invoice' === $doc_type);
+        $doc_title  = $is_invoice ? __('Order Invoice', 'rt-event-manager') : __('Order Receipt', 'rt-event-manager');
+        $doc_for    = $is_invoice ? __('Invoice for order', 'rt-event-manager') : __('Receipt for order', 'rt-event-manager');
         $store_name = get_bloginfo('name');
         $order_no   = $order->get_order_number();
         $date       = wc_format_datetime($order->get_date_created());
@@ -112,12 +117,12 @@ class RT_Event_Manager_Receipt {
         <body>
             <div class="header">
                 <h1><?php echo esc_html($store_name); ?></h1>
-                <div class="muted"><?php echo esc_html__('Order Receipt', 'rt-event-manager'); ?></div>
+                <div class="muted"><?php echo esc_html($doc_title); ?></div>
             </div>
 
             <table class="meta">
                 <tr>
-                    <td class="label"><?php echo esc_html__('Receipt for order', 'rt-event-manager'); ?></td>
+                    <td class="label"><?php echo esc_html($doc_for); ?></td>
                     <td>#<?php echo esc_html($order_no); ?></td>
                     <td class="label"><?php echo esc_html__('Date', 'rt-event-manager'); ?></td>
                     <td><?php echo esc_html($date); ?></td>
