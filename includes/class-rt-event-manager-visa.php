@@ -379,7 +379,7 @@ class RT_Event_Manager_Visa {
         $tickets = RT_Event_Manager::get_tickets_for_user($user_id);
 
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Travel and Visa', 'rt-event-manager') . '</h2>';
-        echo '<p class="rtacc-hint">' . esc_html__('If you need a visa for Switzerland, generate a letter of invitation for each attendee below. Citizens of EU/EFTA countries do not need a visa or a letter.', 'rt-event-manager') . '</p>';
+        echo '<div class="uk-alert-primary" uk-alert><p>' . esc_html__('If you need a visa for Switzerland, generate a letter of invitation for each attendee below. Citizens of EU/EFTA countries do not need a visa or a letter.', 'rt-event-manager') . '</p></div>';
 
         $visa_tickets = array_filter($tickets, function ($t) {
             return in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true);
