@@ -129,6 +129,17 @@
     flex-wrap: wrap;
     gap: 10px;
 }
+.rtacc-cart-pretour-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.rtacc-cart-pretour-option .rtacc-cart-add-btn {
+    display: block;
+    width: 100%;
+    text-align: center;
+}
 .rtacc-subtitle {
     margin: 20px 0 8px;
 }

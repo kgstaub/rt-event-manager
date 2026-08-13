@@ -173,18 +173,42 @@ class RT_Event_Manager_Account {
             return;
         }
 
-        $buttons  = '';
-        $event    = $this->first_purchasable_product($this->get_event_product_ids());
-        $pretour  = $this->first_purchasable_product($this->get_pretour_product_ids());
-        $fut_id   = $this->get_future_product_id();
-        $future   = $fut_id ? wc_get_product($fut_id) : null;
+        $buttons = '';
+        $modals  = '';
+        $event   = $this->first_purchasable_product($this->get_event_product_ids());
+        $fut_id  = $this->get_future_product_id();
+        $future  = $fut_id ? wc_get_product($fut_id) : null;
+
+        // Purchasable pretour products (there can be several to choose from).
+        $pretours = array();
+        foreach ($this->get_pretour_product_ids() as $pid) {
+            $p = wc_get_product($pid);
+            if ($p && $p->is_purchasable() && $p->is_in_stock()) {
+                $pretours[] = $p;
+            }
+        }
 
         if ($event) {
             $buttons .= $this->cart_add_link($event, __('Add another attendee', 'rt-event-manager'));
         }
-        if ($pretour) {
-            $buttons .= $this->cart_add_link($pretour, __('Add a pretour', 'rt-event-manager'));
+
+        if (count($pretours) > 1) {
+            // Multiple tours → open a modal to choose which one.
+            $buttons .= '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cart-pretour">' . esc_html__('Add a pretour', 'rt-event-manager') . '</button>';
+            $options = '';
+            foreach ($pretours as $p) {
+                $options .= '<div class="rtacc-cart-pretour-option">' . $this->cart_add_link($p, $p->get_name() . ' — ' . wp_strip_all_tags($p->get_price_html()), 'uk-button uk-button-default') . '</div>';
+            }
+            $modals .= '<div class="rtacc-modal" id="rtacc-modal-cart-pretour" hidden>'
+                . '<div class="rtacc-modal-backdrop" data-rtacc-close></div>'
+                . '<div class="rtacc-modal-dialog"><h3 class="rtacc-subtitle">' . esc_html__('Choose a pretour', 'rt-event-manager') . '</h3>'
+                . '<div class="rtacc-cart-pretour-list">' . $options . '</div>'
+                . '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-default" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button></p>'
+                . '</div></div>';
+        } elseif (count($pretours) === 1) {
+            $buttons .= $this->cart_add_link($pretours[0], __('Add a pretour', 'rt-event-manager'));
         }
+
         if ($future && $future->is_purchasable() && $future->is_in_stock()) {
             $buttons .= $this->cart_add_link($future, __('Add a Future member', 'rt-event-manager'));
         }
@@ -198,6 +222,7 @@ class RT_Event_Manager_Account {
         echo '<p class="rtacc-cart-add-hint">' . esc_html__('Attendee details are collected at checkout.', 'rt-event-manager') . '</p>';
         echo '<div class="rtacc-cart-add-buttons">' . $buttons . '</div>';
         echo '</div>';
+        echo $modals;
     }
 
     /**
@@ -206,15 +231,16 @@ class RT_Event_Manager_Account {
      *
      * @param WC_Product $product
      * @param string     $label
+     * @param string     $classes CSS classes for the anchor.
      * @return string
      */
-    private function cart_add_link($product, $label) {
+    private function cart_add_link($product, $label, $classes = 'uk-button uk-button-primary') {
         if ($this->product_needs_options($product)) {
             $url = $product->get_permalink();
         } else {
             $url = add_query_arg('add-to-cart', $product->get_id(), wc_get_cart_url());
         }
-        return '<a class="button rtacc-cart-add-btn" href="' . esc_url($url) . '" rel="nofollow">' . esc_html($label) . '</a>';
+        return '<a class="' . esc_attr($classes) . ' rtacc-cart-add-btn" href="' . esc_url($url) . '" rel="nofollow">' . esc_html($label) . '</a>';
     }
 
     /* ---------------------------------------------------------------------
