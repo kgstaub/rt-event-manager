@@ -435,6 +435,10 @@ class RT_Event_Manager {
                     'quantity'        => $cart_item['quantity'],
                     'require_dietary' => 'yes' === $require_dietary,
                     'kind'            => self::get_ticket_kind_for_product($product_id),
+                    // A linked co-traveller (added from the account with a parent)
+                    // is never the purchaser, even when it is the only ticket in the
+                    // order (ticket_index 0).
+                    'has_parent'      => !empty($cart_item['rti_parent_ticket_id']),
                 );
             }
         }
@@ -481,8 +485,12 @@ class RT_Event_Manager {
                 )) . '</h4>';
 
                 $is_minor = (isset($item['kind']) && 'minor' === $item['kind']);
+                // A ticket is "additional" (for someone other than the purchaser)
+                // when it is not the first ticket of the order OR it is a linked
+                // co-traveller added from the account.
+                $is_additional = ($ticket_index > 0) || !empty($item['has_parent']);
 
-                $name_value = ($ticket_index === 0 && !$is_minor) ? $default_name : '';
+                $name_value = (!$is_additional && !$is_minor) ? $default_name : '';
 
                 woocommerce_form_field($field_prefix . '_name', array(
                     'type'     => 'text',
@@ -532,9 +540,9 @@ class RT_Event_Manager {
                 }
 
                 // Additional travellers carry their OWN organization details (they
-                // are not the purchaser). Ticket #1 inherits the buyer's family /
-                // club / .WORLD ID; minors carry none of these.
-                if ($ticket_index > 0 && !$is_minor) {
+                // are not the purchaser). The purchaser's own ticket inherits the
+                // buyer's family / club / .WORLD ID; minors carry none of these.
+                if ($is_additional && !$is_minor) {
                     woocommerce_form_field($field_prefix . '_family', array(
                         'type'     => 'select',
                         'label'    => __('Family Organization', 'rt-event-manager'),
@@ -1327,16 +1335,19 @@ class RT_Event_Manager {
                 $parent_id    = isset($parent_map[$i]) ? $parent_map[$i] : 0;
                 $minor_type   = isset($minor_type_map[$i]) ? $minor_type_map[$i] : '';
                 $is_minor     = ('minor' === $kind);
+                // A ticket is "additional" (not the purchaser's own) when it is not
+                // the first ticket of the order OR it is a linked co-traveller.
+                $is_additional = ($i > 0) || ($parent_id > 0);
                 $dob          = ($is_minor && isset($_POST[$field_prefix . '_dob'])) ? self::sanitize_dob(wp_unslash($_POST[$field_prefix . '_dob'])) : '';
 
-                // Ticket #1 is the purchaser and inherits their family / club /
-                // .WORLD ID. Additional travellers carry their OWN details entered
-                // on the checkout form. Minors carry none of these.
+                // The purchaser's own ticket inherits their family / club / .WORLD
+                // ID. Additional travellers carry their OWN details entered on the
+                // checkout form. Minors carry none of these.
                 if ($is_minor) {
                     $ticket_family = '';
                     $ticket_club   = '';
                     $world_id      = '';
-                } elseif ($i === 0) {
+                } elseif (!$is_additional) {
                     $ticket_family = $buyer_family;
                     $ticket_club   = $buyer_club;
                     $world_id      = $user_id ? $buyer_world_id : '';
