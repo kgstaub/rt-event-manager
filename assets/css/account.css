@@ -335,6 +335,18 @@
     white-space: normal;
     height: auto;
 }
+/* Solid brand-red alert for the child-too-old warning. */
+.rtacc-visa-child-warn {
+    background: var(--rtacc-primary);
+    color: #fff;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin: 0 0 12px;
+}
+.rtacc-visa-child-warn p {
+    margin: 0;
+    color: #fff;
+}
 .rtacc-visa-row {
     display: flex;
     gap: 12px;

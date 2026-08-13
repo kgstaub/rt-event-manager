@@ -496,7 +496,7 @@ class RT_Event_Manager_Visa {
             echo '<input type="hidden" name="for_child" value="1" />';
             echo '<div class="rtacc-visa-result uk-alert" uk-alert style="display:none;"></div>';
             echo '<p class="rtacc-hint">' . esc_html(sprintf(__('The letter will state that the child is accompanying their guardian, %s.', 'rt-event-manager'), $holder)) . '</p>';
-            echo '<div class="rtacc-visa-child-warn uk-alert-primary" uk-alert style="display:none;"><p></p></div>';
+            echo '<div class="rtacc-visa-child-warn" style="display:none;"><p></p></div>';
             echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Child\'s name', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="child_name" required /></p>';
             echo $this->visa_fields_html($b, '', false);
             echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
