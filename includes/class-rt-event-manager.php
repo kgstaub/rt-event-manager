@@ -1649,6 +1649,8 @@ class RT_Event_Manager {
                     'world_id'         => $world_id,
                     'qr_code_url'      => $qr_code_url,
                     'status'           => $ticket_status,
+                    // Initial owner is the buyer; a transfer can reassign it later.
+                    'owner_user_id'    => $user_id,
                 ));
             }
 
@@ -2152,8 +2154,8 @@ class RT_Event_Manager {
         // Checked-in status must never be clobbered by a re-submit.
         $sql = $wpdb->prepare(
             "INSERT INTO $table_name
-                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, dob, rti_family, rti_club, dietary, allergy_details, world_id, qr_code_url, status)
-             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, dob, rti_family, rti_club, dietary, allergy_details, world_id, qr_code_url, status, owner_user_id)
+             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d)
              ON DUPLICATE KEY UPDATE
                 product_id       = VALUES(product_id),
                 combination_id   = VALUES(combination_id),
@@ -2169,7 +2171,8 @@ class RT_Event_Manager {
                 allergy_details  = VALUES(allergy_details),
                 world_id         = VALUES(world_id),
                 qr_code_url      = VALUES(qr_code_url),
-                status           = IF(status = 'checked_in', status, VALUES(status))",
+                status           = IF(status IN ('checked_in', 'cancelled'), status, VALUES(status)),
+                owner_user_id    = IF(owner_user_id > 0, owner_user_id, VALUES(owner_user_id))",
             absint($data['order_id']),
             absint($data['product_id']),
             absint(isset($data['combination_id']) ? $data['combination_id'] : 0),
@@ -2186,7 +2189,8 @@ class RT_Event_Manager {
             sanitize_text_field(isset($data['allergy_details']) ? $data['allergy_details'] : ''),
             sanitize_text_field($data['world_id']),
             sanitize_text_field($data['qr_code_url']),
-            isset($data['status']) ? sanitize_text_field($data['status']) : 'draft'
+            isset($data['status']) ? sanitize_text_field($data['status']) : 'draft',
+            absint(isset($data['owner_user_id']) ? $data['owner_user_id'] : 0)
         );
 
         $result = $wpdb->query($sql);
@@ -2228,25 +2232,34 @@ class RT_Event_Manager {
             return array();
         }
 
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rti_tickets';
+
         $order_ids = wc_get_orders(array(
             'customer_id' => $user_id,
             'limit'       => -1,
             'return'      => 'ids',
         ));
+        $order_ids = array_map('absint', (array) $order_ids);
 
-        if (empty($order_ids)) {
-            return array();
+        // A ticket belongs to the user when it is explicitly owned by them
+        // (owner_user_id) OR — for legacy rows with no owner recorded — when it
+        // sits on one of their orders. A ticket transferred AWAY has a different
+        // owner_user_id, so the order-based clause no longer returns it to the
+        // original buyer.
+        $where  = array('owner_user_id = %d');
+        $params = array($user_id);
+
+        if (!empty($order_ids)) {
+            $placeholders = implode(', ', array_fill(0, count($order_ids), '%d'));
+            $where[]      = "(owner_user_id = 0 AND order_id IN ($placeholders))";
+            $params       = array_merge($params, $order_ids);
         }
 
-        global $wpdb;
-        $table_name   = $wpdb->prefix . 'rti_tickets';
-        $order_ids    = array_map('absint', $order_ids);
-        $placeholders = implode(', ', array_fill(0, count($order_ids), '%d'));
+        $sql = "SELECT * FROM $table_name WHERE " . implode(' OR ', $where)
+             . ' ORDER BY order_id ASC, ticket_index ASC';
 
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM $table_name WHERE order_id IN ($placeholders) ORDER BY order_id ASC, ticket_index ASC",
-            $order_ids
-        ), ARRAY_A);
+        return $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
     }
 
     /**
@@ -2269,6 +2282,62 @@ class RT_Event_Manager {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether a refund is still possible for a cancellation. Refunds are tied to
+     * the same cutoff date as ticket editing: on or before the cutoff a refund is
+     * requested; after it, cancellation happens with no refund.
+     *
+     * @return bool
+     */
+    public function is_refund_window_open() {
+        return $this->is_frontend_editing_allowed();
+    }
+
+    /**
+     * Recipient for cancellation / refund-request notifications. Defaults to the
+     * site admin (WooCommerce's default new-order recipient); filterable.
+     *
+     * @return string
+     */
+    public static function get_shop_manager_email() {
+        $email = get_option('admin_email');
+        /** Allow overriding the cancellation notification recipient. */
+        return apply_filters('rt_event_manager_cancel_notification_email', $email);
+    }
+
+    /**
+     * Per-unit amount actually paid for a ticket, from its order line item
+     * (including tax). Returns a float in the order's currency.
+     *
+     * @param array $ticket Ticket row.
+     * @return float
+     */
+    public static function get_ticket_paid_amount($ticket) {
+        $order = wc_get_order(absint($ticket['order_id']));
+        if (!$order) {
+            return 0.0;
+        }
+        $product_id = absint($ticket['product_id']);
+        foreach ($order->get_items() as $item) {
+            if (absint($item->get_product_id()) === $product_id) {
+                $qty = max(1, (int) $item->get_quantity());
+                return ((float) $item->get_total() + (float) $item->get_total_tax()) / $qty;
+            }
+        }
+        return 0.0;
+    }
+
+    /**
+     * Currency code of the order a ticket belongs to (for formatting amounts).
+     *
+     * @param array $ticket Ticket row.
+     * @return string
+     */
+    public static function get_ticket_currency($ticket) {
+        $order = wc_get_order(absint($ticket['order_id']));
+        return $order ? $order->get_currency() : get_woocommerce_currency();
     }
 
     /**
@@ -2324,20 +2393,24 @@ class RT_Event_Manager {
         $update_format = array();
 
         $allowed_fields = array(
-            'holder_name'      => '%s',
-            'phone'            => '%s',
-            'dob'              => '%s',
-            'rti_family'       => '%s',
-            'rti_club'         => '%s',
-            'dietary'          => '%s',
-            'allergy_details'  => '%s',
-            'world_id'         => '%s',
-            'qr_code_url'      => '%s',
-            'status'           => '%s',
-            'combination_id'   => '%d',
-            'parent_ticket_id' => '%d',
-            'ticket_kind'      => '%s',
-            'minor_type'       => '%s',
+            'holder_name'           => '%s',
+            'phone'                 => '%s',
+            'dob'                   => '%s',
+            'rti_family'            => '%s',
+            'rti_club'              => '%s',
+            'dietary'               => '%s',
+            'allergy_details'       => '%s',
+            'world_id'              => '%s',
+            'qr_code_url'           => '%s',
+            'status'                => '%s',
+            'combination_id'        => '%d',
+            'parent_ticket_id'      => '%d',
+            'ticket_kind'           => '%s',
+            'minor_type'            => '%s',
+            'owner_user_id'         => '%d',
+            'transfer_token'        => '%s',
+            'transfer_email'        => '%s',
+            'transfer_requested_at' => '%s',
         );
 
         foreach ($allowed_fields as $field => $format) {
@@ -2536,8 +2609,8 @@ class RT_Event_Manager {
 
         // Status badge (read-only)
         $ticket_status = isset($ticket['status']) ? $ticket['status'] : 'draft';
-        $status_labels = array('valid' => __('Valid', 'rt-event-manager'), 'draft' => __('Draft', 'rt-event-manager'), 'invalid' => __('Invalid', 'rt-event-manager'), 'checked_in' => __('Checked In', 'rt-event-manager'));
-        $status_colors = array('valid' => '#00a32a', 'draft' => '#dba617', 'invalid' => '#d63638', 'checked_in' => '#2271b1');
+        $status_labels = array('valid' => __('Valid', 'rt-event-manager'), 'draft' => __('Draft', 'rt-event-manager'), 'invalid' => __('Invalid', 'rt-event-manager'), 'checked_in' => __('Checked In', 'rt-event-manager'), 'cancelled' => __('Cancelled', 'rt-event-manager'));
+        $status_colors = array('valid' => '#00a32a', 'draft' => '#dba617', 'invalid' => '#d63638', 'checked_in' => '#2271b1', 'cancelled' => '#8c8f94');
         $badge_color = isset($status_colors[$ticket_status]) ? $status_colors[$ticket_status] : '#999';
         $badge_label = isset($status_labels[$ticket_status]) ? $status_labels[$ticket_status] : ucfirst($ticket_status);
         echo '<td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;color:#fff;background:' . esc_attr($badge_color) . ';">' . esc_html($badge_label) . '</span></td>';
@@ -3404,8 +3477,8 @@ class RT_Event_Manager {
         ), ARRAY_A);
 
         foreach ($tickets as $ticket) {
-            // Never overwrite checked_in status automatically
-            if ($ticket['status'] === 'checked_in') {
+            // Never overwrite checked_in or cancelled status automatically.
+            if (in_array($ticket['status'], array('checked_in', 'cancelled'), true)) {
                 continue;
             }
             $status = rt_event_manager_determine_ticket_status($order, $ticket['holder_name']);
@@ -3483,12 +3556,14 @@ class RT_Event_Manager {
             'draft'      => __('Draft', 'rt-event-manager'),
             'checked_in' => __('Checked In', 'rt-event-manager'),
             'invalid'    => __('Invalid', 'rt-event-manager'),
+            'cancelled'  => __('Cancelled', 'rt-event-manager'),
         );
         $status_colors = array(
             'valid'      => '#00a32a',
             'draft'      => '#dba617',
             'checked_in' => '#2271b1',
             'invalid'    => '#d63638',
+            'cancelled'  => '#8c8f94',
         );
 
         // Handle search / filters
