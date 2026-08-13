@@ -1766,6 +1766,12 @@ class RT_Event_Manager_Account {
         if (in_array($t['status'], array('cancelled', 'checked_in'), true)) {
             wp_send_json_error(__('This ticket can no longer be transferred.', 'rt-event-manager'));
         }
+        if (!empty($t['transfer_token'])) {
+            wp_send_json_error(sprintf(
+                __('A transfer to %s is already pending for this ticket. Please wait for it to be accepted, or ask an organiser to withdraw it, before starting another.', 'rt-event-manager'),
+                $t['transfer_email'] !== '' ? $t['transfer_email'] : __('another person', 'rt-event-manager')
+            ));
+        }
         if (!is_email($email)) {
             wp_send_json_error(__('Please enter a valid email address.', 'rt-event-manager'));
         }
