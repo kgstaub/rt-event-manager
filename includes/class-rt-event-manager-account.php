@@ -729,7 +729,9 @@ class RT_Event_Manager_Account {
             echo '<th>' . esc_html__('Family', 'rt-event-manager') . '</th>';
         }
         echo '<th>' . esc_html__('Dietary', 'rt-event-manager') . '</th>';
-        echo '<th>' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
+        if ($minor_block) {
+            echo '<th>' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
+        }
         echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
         echo '</tr></thead><tbody>';
 
@@ -786,15 +788,17 @@ class RT_Event_Manager_Account {
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '">' . esc_html($dlabel) . '</td>';
             }
 
-            // Guardian (parent ticket holder).
-            if ($parent_id && isset($by_id[$parent_id])) {
-                $p      = $by_id[$parent_id];
-                $plabel = ($p['holder_name'] !== '') ? $p['holder_name'] : ('#' . $parent_id);
-                echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html($plabel) . '</td>';
-            } elseif ($parent_id) {
-                echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">#' . esc_html($parent_id) . '</td>';
-            } else {
-                echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">&mdash;</td>';
+            // Guardian (parent ticket holder) — only in the Future members block.
+            if ($minor_block) {
+                if ($parent_id && isset($by_id[$parent_id])) {
+                    $p      = $by_id[$parent_id];
+                    $plabel = ($p['holder_name'] !== '') ? $p['holder_name'] : ('#' . $parent_id);
+                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html($plabel) . '</td>';
+                } elseif ($parent_id) {
+                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">#' . esc_html($parent_id) . '</td>';
+                } else {
+                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">&mdash;</td>';
+                }
             }
 
             echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
