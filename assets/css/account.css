@@ -76,6 +76,24 @@
 .rtacc-title {
     margin-top: 0;
 }
+.rtacc-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    border-bottom: 1px solid #e2e2e2;
+    padding-bottom: 8px;
+}
+.rtacc-title-row .rtacc-title {
+    margin: 0;
+    border-bottom: 0;
+    flex: 1 1 auto;
+}
+.rtacc-title-action {
+    flex: 0 0 auto;
+}
 .rtacc-subtitle {
     margin: 20px 0 8px;
 }

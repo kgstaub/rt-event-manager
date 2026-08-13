@@ -607,26 +607,18 @@ class RT_Event_Manager_Account {
         $can_edit = RT_Event_Manager::instance()->is_frontend_editing_allowed();
         $by_id    = $this->index_by_id($tickets);
 
-        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Pretour', 'rt-event-manager') . '</h2>';
-        $this->maybe_cutoff_notice($can_edit);
-
-        // Event ticket id sets (to decide "mine" vs "travelling with me" for pretour).
+        // "Mine" is the buyer's OWN event ticket (index 0, no parent link). Adult
+        // co-travellers have a parent link, so their pretours belong under
+        // "Travelling with me". Also collect Future member ticket ids so pretours
+        // bought for a minor land in the Future members block.
         $my_event_ids = array();
-        $event_all    = array();
+        $minor_ids    = array();
         foreach ($tickets as $t) {
-            if ('event' === $this->effective_kind($t)) {
-                $event_all[] = $t;
-                if (intval($t['ticket_index']) === 0) {
-                    $my_event_ids[absint($t['id'])] = true;
-                }
+            $k = $this->effective_kind($t);
+            if ('event' === $k && intval($t['ticket_index']) === 0 && !absint($t['parent_ticket_id'])) {
+                $my_event_ids[absint($t['id'])] = true;
             }
-        }
-
-        // Future member (minor) ticket ids, so pretours bought for a minor land
-        // in the Future members block rather than "Travelling with me".
-        $minor_ids = array();
-        foreach ($tickets as $t) {
-            if ('minor' === $this->effective_kind($t)) {
+            if ('minor' === $k) {
                 $minor_ids[absint($t['id'])] = true;
             }
         }
@@ -641,23 +633,16 @@ class RT_Event_Manager_Account {
             $parent = absint($t['parent_ticket_id']);
             if (isset($minor_ids[$parent])) {
                 $minors[] = $t; // pretour purchased for a Future member
-            } elseif (!$parent || isset($my_event_ids[$parent])) {
-                $mine[] = $t;
+            } elseif (isset($my_event_ids[$parent])) {
+                $mine[] = $t;   // the buyer's own pretour
             } else {
-                $companions[] = $t;
+                $companions[] = $t; // adult co-traveller pretours
             }
         }
 
-        $this->render_editable_sections('rtacc-pretour-form', array(
-            array('label' => __('My Pretour', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a pretour ticket yet.', 'rt-event-manager'), 'show_product' => true),
-            array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional pretour tickets yet.', 'rt-event-manager'), 'show_product' => true),
-            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'show_product' => true),
-        ), $by_id, $can_edit);
-
-        // Bulk pretour add: any group member (event ticket or Future member) who
-        // does not already have a pretour can join the tour. One pretour per
-        // person; each pretour is linked to that member's ticket.
-        $has_pretour = array(); // member ticket id => true
+        // Bulk pretour candidates: members (event ticket or Future member) who do
+        // not already have a pretour (counting unpaid ones in the cart).
+        $has_pretour = array();
         foreach ($tickets as $t) {
             if ('pretour' === $this->effective_kind($t)) {
                 $pp = absint($t['parent_ticket_id']);
@@ -666,7 +651,6 @@ class RT_Event_Manager_Account {
                 }
             }
         }
-        // Also treat pretours already in the cart (unpaid) as booked.
         foreach ($this->get_cart_pretour_products() as $pp => $pids) {
             $has_pretour[$pp] = true;
         }
@@ -677,7 +661,25 @@ class RT_Event_Manager_Account {
                 $candidates[] = $t;
             }
         }
-        $this->render_pretour_bulk_add($candidates);
+
+        // Title line with the "Add a pretour" button at the right edge.
+        echo '<div class="rtacc-title-row">';
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Pretour', 'rt-event-manager') . '</h2>';
+        echo $this->pretour_add_button_html($candidates);
+        echo '</div>';
+
+        $this->maybe_cutoff_notice($can_edit);
+
+        // Pretour tickets are read-only (Tour + Holder + Status; Guardian for
+        // Future members). Their details are managed on the Event Tickets tab.
+        $this->render_editable_sections('rtacc-pretour-form', array(
+            array('label' => __('My Pretour', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a pretour ticket yet.', 'rt-event-manager'), 'pretour_view' => true),
+            array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional pretour tickets yet.', 'rt-event-manager'), 'pretour_view' => true),
+            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'pretour_view' => true),
+        ), $by_id, $can_edit, true);
+
+        // The bulk pretour modal (hidden; opened by the title-line button).
+        $this->render_pretour_modal($candidates);
     }
 
     /* ---- Ticket rendering helpers ---- */
@@ -688,6 +690,33 @@ class RT_Event_Manager_Account {
             $by_id[absint($t['id'])] = $t;
         }
         return $by_id;
+    }
+
+    /**
+     * Resolve the guardian holder label for a ticket. If the direct parent is
+     * itself a Future member (e.g. a pretour bought for a minor), resolve one
+     * level up to that minor's guardian.
+     *
+     * @param array $t
+     * @param array $by_id
+     * @return string
+     */
+    private function guardian_label($t, $by_id) {
+        $parent_id = isset($t['parent_ticket_id']) ? absint($t['parent_ticket_id']) : 0;
+        if (!$parent_id) {
+            return '';
+        }
+        if (isset($by_id[$parent_id])) {
+            $p = $by_id[$parent_id];
+            if ('minor' === RT_Event_Manager::get_ticket_kind($p)) {
+                $gp = absint($p['parent_ticket_id']);
+                if ($gp && isset($by_id[$gp])) {
+                    $p = $by_id[$gp];
+                }
+            }
+            return ($p['holder_name'] !== '') ? $p['holder_name'] : ('#' . $parent_id);
+        }
+        return '#' . $parent_id;
     }
 
     private function maybe_cutoff_notice($can_edit) {
@@ -733,8 +762,12 @@ class RT_Event_Manager_Account {
      * section is array('label','tickets','empty', optional 'minor'=>true). The
      * form is submitted by account.js (class rtacc-tickets-form).
      */
-    private function render_editable_sections($form_id, $sections, $by_id, $can_edit) {
-        echo '<form id="' . esc_attr($form_id) . '" class="rtacc-form uk-form-stacked rtacc-tickets-form">';
+    private function render_editable_sections($form_id, $sections, $by_id, $can_edit, $readonly = false) {
+        if ($readonly) {
+            echo '<div class="rtacc-readonly-sections">';
+        } else {
+            echo '<form id="' . esc_attr($form_id) . '" class="rtacc-form uk-form-stacked rtacc-tickets-form">';
+        }
 
         $has_rows = false;
         foreach ($sections as $sec) {
@@ -744,7 +777,7 @@ class RT_Event_Manager_Account {
                 echo '<p>' . esc_html($sec['empty']) . '</p>';
             } else {
                 $has_rows = true;
-                $this->render_ticket_table($sec['tickets'], $can_edit, $by_id, !empty($sec['minor']), isset($sec['guardian_options']) ? $sec['guardian_options'] : array(), !empty($sec['show_product']));
+                $this->render_ticket_table($sec['tickets'], $can_edit, $by_id, !empty($sec['minor']), isset($sec['guardian_options']) ? $sec['guardian_options'] : array(), !empty($sec['show_product']), !empty($sec['pretour_view']));
             }
             // Optional action for this section (already-escaped HTML).
             if (!empty($sec['after'])) {
@@ -753,14 +786,14 @@ class RT_Event_Manager_Account {
             echo '</section>';
         }
 
-        if ($can_edit && $has_rows) {
+        if (!$readonly && $can_edit && $has_rows) {
             echo '<p class="rtacc-actions">';
             echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Save ticket details', 'rt-event-manager') . '</button>';
             echo '<span class="rtacc-status" aria-live="polite"></span>';
             echo '</p>';
         }
 
-        echo '</form>';
+        echo $readonly ? '</div>' : '</form>';
     }
 
     /**
@@ -774,12 +807,43 @@ class RT_Event_Manager_Account {
      * @param bool  $minor_block      Whether this is the Future members block.
      * @param array $guardian_options id => label for the editable Guardian select.
      * @param bool  $show_product     Whether to show a Tour (product name) column.
+     * @param bool  $pretour_view     Minimal read-only layout for pretour tickets:
+     *                                Tour + Holder (+ Guardian for minors) + Status.
      */
-    private function render_ticket_table($tickets, $can_edit, $by_id, $minor_block = false, $guardian_options = array(), $show_product = false) {
+    private function render_ticket_table($tickets, $can_edit, $by_id, $minor_block = false, $guardian_options = array(), $show_product = false, $pretour_view = false) {
+        $status_labels = $this->status_labels();
+
+        if ($pretour_view) {
+            echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
+            echo '<thead><tr>';
+            echo '<th>' . esc_html__('Tour', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
+            if ($minor_block) {
+                echo '<th>' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
+            }
+            echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
+            echo '</tr></thead><tbody>';
+            foreach ($tickets as $t) {
+                $status  = isset($t['status']) ? $t['status'] : 'draft';
+                $product = wc_get_product($t['product_id']);
+                $pname   = $product ? $product->get_name() : __('(deleted product)', 'rt-event-manager');
+                echo '<tr>';
+                echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($pname) . '</td>';
+                echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($t['holder_name'] ?: '—') . '</td>';
+                if ($minor_block) {
+                    $g = $this->guardian_label($t, $by_id);
+                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . ($g !== '' ? esc_html($g) : '&mdash;') . '</td>';
+                }
+                echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+            return;
+        }
+
         $family_options      = RT_Event_Manager::$family_options;
         $dietary_options     = RT_Event_Manager::get_dietary_options(true);
         $allergy_suggestions = RT_Event_Manager::get_allergy_suggestions();
-        $status_labels       = $this->status_labels();
 
         echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
         echo '<thead><tr>';
@@ -1137,16 +1201,12 @@ class RT_Event_Manager_Account {
     }
 
     /**
-     * Bulk "Add a pretour" control. The tour is purchased for the group members
-     * selected below (event ticket holders and Future members who do not already
-     * have a pretour); each pretour is linked to that member's ticket and
-     * prefilled from their details, then routed to checkout.
+     * Simple, purchasable pretour products the bulk flow can offer (variable /
+     * MTO pretours must be bought via their own product page).
      *
-     * @param array $candidates Member ticket rows eligible to join the tour.
+     * @return WC_Product[]
      */
-    private function render_pretour_bulk_add($candidates) {
-        // Simple, purchasable pretour products the bulk flow can offer (variable
-        // / MTO pretours must be bought via their own product page).
+    private function get_bulk_pretour_products() {
         $products = array();
         foreach ($this->get_pretour_product_ids() as $pid) {
             $p = wc_get_product($pid);
@@ -1154,24 +1214,36 @@ class RT_Event_Manager_Account {
                 $products[] = $p;
             }
         }
+        return $products;
+    }
 
-        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
-        echo '<h3 class="rtacc-subtitle">' . esc_html__('Add a pretour', 'rt-event-manager') . '</h3>';
+    /**
+     * The "Add a pretour" title-line button. Empty when there is no bookable
+     * pretour product or no eligible member.
+     *
+     * @param array $candidates Eligible member ticket rows.
+     * @return string
+     */
+    private function pretour_add_button_html($candidates) {
+        if (empty($this->get_bulk_pretour_products()) || empty($candidates)) {
+            return '';
+        }
+        return '<button type="button" class="uk-button uk-button-primary rtacc-title-action" data-rtacc-modal="pretour">'
+            . esc_html__('Add a pretour', 'rt-event-manager') . '</button>';
+    }
 
-        if (empty($products)) {
-            echo '<p>' . esc_html__('No pretour products are available. Set a Pretour category under WooCommerce settings.', 'rt-event-manager') . '</p></section>';
+    /**
+     * The bulk pretour modal: choose the tour and which group members join. One
+     * pretour is added per selected member, then the JS redirects to checkout.
+     *
+     * @param array $candidates Eligible member ticket rows.
+     */
+    private function render_pretour_modal($candidates) {
+        $products = $this->get_bulk_pretour_products();
+        if (empty($products) || empty($candidates)) {
             return;
         }
-        if (empty($candidates)) {
-            echo '<p>' . esc_html__('Everyone in your group already has a pretour, or you have no tickets yet.', 'rt-event-manager') . '</p></section>';
-            return;
-        }
 
-        echo '<p class="rtacc-hint">' . esc_html__('Choose the tour and who is joining. A pretour is added for each selected member.', 'rt-event-manager') . '</p>';
-        echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="pretour">' . esc_html__('Add a pretour', 'rt-event-manager') . '</button></p>';
-        echo '</section>';
-
-        // Bulk pretour modal.
         echo '<div class="rtacc-modal" id="rtacc-modal-pretour" hidden>';
         echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
         echo '<div class="rtacc-modal-dialog">';
