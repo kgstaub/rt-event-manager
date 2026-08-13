@@ -65,7 +65,12 @@
     font-weight: 600;
 }
 .rtacc-nav-logout a {
-    color: var(--rtacc-dark);
+    background: var(--rtacc-primary);
+    color: #fff;
+}
+.rtacc-nav-logout a:hover {
+    background: var(--rtacc-primary-hover);
+    color: #fff;
 }
 
 /* ---- Content ---- */
