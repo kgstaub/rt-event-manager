@@ -305,12 +305,17 @@
     margin: 10px 0 0;
 }
 .rtacc-show-cancelled-wrap {
-    margin: 0 0 14px;
-    font-size: 13px;
-    color: var(--rtacc-muted);
+    margin-bottom: 14px;
 }
 .rtacc-show-cancelled-wrap label {
+    display: inline-flex;
+    align-items: center;
     cursor: pointer;
+    color: var(--rtacc-muted);
+}
+/* Spacing between the UIkit checkbox and its text; box skin comes from the theme. */
+.rtacc-show-cancelled-wrap .uk-checkbox {
+    margin-right: 8px;
 }
 .rtacc-section-desc {
     margin: 0 0 12px;

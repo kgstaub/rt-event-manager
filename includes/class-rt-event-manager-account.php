@@ -1082,12 +1082,13 @@ class RT_Event_Manager_Account {
         return !empty($_GET['show_cancelled']);
     }
 
-    /** Render the "Show cancelled tickets" checkbox. */
+    /** Render the "Show cancelled tickets" checkbox (UIkit styling). */
     private function render_show_cancelled_toggle($checked) {
-        echo '<p class="rtacc-show-cancelled-wrap"><label>';
-        echo '<input type="checkbox" class="rtacc-show-cancelled"' . ($checked ? ' checked' : '') . ' /> ';
+        echo '<div class="rtacc-show-cancelled-wrap uk-margin-small">';
+        echo '<label class="uk-form-label">';
+        echo '<input type="checkbox" class="uk-checkbox rtacc-show-cancelled"' . ($checked ? ' checked' : '') . ' /> ';
         echo esc_html__('Show cancelled tickets', 'rt-event-manager');
-        echo '</label></p>';
+        echo '</label></div>';
     }
 
     private function own_event_ticket_id($tickets) {
