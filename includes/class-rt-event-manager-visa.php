@@ -188,8 +188,7 @@ class RT_Event_Manager_Visa {
             . '<tr><td class="lbl">Geburtsdatum</td><td>{applicant_dob}</td></tr>'
             . '<tr><td class="lbl">Staatsangehörigkeit</td><td>{applicant_nationality}</td></tr>'
             . '<tr><td class="lbl">Adresse</td><td>{applicant_address}</td></tr>'
-            . '<tr><td class="lbl">Telefon</td><td>{applicant_phone}</td></tr>'
-            . '<tr><td class="lbl">E-Mail</td><td>{applicant_email}</td></tr>'
+            . '{applicant_contact}'
             . '</table>'
             . '{guardian_note}'
             . '<p>Zeitraum des Aufenthalts: {stay_from} bis {stay_to}.</p>'
@@ -396,8 +395,13 @@ class RT_Event_Manager_Visa {
         }
     }
 
-    /** Field set shared by the attendee and accompanying-child forms. */
-    private function visa_fields_html($b, $dob_prefill = '') {
+    /**
+     * Field set shared by the attendee and accompanying-child forms.
+     *
+     * @param bool $include_contact Whether to include phone + e-mail (dropped
+     *                              for children / Future members).
+     */
+    private function visa_fields_html($b, $dob_prefill = '', $include_contact = true) {
         $h  = '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Date of birth', 'rt-event-manager') . '</label><input type="date" class="uk-input" name="dob" value="' . esc_attr($dob_prefill) . '" required /></p>';
         $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Nationality', 'rt-event-manager') . '</label>' . $this->country_select('nationality', $b['country']) . '</p>';
         $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Street and number', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="addr1" value="' . esc_attr($b['addr1']) . '" required /></p>';
@@ -407,8 +411,10 @@ class RT_Event_Manager_Visa {
         $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('City', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="city" value="' . esc_attr($b['city']) . '" required /></p>';
         $h .= '</div>';
         $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Country of residence', 'rt-event-manager') . '</label>' . $this->country_select('country', $b['country']) . '</p>';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Phone', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="phone" value="' . esc_attr($b['phone']) . '" /></p>';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('E-mail', 'rt-event-manager') . '</label><input type="email" class="uk-input" name="email" value="' . esc_attr($b['email']) . '" /></p>';
+        if ($include_contact) {
+            $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Phone', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="phone" value="' . esc_attr($b['phone']) . '" /></p>';
+            $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('E-mail', 'rt-event-manager') . '</label><input type="email" class="uk-input" name="email" value="' . esc_attr($b['email']) . '" /></p>';
+        }
         return $h;
     }
 
@@ -474,7 +480,7 @@ class RT_Event_Manager_Visa {
         if (!$has_attendee) {
             echo '<form id="visa-attendee-' . esc_attr($ticket_id) . '" class="rtacc-form uk-form-stacked rtacc-visa-form" style="display:none;margin-top:12px;" data-ticket="' . esc_attr($ticket_id) . '">';
             echo '<div class="rtacc-visa-result uk-alert" uk-alert style="display:none;"></div>';
-            echo $this->visa_fields_html($b, $dob_prefill);
+            echo $this->visa_fields_html($b, $dob_prefill, $is_event);
             echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
             echo '<p class="rtacc-actions"><button type="submit" class="uk-button uk-button-primary">' . esc_html__('Generate letter', 'rt-event-manager') . '</button><span class="rtacc-status" aria-live="polite"></span></p>';
             echo '</form>';
@@ -487,9 +493,9 @@ class RT_Event_Manager_Visa {
             echo '<input type="hidden" name="for_child" value="1" />';
             echo '<div class="rtacc-visa-result uk-alert" uk-alert style="display:none;"></div>';
             echo '<p class="rtacc-hint">' . esc_html(sprintf(__('The letter will state that the child is accompanying their guardian, %s.', 'rt-event-manager'), $holder)) . '</p>';
-            echo '<div class="rtacc-visa-child-warn uk-alert-warning" uk-alert style="display:none;"><p></p></div>';
+            echo '<div class="rtacc-visa-child-warn uk-alert-primary" uk-alert style="display:none;"><p></p></div>';
             echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Child\'s name', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="child_name" required /></p>';
-            echo $this->visa_fields_html($b, '');
+            echo $this->visa_fields_html($b, '', false);
             echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
             echo '<p class="rtacc-actions"><button type="submit" class="uk-button uk-button-primary">' . esc_html__('Generate letter', 'rt-event-manager') . '</button><span class="rtacc-status" aria-live="polite"></span></p>';
             echo '</form>';
@@ -756,6 +762,14 @@ class RT_Event_Manager_Visa {
             '{issue_date}'            => esc_html($this->fmt_date(current_time('Y-m-d'))),
             '{guardian_name}'         => esc_html(isset($applicant['guardian_name']) ? $applicant['guardian_name'] : ''),
         );
+
+        // Contact rows (phone + e-mail) are omitted for children / Future members.
+        if (empty($applicant['is_child'])) {
+            $vars['{applicant_contact}'] = '<tr><td class="lbl">Telefon</td><td>' . esc_html($applicant['phone']) . '</td></tr>'
+                . '<tr><td class="lbl">E-Mail</td><td>' . esc_html($applicant['email']) . '</td></tr>';
+        } else {
+            $vars['{applicant_contact}'] = '';
+        }
 
         // Guardian note for a child / Future member accompanying their guardian.
         $guardian_note = '';
