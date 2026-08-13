@@ -344,17 +344,31 @@
         });
     });
 
-    // ---- Ticket cancellation: open modal, prefill target ----
+    // ---- Ticket cancellation: open modal, reset to step 1 ----
     $(document).on('click', '.rtacc-cancel-btn', function () {
         var $modal = $('#rtacc-modal-cancel');
+        var $form  = $modal.find('.rtacc-cancel-form');
         var kind   = $(this).data('kind');
-        $modal.find('input[name="ticket_id"]').val($(this).data('ticket'));
-        $modal.find('.rtacc-modal-target').text(
-            (i18n.ticketFor || 'Ticket:') + ' ' + $(this).data('name')
-        );
-        $modal.find('.rtacc-cancel-package').toggle(kind === 'event' || kind === 'minor');
-        $modal.find('.rtacc-modal-error').hide().text('');
+        $form.find('input[name="ticket_id"]').val($(this).data('ticket'));
+        $form.find('.rtacc-modal-target').text((i18n.ticketFor || 'Ticket:') + ' ' + $(this).data('name'));
+        $form.find('.rtacc-cancel-package').toggle(kind === 'event' || kind === 'minor');
+        $form.find('.rtacc-cancel-step1').show();
+        $form.find('.rtacc-cancel-step2').hide();
+        $form.find('.rtacc-modal-error').hide().text('');
+        $form.find('button[type="submit"]').prop('disabled', false);
         $modal.removeAttr('hidden');
+    });
+
+    // Two-step confirm for cancellation.
+    $(document).on('click', '.rtacc-cancel-next', function () {
+        var $form = $(this).closest('.rtacc-cancel-form');
+        $form.find('.rtacc-cancel-step1').hide();
+        $form.find('.rtacc-cancel-step2').show();
+    });
+    $(document).on('click', '.rtacc-cancel-back', function () {
+        var $form = $(this).closest('.rtacc-cancel-form');
+        $form.find('.rtacc-cancel-step2').hide();
+        $form.find('.rtacc-cancel-step1').show();
     });
 
     $(document).on('submit', '.rtacc-cancel-form', function (e) {

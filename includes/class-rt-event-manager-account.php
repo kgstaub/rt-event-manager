@@ -956,12 +956,24 @@ class RT_Event_Manager_Account {
         echo '<input type="hidden" name="ticket_id" value="" />';
         echo '<p class="rtacc-modal-target rtacc-muted"></p>';
         echo '<p class="rtacc-cancel-package" style="display:none;">' . esc_html__('Any pretour linked to this ticket will be cancelled as well.', 'rt-event-manager') . '</p>';
-        echo '<p>' . esc_html($note) . '</p>';
+        echo '<p class="rtacc-cancel-note">' . esc_html($note) . '</p>';
         echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
-        echo '<p class="rtacc-actions">';
-        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Confirm cancellation', 'rt-event-manager') . '</button>';
+
+        // Step 1 — start cancellation.
+        echo '<p class="rtacc-actions rtacc-cancel-step1">';
+        echo '<button type="button" class="uk-button uk-button-primary rtacc-cancel-next">' . esc_html__('Cancel ticket', 'rt-event-manager') . '</button>';
         echo '<button type="button" class="uk-button uk-button-secondary" data-rtacc-close>' . esc_html__('Keep ticket', 'rt-event-manager') . '</button>';
-        echo '</p></form></div></div>';
+        echo '</p>';
+
+        // Step 2 — confirm.
+        echo '<div class="rtacc-cancel-step2" style="display:none;">';
+        echo '<p><strong>' . esc_html__('Are you sure you want to cancel this ticket? This cannot be undone.', 'rt-event-manager') . '</strong></p>';
+        echo '<p class="rtacc-actions">';
+        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Yes, cancel the ticket', 'rt-event-manager') . '</button>';
+        echo '<button type="button" class="uk-button uk-button-secondary rtacc-cancel-back">' . esc_html__('Back', 'rt-event-manager') . '</button>';
+        echo '</p></div>';
+
+        echo '</form></div></div>';
     }
 
     /**
