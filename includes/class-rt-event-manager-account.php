@@ -814,14 +814,14 @@ class RT_Event_Manager_Account {
         $status_labels = $this->status_labels();
 
         if ($pretour_view) {
-            echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
+            echo '<table class="rtacc-table rtacc-tickets rtacc-pretour-table uk-table uk-table-divider uk-table-middle uk-table-small">';
             echo '<thead><tr>';
-            echo '<th>' . esc_html__('Tour', 'rt-event-manager') . '</th>';
-            echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
+            echo '<th style="width:35%;">' . esc_html__('Tour', 'rt-event-manager') . '</th>';
+            echo '<th style="width:35%;">' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
             if ($minor_block) {
-                echo '<th>' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
+                echo '<th style="width:20%;">' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
             }
-            echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
+            echo '<th style="width:130px;">' . esc_html__('Status', 'rt-event-manager') . '</th>';
             echo '</tr></thead><tbody>';
             foreach ($tickets as $t) {
                 $status  = isset($t['status']) ? $t['status'] : 'draft';

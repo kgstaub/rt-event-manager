@@ -94,6 +94,16 @@
 .rtacc-title-action {
     flex: 0 0 auto;
 }
+
+/* Fixed layout so the read-only pretour tables share identical column widths. */
+.rtacc-pretour-table {
+    table-layout: fixed;
+    width: 100%;
+}
+.rtacc-pretour-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 .rtacc-subtitle {
     margin: 20px 0 8px;
 }
