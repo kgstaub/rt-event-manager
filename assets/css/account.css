@@ -38,6 +38,12 @@
     flex: 0 0 220px;
     max-width: 220px;
 }
+/* Fixed-width icon column so labels line up. */
+.rtacc-nav-icon {
+    width: 1.25em;
+    margin-right: 10px;
+    text-align: center;
+}
 /* Logout item stands out in the brand colour. */
 .rtacc-nav .rtacc-nav-logout > a {
     color: var(--rtacc-primary);

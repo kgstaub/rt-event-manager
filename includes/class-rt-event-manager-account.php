@@ -157,6 +157,16 @@ class RT_Event_Manager_Account {
             return;
         }
 
+        // Font Awesome 6 (free) for the sidebar nav icons.
+        if (!wp_style_is('font-awesome', 'enqueued') && !wp_style_is('fontawesome', 'enqueued')) {
+            wp_enqueue_style(
+                'rt-event-manager-fa',
+                'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css',
+                array(),
+                '6.5.2'
+            );
+        }
+
         wp_enqueue_style(
             'rt-event-manager-account',
             RT_EVENT_MANAGER_PLUGIN_URL . 'assets/css/account.css',
@@ -412,21 +422,34 @@ class RT_Event_Manager_Account {
     }
 
     private function render_nav($current) {
+        $icons = array(
+            'dashboard' => 'fa-gauge-high',
+            'profile'   => 'fa-user',
+            'emergency' => 'fa-kit-medical',
+            'orders'    => 'fa-receipt',
+            'tickets'   => 'fa-ticket',
+            'pretour'   => 'fa-route',
+            'travel'    => 'fa-passport',
+            'shop'      => 'fa-bag-shopping',
+        );
+
+        $item = function ($icon, $url, $label, $classes) {
+            printf(
+                '<li class="%s"><a href="%s"><i class="fa-solid %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
+                esc_attr($classes),
+                esc_url($url),
+                esc_attr($icon),
+                esc_html($label)
+            );
+        };
+
         echo '<nav class="rtacc-nav" aria-label="' . esc_attr__('Account navigation', 'rt-event-manager') . '">';
         echo '<ul class="uk-nav uk-nav-default uk-nav-divider">';
         foreach ($this->get_tabs() as $key => $label) {
-            printf(
-                '<li class="%s"><a href="%s">%s</a></li>',
-                ($key === $current) ? 'uk-active' : '',
-                esc_url($this->tab_url($key)),
-                esc_html($label)
-            );
+            $icon = isset($icons[$key]) ? $icons[$key] : 'fa-circle';
+            $item($icon, $this->tab_url($key), $label, ($key === $current) ? 'uk-active' : '');
         }
-        printf(
-            '<li class="rtacc-nav-logout"><a href="%s">%s</a></li>',
-            esc_url(wp_logout_url($this->account_base_url())),
-            esc_html__('Log out', 'rt-event-manager')
-        );
+        $item('fa-right-from-bracket', wp_logout_url($this->account_base_url()), __('Log out', 'rt-event-manager'), 'rtacc-nav-logout');
         echo '</ul></nav>';
     }
 
