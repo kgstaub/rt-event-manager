@@ -424,9 +424,8 @@ class RT_Event_Manager {
 
         foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
             $product_id = $cart_item['product_id'];
-            $is_ticket = get_post_meta($product_id, '_rti_is_ticket', true);
 
-            if ('yes' === $is_ticket) {
+            if (self::is_ticket_product($product_id)) {
                 $require_dietary = get_post_meta($product_id, '_rti_ticket_dietary', true);
                 $ticket_items[] = array(
                     'cart_item_key'   => $cart_item_key,
@@ -1386,8 +1385,7 @@ class RT_Event_Manager {
             $item_combo_index = 0;
             foreach ($order->get_items() as $item) {
                 $pid = $item->get_product_id();
-                $is_ticket = get_post_meta($pid, '_rti_is_ticket', true);
-                if ('yes' !== $is_ticket) {
+                if (!self::is_ticket_product($pid)) {
                     continue;
                 }
                 $combo_id = absint($item->get_meta('_mto_combination_id'));
@@ -3940,6 +3938,21 @@ class RT_Event_Manager {
             return 'pretour';
         }
         return 'event';
+    }
+
+    /**
+     * Whether a product should create a ticket row. True when it is flagged as a
+     * ticket (_rti_is_ticket) OR it is a Pretour / Future product (identified by
+     * category) — those are ticket-generating even without the explicit flag.
+     *
+     * @param int $product_id
+     * @return bool
+     */
+    public static function is_ticket_product($product_id) {
+        if ('yes' === get_post_meta($product_id, '_rti_is_ticket', true)) {
+            return true;
+        }
+        return self::is_pretour_product($product_id) || self::is_future_product($product_id);
     }
 
     /**
