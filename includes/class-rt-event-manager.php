@@ -471,6 +471,10 @@ class RT_Event_Manager {
             }
         }
 
+        // If the buyer already holds their own event ticket, every ticket in this
+        // new order is for someone else — request full details for all of them.
+        $buyer_has_ticket = $current_user->ID && self::user_has_own_event_ticket($current_user->ID);
+
         // Pre-compute a flat list of every ticket slot so a pretour can offer a
         // picker of the event / Future member tickets in this same order to link
         // to (the pretour then inherits that attendee's details).
@@ -510,7 +514,7 @@ class RT_Event_Manager {
                 // A ticket is "additional" (for someone other than the purchaser)
                 // when it is not the first ticket of the order OR it is a linked
                 // co-traveller added from the account.
-                $is_additional = ($ticket_index > 0) || !empty($item['has_parent']);
+                $is_additional = ($ticket_index > 0) || !empty($item['has_parent']) || $buyer_has_ticket;
                 $prefill = isset($item['prefill']) ? $item['prefill'] : array();
 
                 // A pretour added from the cart (no explicit parent, not prefilled)
@@ -674,19 +678,6 @@ class RT_Event_Manager {
         // Hidden field to track total ticket count
         echo '<input type="hidden" name="rti_ticket_count" value="' . esc_attr($ticket_index) . '" />';
 
-        // Emergency Contact (once for the whole order, only shown when tickets are purchased)
-        $emergency_value = '';
-        if (is_user_logged_in()) {
-            $emergency_value = get_user_meta(get_current_user_id(), 'rti_emergency_contact', true);
-        }
-        woocommerce_form_field('rti_emergency_contact', array(
-            'type'        => 'text',
-            'label'       => __('Emergency Contact', 'rt-event-manager'),
-            'required'    => false,
-            'class'       => array('form-row-wide'),
-            'placeholder' => __('Name, Phone, Email', 'rt-event-manager'),
-        ), $emergency_value);
-
         // Toggle each ticket's allergy-details field based on its dietary select.
         ?>
         <script type="text/javascript">
@@ -828,6 +819,99 @@ class RT_Event_Manager {
                 ), 'error');
             }
         }
+
+        // Validate the "This pretour is for" picker selections (one tour per
+        // attendee; a Future member's tour must match their guardian's).
+        $this->validate_pretour_assignments();
+    }
+
+    /**
+     * Validate pretour picker selections at checkout:
+     *  - an attendee may be assigned at most one tour (no double-booking), and
+     *  - a Future member may only join the same tour as their guardian.
+     */
+    private function validate_pretour_assignments() {
+        $ticket_count = isset($_POST['rti_ticket_count']) ? absint($_POST['rti_ticket_count']) : 0;
+        if ($ticket_count < 1) {
+            return;
+        }
+        $product_map = isset($_POST['rti_ticket_product_map']) ? array_map('absint', (array) $_POST['rti_ticket_product_map']) : array();
+
+        // Kind per ticket index and the guardian (first event ticket in the order).
+        $kind           = array();
+        $guardian_index = -1;
+        for ($i = 0; $i < $ticket_count; $i++) {
+            $pid       = isset($product_map[$i]) ? $product_map[$i] : 0;
+            $kind[$i]  = $pid ? self::get_ticket_kind_for_product($pid) : 'event';
+            if ($guardian_index < 0 && 'event' === $kind[$i]) {
+                $guardian_index = $i;
+            }
+        }
+
+        // Collect picker selections: host ticket index => list of tour product ids.
+        $assign      = array();
+        $host_counts = array();
+        for ($i = 0; $i < $ticket_count; $i++) {
+            if ('pretour' !== $kind[$i] || !isset($_POST['rti_ticket_' . $i . '_link'])) {
+                continue;
+            }
+            $raw = wp_unslash($_POST['rti_ticket_' . $i . '_link']);
+            if ('' === trim((string) $raw) || !is_numeric($raw)) {
+                continue; // emptiness is reported by the required-field check
+            }
+            $host = absint($raw);
+            if ($host === $i || !isset($kind[$host])) {
+                continue;
+            }
+            if (!in_array($kind[$host], array('event', 'minor'), true)) {
+                wc_add_notice(sprintf(
+                    __('Ticket %d cannot be assigned to that attendee.', 'rt-event-manager'),
+                    $i + 1
+                ), 'error');
+                continue;
+            }
+            $host_counts[$host] = isset($host_counts[$host]) ? $host_counts[$host] + 1 : 1;
+            $assign[$host][]    = isset($product_map[$i]) ? absint($product_map[$i]) : 0;
+        }
+
+        // One tour per attendee — no host chosen by more than one pretour.
+        foreach ($host_counts as $host => $count) {
+            if ($count > 1) {
+                wc_add_notice(sprintf(
+                    __('%s can join only one tour. Please assign the other tour to a different attendee.', 'rt-event-manager'),
+                    $this->attendee_label_from_post($host)
+                ), 'error');
+            }
+        }
+
+        // A Future member's tour must match one their guardian is also joining.
+        $guardian_products = ($guardian_index >= 0 && isset($assign[$guardian_index])) ? $assign[$guardian_index] : array();
+        foreach ($assign as $host => $products) {
+            if ('minor' !== $kind[$host]) {
+                continue;
+            }
+            foreach ($products as $p) {
+                if (!in_array($p, $guardian_products, true)) {
+                    wc_add_notice(sprintf(
+                        __('%s can only join the same tour as their guardian. Please also add that tour for their guardian.', 'rt-event-manager'),
+                        $this->attendee_label_from_post($host)
+                    ), 'error');
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Human label for the attendee at a given checkout ticket index — their typed
+     * name if present, otherwise the ticket number.
+     *
+     * @param int $index
+     * @return string
+     */
+    private function attendee_label_from_post($index) {
+        $name = isset($_POST['rti_ticket_' . $index . '_name']) ? sanitize_text_field(wp_unslash($_POST['rti_ticket_' . $index . '_name'])) : '';
+        return ('' !== trim($name)) ? $name : sprintf(__('Ticket %d', 'rt-event-manager'), absint($index) + 1);
     }
 
     /**
@@ -866,7 +950,7 @@ class RT_Event_Manager {
                 // Section: Attendee - before first_name
                 var $firstName = $billingForm.find('#billing_first_name_field');
                 if ($firstName.length && !$firstName.prev('.wc-checkout-section-header').length) {
-                    $firstName.before('<h4 class="wc-checkout-section-header"><?php echo esc_js(__('Attendee', 'rt-event-manager')); ?></h4>');
+                    $firstName.before('<h4 class="wc-checkout-section-header"><?php echo esc_js(__('Purchased by', 'rt-event-manager')); ?></h4>');
                 }
 
                 // Section: Billing Address - before address_1
@@ -1368,9 +1452,9 @@ class RT_Event_Manager {
         // Emergency Contact is now displayed in the Ticket Holders section
         // (only shown when a ticket product is in the cart).
 
-        // Order comments (Additional Information) - move to this section
+        // Remove the default WooCommerce "Order notes" textarea from checkout.
         if (isset($fields['order']['order_comments'])) {
-            $fields['order']['order_comments']['priority'] = 23;
+            unset($fields['order']['order_comments']);
         }
 
         // ===========================================
@@ -1491,6 +1575,10 @@ class RT_Event_Manager {
             // Get the purchaser's .WORLD ID from user meta (not on checkout form)
             $buyer_world_id = $user_id ? get_user_meta($user_id, 'world_id', true) : '';
 
+            // If the buyer already owns their own event ticket (a prior order),
+            // every ticket here is an additional co-traveller with its own details.
+            $buyer_has_ticket = $user_id && self::user_has_own_event_ticket($user_id, $order_id);
+
             for ($i = 0; $i < $ticket_count; $i++) {
                 $field_prefix = 'rti_ticket_' . $i;
                 $holder_name  = isset($_POST[$field_prefix . '_name']) ? sanitize_text_field($_POST[$field_prefix . '_name']) : '';
@@ -1504,8 +1592,9 @@ class RT_Event_Manager {
                 $minor_type   = isset($minor_type_map[$i]) ? $minor_type_map[$i] : '';
                 $is_minor     = ('minor' === $kind);
                 // A ticket is "additional" (not the purchaser's own) when it is not
-                // the first ticket of the order OR it is a linked co-traveller.
-                $is_additional = ($i > 0) || ($parent_id > 0);
+                // the first ticket of the order, OR it is a linked co-traveller, OR
+                // the buyer already holds their own ticket from a previous order.
+                $is_additional = ($i > 0) || ($parent_id > 0) || $buyer_has_ticket;
                 $dob          = ($is_minor && isset($_POST[$field_prefix . '_dob'])) ? self::sanitize_dob(wp_unslash($_POST[$field_prefix . '_dob'])) : '';
 
                 // Gender/type from the checkout form when it wasn't chosen at
@@ -2158,6 +2247,28 @@ class RT_Event_Manager {
             "SELECT * FROM $table_name WHERE order_id IN ($placeholders) ORDER BY order_id ASC, ticket_index ASC",
             $order_ids
         ), ARRAY_A);
+    }
+
+    /**
+     * Whether the user already holds their own event ticket (kind event, no
+     * parent) on a previous order. When true, every event ticket in a new order
+     * is treated as an additional co-traveller (full details requested).
+     *
+     * @param int $user_id
+     * @param int $exclude_order_id Order to ignore (the one being checked out).
+     * @return bool
+     */
+    public static function user_has_own_event_ticket($user_id, $exclude_order_id = 0) {
+        $exclude_order_id = absint($exclude_order_id);
+        foreach (self::get_tickets_for_user($user_id) as $t) {
+            if ($exclude_order_id && absint($t['order_id']) === $exclude_order_id) {
+                continue;
+            }
+            if ('event' === self::get_ticket_kind($t) && !absint($t['parent_ticket_id'])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
