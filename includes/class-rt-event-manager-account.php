@@ -59,6 +59,47 @@ class RT_Event_Manager_Account {
         add_action('wp_ajax_rt_event_manager_request_transfer', array($this, 'ajax_request_transfer'));
         add_action('wp_ajax_rt_event_manager_cancel_ticket', array($this, 'ajax_cancel_ticket'));
         add_action('wp_ajax_rt_event_manager_accept_transfer', array($this, 'ajax_accept_transfer'));
+        add_action('wp_ajax_rt_event_manager_decline_transfer', array($this, 'ajax_decline_transfer'));
+
+        // Automatically withdraw pending transfers older than the expiry window.
+        add_action('init', array($this, 'maybe_schedule_transfer_expiry'));
+        add_action('rt_event_manager_expire_transfers', array($this, 'cron_expire_transfers'));
+    }
+
+    /** Ensure the hourly transfer-expiry sweep is scheduled. */
+    public function maybe_schedule_transfer_expiry() {
+        if (!wp_next_scheduled('rt_event_manager_expire_transfers')) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'rt_event_manager_expire_transfers');
+        }
+    }
+
+    /** Clear transfer offers whose invitation has passed the expiry window. */
+    public function cron_expire_transfers() {
+        global $wpdb;
+        $table  = $wpdb->prefix . 'rti_tickets';
+        // Compare in the same local-wall-clock basis the timestamps are stored in.
+        $cutoff = date('Y-m-d H:i:s', strtotime(current_time('mysql')) - RT_Event_Manager::transfer_expiry_seconds());
+        $wpdb->query($wpdb->prepare(
+            "UPDATE $table SET transfer_token = '', transfer_email = ''
+             WHERE transfer_token <> '' AND transfer_requested_at IS NOT NULL AND transfer_requested_at < %s",
+            $cutoff
+        ));
+    }
+
+    /**
+     * Whether a pending transfer offer has passed the expiry window (a lazy
+     * check so an expired link is rejected even before the cron sweep runs).
+     *
+     * @param array $ticket
+     * @return bool
+     */
+    private function transfer_expired($ticket) {
+        $ts = isset($ticket['transfer_requested_at']) ? (string) $ticket['transfer_requested_at'] : '';
+        if ('' === $ts || 0 === strpos($ts, '0000')) {
+            return false;
+        }
+        $age = strtotime(current_time('mysql')) - strtotime($ts);
+        return $age > RT_Event_Manager::transfer_expiry_seconds();
     }
 
     /* ---------------------------------------------------------------------
@@ -139,6 +180,7 @@ class RT_Event_Manager_Account {
             'transferNonce' => wp_create_nonce('rt_event_manager_transfer'),
             'cancelNonce'  => wp_create_nonce('rt_event_manager_cancel'),
             'acceptNonce'  => wp_create_nonce('rt_event_manager_accept_transfer'),
+            'declineNonce' => wp_create_nonce('rt_event_manager_decline_transfer'),
             'i18n'         => array(
                 'saving'      => __('Saving…', 'rt-event-manager'),
                 'saved'       => __('Saved!', 'rt-event-manager'),
@@ -152,7 +194,10 @@ class RT_Event_Manager_Account {
                 'accepting'   => __('Accepting…', 'rt-event-manager'),
                 'ticketFor'   => __('Ticket:', 'rt-event-manager'),
                 'sendTransfer' => __('Send transfer request', 'rt-event-manager'),
-                'testLink'    => __('Test link:', 'rt-event-manager'),
+                'declining'   => __('Declining…', 'rt-event-manager'),
+                'shareWarn'   => __('You can also share this link directly, however anyone with this link can accept the transfer!', 'rt-event-manager'),
+                'copyLink'    => __('Copy link', 'rt-event-manager'),
+                'copied'      => __('Copied!', 'rt-event-manager'),
             ),
         ));
     }
@@ -878,8 +923,16 @@ class RT_Event_Manager_Account {
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Accept ticket transfer', 'rt-event-manager') . '</h2>';
 
         $event = RT_Event_Manager::get_ticket_by_transfer_token($token);
+        if ($event && $this->transfer_expired($event)) {
+            // Expired — withdraw it now and treat as invalid.
+            RT_Event_Manager::instance()->update_ticket(absint($event['id']), array(
+                'transfer_token' => '',
+                'transfer_email' => '',
+            ));
+            $event = null;
+        }
         if (!$event || 'event' !== RT_Event_Manager::get_ticket_kind($event) || 'cancelled' === $event['status']) {
-            echo '<div class="rtacc-notice uk-alert-danger" uk-alert><p>' . esc_html__('This transfer link is no longer valid. It may have already been accepted or withdrawn.', 'rt-event-manager') . '</p></div>';
+            echo '<div class="rtacc-notice uk-alert-danger" uk-alert><p>' . esc_html__('This transfer link is no longer valid. It may have already been accepted, declined, withdrawn, or expired.', 'rt-event-manager') . '</p></div>';
             echo '<p><a class="uk-button uk-button-default" href="' . esc_url(wc_get_page_permalink('myaccount')) . '">' . esc_html__('Go to my account', 'rt-event-manager') . '</a></p>';
             echo '</div></div>';
             return;
@@ -916,7 +969,7 @@ class RT_Event_Manager_Account {
         echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
         echo '<p class="rtacc-actions">';
         echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Accept transfer', 'rt-event-manager') . '</button>';
-        echo '<a class="uk-button uk-button-secondary" href="' . esc_url(wc_get_page_permalink('myaccount')) . '">' . esc_html__('Not now', 'rt-event-manager') . '</a>';
+        echo '<button type="button" class="uk-button uk-button-secondary rtacc-decline-btn">' . esc_html__('Decline', 'rt-event-manager') . '</button>';
         echo '<span class="rtacc-status" aria-live="polite"></span>';
         echo '</p></form>';
         echo '</section>';
@@ -1856,6 +1909,13 @@ class RT_Event_Manager_Account {
         $token   = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
 
         $event = RT_Event_Manager::get_ticket_by_transfer_token($token);
+        if ($event && $this->transfer_expired($event)) {
+            RT_Event_Manager::instance()->update_ticket(absint($event['id']), array(
+                'transfer_token' => '',
+                'transfer_email' => '',
+            ));
+            wp_send_json_error(__('This transfer invitation has expired. Please ask the current holder to send a new one.', 'rt-event-manager'));
+        }
         if (!$event || 'event' !== RT_Event_Manager::get_ticket_kind($event) || 'cancelled' === $event['status']) {
             wp_send_json_error(__('This transfer link is no longer valid.', 'rt-event-manager'));
         }
@@ -1905,6 +1965,31 @@ class RT_Event_Manager_Account {
         ));
     }
 
+    /** Decline a pending transfer: clear the offer so the owner can re-issue it. */
+    public function ajax_decline_transfer() {
+        check_ajax_referer('rt_event_manager_decline_transfer', 'nonce');
+        if (!is_user_logged_in()) {
+            wp_send_json_error(__('Please log in to decline this transfer.', 'rt-event-manager'));
+        }
+        $token = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
+        $event = RT_Event_Manager::get_ticket_by_transfer_token($token);
+        if (!$event) {
+            wp_send_json_error(__('This transfer link is no longer valid.', 'rt-event-manager'));
+        }
+
+        // Notify the current owner before clearing the offer, then clear it so a
+        // new transfer can be started.
+        $this->send_transfer_declined_email($event);
+        RT_Event_Manager::instance()->update_ticket(absint($event['id']), array(
+            'transfer_token' => '',
+            'transfer_email' => '',
+        ));
+
+        wp_send_json_success(array(
+            'redirect' => wc_get_page_permalink('myaccount'),
+        ));
+    }
+
     /** Email the prospective new holder a transfer-accept link. */
     private function send_transfer_email($ticket, $email, $token) {
         $accept_url = add_query_arg('rti_transfer', rawurlencode($token), wc_get_page_permalink('myaccount'));
@@ -1925,9 +2010,36 @@ class RT_Event_Manager_Account {
         $lines[] = __('To accept, open the link below and log in or create an account:', 'rt-event-manager');
         $lines[] = $accept_url;
         $lines[] = '';
+        $hours   = max(1, round(RT_Event_Manager::transfer_expiry_seconds() / HOUR_IN_SECONDS));
+        $lines[] = sprintf(_n('This invitation expires in %d hour.', 'This invitation expires in %d hours.', $hours, 'rt-event-manager'), $hours);
+        $lines[] = '';
         $lines[] = __('Accepting the ticket is free of charge here. Any repayment for the original price is to be arranged directly between you and the current holder.', 'rt-event-manager');
 
         wp_mail($email, $subject, implode("\n", $lines));
+    }
+
+    /** Notify the current owner that their transfer offer was declined. */
+    private function send_transfer_declined_email($ticket) {
+        $owner_id = absint(isset($ticket['owner_user_id']) ? $ticket['owner_user_id'] : 0);
+        $owner    = $owner_id ? get_userdata($owner_id) : null;
+        if (!$owner || empty($owner->user_email)) {
+            return;
+        }
+        $product = wc_get_product($ticket['product_id']);
+        $pname   = $product ? $product->get_name() : __('your event ticket', 'rt-event-manager');
+        $invitee = isset($ticket['transfer_email']) ? $ticket['transfer_email'] : '';
+
+        $subject = __('Your ticket transfer was declined', 'rt-event-manager');
+        $lines   = array();
+        $lines[] = sprintf(
+            __('The transfer of your ticket (%1$s)%2$s was declined.', 'rt-event-manager'),
+            $pname,
+            $invitee !== '' ? ' ' . sprintf(__('by %s', 'rt-event-manager'), $invitee) : ''
+        );
+        $lines[] = '';
+        $lines[] = __('The ticket is still yours. You can start a new transfer from your account if you wish.', 'rt-event-manager');
+
+        wp_mail($owner->user_email, $subject, implode("\n", $lines));
     }
 
     /** Email the shop manager about a cancellation (and refund status). */

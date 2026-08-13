@@ -2308,6 +2308,16 @@ class RT_Event_Manager {
     }
 
     /**
+     * How long a pending transfer offer stays valid before it is automatically
+     * withdrawn. Defaults to 48 hours; filterable.
+     *
+     * @return int seconds
+     */
+    public static function transfer_expiry_seconds() {
+        return (int) apply_filters('rt_event_manager_transfer_expiry_seconds', 48 * HOUR_IN_SECONDS);
+    }
+
+    /**
      * Per-unit amount actually paid for a ticket, from its order line item
      * (including tax). Returns a float in the order's currency.
      *

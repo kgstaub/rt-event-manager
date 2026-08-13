@@ -275,10 +275,27 @@
     margin: 8px 0 12px;
     padding-left: 18px;
 }
-.rtacc-testlink {
-    margin-top: 8px;
+.rtacc-sharelink-wrap {
+    margin-top: 12px;
+}
+.rtacc-sharelink-warn {
+    color: var(--rtacc-accent);
+    font-weight: 600;
+    margin: 0 0 6px;
+}
+.rtacc-sharelink-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+.rtacc-sharelink {
+    flex: 1 1 auto;
     font-size: 12px;
     word-break: break-all;
+}
+.rtacc-copy-link {
+    flex: 0 0 auto;
 }
 
 /* ---- Description list (skin from uk-description-list; brand the terms) ---- */

@@ -26,6 +26,38 @@
         $el.show();
     }
 
+    function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        }
+        return new Promise(function (resolve, reject) {
+            try {
+                var el = document.createElement('textarea');
+                el.value = text;
+                el.style.position = 'fixed';
+                el.style.opacity = '0';
+                document.body.appendChild(el);
+                el.focus();
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                resolve();
+            } catch (e) {
+                reject(e);
+            }
+        });
+    }
+
+    // ---- Copy a share link to the clipboard ----
+    $(document).on('click', '.rtacc-copy-link', function () {
+        var $btn = $(this);
+        copyText($btn.data('url')).then(function () {
+            var original = i18n.copyLink || 'Copy link';
+            $btn.text(i18n.copied || 'Copied!');
+            setTimeout(function () { $btn.text(original); }, 2000);
+        });
+    });
+
     // ---- Profile save ----
     $(document).on('submit', '#rtacc-profile-form', function (e) {
         e.preventDefault();
@@ -234,15 +266,22 @@
                 $form.find('.rtacc-field, .rtacc-modal-target, p:not(.rtacc-actions):not(.rtacc-modal-error)').hide();
                 $err.removeClass().addClass('rtacc-modal-error uk-text-success')
                     .text((response.data && response.data.message) || (i18n.saved || 'Sent!')).show();
-                // Testing aid: surface the accept link so the transfer can be tried
-                // without waiting for email delivery.
+                // Surface the accept link so it can also be shared directly.
                 if (response.data && response.data.accept_url) {
-                    $form.find('.rtacc-testlink').remove();
+                    $form.find('.rtacc-sharelink-wrap').remove();
                     var url = response.data.accept_url;
-                    var $link = $('<p class="rtacc-testlink"></p>')
-                        .append(document.createTextNode((i18n.testLink || 'Test link:') + ' '))
-                        .append($('<a target="_blank" rel="noopener"></a>').attr('href', url).text(url));
-                    $form.find('.rtacc-actions').before($link);
+                    var $wrap = $('<div class="rtacc-sharelink-wrap"></div>');
+                    $wrap.append($('<p class="rtacc-sharelink-warn"></p>').text(
+                        i18n.shareWarn || 'You can also share this link directly, however anyone with this link can accept the transfer!'
+                    ));
+                    var $row = $('<p class="rtacc-sharelink-row"></p>');
+                    $row.append($('<a target="_blank" rel="noopener" class="rtacc-sharelink"></a>').attr('href', url).text(url));
+                    $row.append(
+                        $('<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-copy-link"></button>')
+                            .text(i18n.copyLink || 'Copy link').attr('data-url', url)
+                    );
+                    $wrap.append($row);
+                    $form.find('.rtacc-actions').before($wrap);
                 }
                 $btn.hide();
             } else {
@@ -316,6 +355,32 @@
             }
         }).fail(function () {
             $btn.prop('disabled', false);
+            $err.text(i18n.requestFail || 'Request failed.').show();
+        });
+    });
+
+    // ---- Decline a ticket transfer ----
+    $(document).on('click', '.rtacc-decline-btn', function () {
+        var $form   = $(this).closest('.rtacc-accept-form');
+        var $err    = $form.find('.rtacc-modal-error');
+        var $status = $form.find('.rtacc-status');
+        var $btns   = $form.find('button');
+        $err.hide();
+        $btns.prop('disabled', true);
+        setStatus($status, i18n.declining || 'Declining…', null);
+        $.post(cfg.ajaxUrl, {
+            action: 'rt_event_manager_decline_transfer',
+            nonce:  cfg.declineNonce,
+            token:  $form.find('input[name="token"]').val()
+        }, function (response) {
+            if (response && response.success && response.data && response.data.redirect) {
+                window.location.href = response.data.redirect;
+            } else {
+                $btns.prop('disabled', false);
+                $err.text((response && response.data) || i18n.error || 'Error').show();
+            }
+        }).fail(function () {
+            $btns.prop('disabled', false);
             $err.text(i18n.requestFail || 'Request failed.').show();
         });
     });
