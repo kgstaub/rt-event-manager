@@ -810,12 +810,12 @@ class RT_Event_Manager_Account {
             }
 
             echo '<tr>';
-            echo '<td>#' . esc_html($order->get_order_number()) . '</td>';
-            echo '<td>' . esc_html(wc_format_datetime($order->get_date_created())) . '</td>';
-            echo '<td>' . esc_html(wc_get_order_status_name($order->get_status())) . '</td>';
-            echo '<td>' . esc_html(implode(', ', $item_names)) . '</td>';
-            echo '<td>' . wp_kses_post($order->get_formatted_order_total()) . '</td>';
-            echo '<td><a class="uk-button uk-button-default uk-button-small" href="' . esc_url($doc_url) . '" target="_blank" rel="noopener">' . esc_html($label) . '</a></td>';
+            echo '<td data-title="' . esc_attr__('Order', 'rt-event-manager') . '">#' . esc_html($order->get_order_number()) . '</td>';
+            echo '<td data-title="' . esc_attr__('Date', 'rt-event-manager') . '">' . esc_html(wc_format_datetime($order->get_date_created())) . '</td>';
+            echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '">' . esc_html(wc_get_order_status_name($order->get_status())) . '</td>';
+            echo '<td data-title="' . esc_attr__('Items', 'rt-event-manager') . '">' . esc_html(implode(', ', $item_names)) . '</td>';
+            echo '<td data-title="' . esc_attr__('Total', 'rt-event-manager') . '">' . wp_kses_post($order->get_formatted_order_total()) . '</td>';
+            echo '<td data-title="' . esc_attr__('Document', 'rt-event-manager') . '"><a class="uk-button uk-button-default uk-button-small" href="' . esc_url($doc_url) . '" target="_blank" rel="noopener">' . esc_html($label) . '</a></td>';
             echo '</tr>';
         }
 

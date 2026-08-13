@@ -476,3 +476,64 @@
         max-width: none;
     }
 }
+
+/* Stack ticket/order tables into label + value cards on tablets & phones. */
+@media (max-width: 900px) {
+    .rtacc-tickets,
+    .rtacc-tickets tbody,
+    .rtacc-orders,
+    .rtacc-orders tbody {
+        display: block;
+        width: 100%;
+    }
+    .rtacc-tickets thead,
+    .rtacc-orders thead {
+        display: none;
+    }
+    .rtacc-tickets tr,
+    .rtacc-orders tr {
+        display: block;
+        border: 1px solid var(--rtacc-border);
+        border-radius: 6px;
+        padding: 6px 12px;
+        margin-bottom: 12px;
+    }
+    .rtacc-tickets td,
+    .rtacc-orders td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 6px 0;
+        border: none;
+        text-align: right;
+        white-space: normal;
+        overflow: visible;
+    }
+    .rtacc-tickets td + td,
+    .rtacc-orders td + td {
+        border-top: 1px solid #f0f0f0;
+    }
+    .rtacc-tickets td::before,
+    .rtacc-orders td::before {
+        content: attr(data-title);
+        flex: 0 0 42%;
+        text-align: left;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--rtacc-muted);
+    }
+    /* Editable controls fill the value side of the row. */
+    .rtacc-tickets td .uk-input,
+    .rtacc-tickets td .uk-select {
+        flex: 1 1 auto;
+        max-width: none;
+        width: auto;
+    }
+    .rtacc-tickets td .rtacc-row-actions {
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+}
