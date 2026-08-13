@@ -416,6 +416,10 @@ class RT_Event_Manager_Visa {
         $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('City', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="city" value="' . esc_attr($b['city']) . '" required /></p>';
         $h .= '</div>';
         $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Country of residence', 'rt-event-manager') . '</label>' . $this->country_select('country', $b['country']) . '</p>';
+        $h .= '<div class="rtacc-visa-row">';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Planned arrival', 'rt-event-manager') . '</label><input type="date" class="uk-input" name="arrival" value="' . esc_attr(self::get_option('stay_from')) . '" required /></p>';
+        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Planned departure', 'rt-event-manager') . '</label><input type="date" class="uk-input" name="departure" value="' . esc_attr(self::get_option('stay_to')) . '" required /></p>';
+        $h .= '</div>';
         if ($include_contact) {
             $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Phone', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="phone" value="' . esc_attr($b['phone']) . '" /></p>';
             $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('E-mail', 'rt-event-manager') . '</label><input type="email" class="uk-input" name="email" value="' . esc_attr($b['email']) . '" /></p>';
@@ -627,6 +631,8 @@ class RT_Event_Manager_Visa {
             'country'       => $country,
             'phone'         => sanitize_text_field(wp_unslash($_POST['phone'] ?? '')),
             'email'         => sanitize_email(wp_unslash($_POST['email'] ?? '')),
+            'arrival'       => sanitize_text_field(wp_unslash($_POST['arrival'] ?? '')),
+            'departure'     => sanitize_text_field(wp_unslash($_POST['departure'] ?? '')),
             'guardian_name' => $guardian_name,
             'is_child'      => $is_child ? 1 : 0,
             'ad_hoc_child'  => $for_child ? 1 : 0,
@@ -766,8 +772,8 @@ class RT_Event_Manager_Visa {
             '{applicant_address}'     => $applicant_address,
             '{applicant_phone}'       => esc_html($applicant['phone']),
             '{applicant_email}'       => esc_html($applicant['email']),
-            '{stay_from}'             => esc_html($this->fmt_date(self::get_option('stay_from'))),
-            '{stay_to}'               => esc_html($this->fmt_date(self::get_option('stay_to'))),
+            '{stay_from}'             => esc_html($this->fmt_date(!empty($applicant['arrival']) ? $applicant['arrival'] : self::get_option('stay_from'))),
+            '{stay_to}'               => esc_html($this->fmt_date(!empty($applicant['departure']) ? $applicant['departure'] : self::get_option('stay_to'))),
             '{issue_date}'            => esc_html($this->fmt_date(current_time('Y-m-d'))),
             '{guardian_name}'         => esc_html(isset($applicant['guardian_name']) ? $applicant['guardian_name'] : ''),
         );
