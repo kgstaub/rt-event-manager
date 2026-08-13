@@ -138,6 +138,10 @@ class RT_Event_Manager {
         add_filter('woocommerce_add_to_cart_validation', array($this, 'validate_future_add_to_cart'), 10, 3);
         add_action('woocommerce_product_query', array($this, 'hide_future_from_catalog'));
 
+        // Carry the linkage through the single-product "choose options" page for
+        // variable / MTO tickets: echo the request params as hidden add-to-cart fields.
+        add_action('woocommerce_before_add_to_cart_button', array($this, 'inject_link_hidden_fields'));
+
         // Admin ticket metabox on order page
         add_action('add_meta_boxes', array($this, 'add_tickets_metabox'));
 
@@ -1408,6 +1412,23 @@ class RT_Event_Manager {
             return false;
         }
         return $passed;
+    }
+
+    /**
+     * On the single-product page, re-emit the linkage request params (parent
+     * ticket + minor gender) as hidden fields inside the add-to-cart form so
+     * they survive an options/variation selection step (variable / MTO tickets).
+     */
+    public function inject_link_hidden_fields() {
+        if (isset($_GET['rti_parent_ticket_id'])) {
+            echo '<input type="hidden" name="rti_parent_ticket_id" value="' . esc_attr(absint($_GET['rti_parent_ticket_id'])) . '" />';
+        }
+        if (isset($_GET['rti_minor_gender'])) {
+            $gender = sanitize_key(wp_unslash($_GET['rti_minor_gender']));
+            if (in_array($gender, array('tabler', 'circler'), true)) {
+                echo '<input type="hidden" name="rti_minor_gender" value="' . esc_attr($gender) . '" />';
+            }
+        }
     }
 
     /**

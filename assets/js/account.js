@@ -121,4 +121,19 @@
         window.location.href = url;
     });
 
+    // ---- Choose options for a product that needs a variation/MTO selection,
+    //      carrying the chosen parent ticket to the product page. ----
+    $(document).on('click', '.rtacc-choose-options-btn', function (e) {
+        e.preventDefault();
+        var $btn   = $(this);
+        var $wrap  = $btn.closest('.rtacc-linked-add');
+        var url    = $btn.data('url');
+        var parent = $wrap.find('.rtacc-add-parent').val();
+
+        if (parent) {
+            url += (url.indexOf('?') > -1 ? '&' : '?') + 'rti_parent_ticket_id=' + encodeURIComponent(parent);
+        }
+        window.location.href = url;
+    });
+
 })(jQuery);

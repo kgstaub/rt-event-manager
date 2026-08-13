@@ -876,7 +876,7 @@ class RT_Event_Manager_Account {
             echo '<h4 class="rtacc-product-title">' . esc_html($product->get_name()) . '</h4>';
             echo '<div class="rtacc-product-price">' . wp_kses_post($product->get_price_html()) . '</div>';
             if ($needs_options) {
-                echo '<a class="uk-button uk-button-default uk-button-small" href="' . esc_url($product->get_permalink()) . '">' . esc_html__('Choose options', 'rt-event-manager') . '</a>';
+                echo '<button type="button" class="uk-button uk-button-default uk-button-small rtacc-choose-options-btn" data-url="' . esc_url($product->get_permalink()) . '">' . esc_html__('Choose options', 'rt-event-manager') . '</button>';
             } else {
                 echo '<button type="button" class="uk-button uk-button-primary uk-button-small rtacc-add-linked-btn" data-product="' . esc_attr($product->get_id()) . '">' . esc_html__('Add pretour', 'rt-event-manager') . '</button>';
             }
