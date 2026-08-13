@@ -231,15 +231,18 @@
 /* Per-row Transfer / Cancel actions (icon buttons with title tooltips). */
 .rtacc-row-actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    align-items: center;
     gap: 6px;
 }
 .rtacc-icon-btn {
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 32px;
     height: 32px;
+    min-width: 32px;
     padding: 0;
     border: 1px solid var(--rtacc-border);
     border-radius: 6px;
