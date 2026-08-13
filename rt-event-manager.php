@@ -435,9 +435,8 @@ function rt_event_manager_recalculate_all_ticket_statuses() {
         ), ARRAY_A);
 
         foreach ($tickets as $ticket) {
-            // Never overwrite checked_in or cancelled status automatically —
-            // both are terminal states set deliberately.
-            if (isset($ticket['status']) && in_array($ticket['status'], array('checked_in', 'cancelled'), true)) {
+            // Never overwrite terminal states set deliberately.
+            if (isset($ticket['status']) && in_array($ticket['status'], array('checked_in', 'cancelled', 'refunded'), true)) {
                 continue;
             }
             $status = rt_event_manager_determine_ticket_status($order, $ticket['holder_name']);

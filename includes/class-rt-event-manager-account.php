@@ -946,7 +946,7 @@ class RT_Event_Manager_Account {
 
         // ---- Cancel ----
         $note = $refund_open
-            ? __('A refund will be requested from the event organiser. Cancellation is immediate and cannot be undone.', 'rt-event-manager')
+            ? __('A refund will be requested from the event organiser and made to the original form of payment. If there are any questions, a member of the convening team will reach out. Please allow up to 30 days for the refund to be processed. Cancellation is immediate and cannot be undone.', 'rt-event-manager')
             : __('The refund deadline has passed, so this cancellation will not be refunded. Cancellation is immediate and cannot be undone.', 'rt-event-manager');
         echo '<div class="rtacc-modal" id="rtacc-modal-cancel" hidden>';
         echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
@@ -1257,6 +1257,9 @@ class RT_Event_Manager_Account {
             // organization details; the user's own ticket inherits them and shows
             // them read-only.
             $is_comp    = ($id !== $this->own_event_id);
+            // The account owner's own ticket holds their personal details, managed
+            // in My Profile — its holder fields are read-only here.
+            $row_editable = $can_edit && ($id !== $this->own_event_id);
 
             echo '<tr data-ticket-id="' . esc_attr($id) . '">';
             echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '">' . esc_html(RT_Event_Manager::ticket_kind_label($t)) . '</td>';
@@ -1267,8 +1270,8 @@ class RT_Event_Manager_Account {
                 echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($pname) . '</td>';
             }
 
-            // Holder name (editable for every kind).
-            if ($can_edit) {
+            // Holder name (editable for every kind except the account owner's own).
+            if ($row_editable) {
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '"><input type="text" class="rtacc-ticket-field uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][holder_name]" value="' . esc_attr($t['holder_name']) . '" /></td>';
             } else {
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($t['holder_name'] ?: '—') . '</td>';
@@ -1276,7 +1279,7 @@ class RT_Event_Manager_Account {
 
             if (!$minor_block) {
                 // Phone.
-                if ($can_edit) {
+                if ($row_editable) {
                     echo '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '"><input type="tel" class="rtacc-ticket-field uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][phone]" value="' . esc_attr($phone) . '" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" /></td>';
                 } else {
                     echo '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '">' . esc_html($phone ?: '—') . '</td>';
@@ -1296,9 +1299,10 @@ class RT_Event_Manager_Account {
                 }
             }
 
-            // Dietary (+ conditional allergy details), editable for every kind.
+            // Dietary (+ conditional allergy details), editable except on the
+            // account owner's own ticket.
             $allergy_val = isset($t['allergy_details']) ? $t['allergy_details'] : '';
-            if ($can_edit) {
+            if ($row_editable) {
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '"><select class="rtacc-ticket-field rtacc-dietary-select uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][dietary]">';
                 foreach ($dietary_options as $dkey => $dlabel) {
                     echo '<option value="' . esc_attr($dkey) . '" ' . selected($t['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
@@ -1373,8 +1377,8 @@ class RT_Event_Manager_Account {
         $name   = ($t['holder_name'] !== '') ? $t['holder_name'] : ('#' . $id);
 
         // Terminal states have no actions — the Status column already shows the
-        // cancelled/checked-in badge, so leave the Actions cell empty.
-        if (in_array($status, array('cancelled', 'checked_in'), true)) {
+        // cancelled/refunded/checked-in badge, so leave the Actions cell empty.
+        if (in_array($status, array('cancelled', 'checked_in', 'refunded'), true)) {
             return '';
         }
 
@@ -1849,6 +1853,7 @@ class RT_Event_Manager_Account {
             'invalid'    => __('Invalid', 'rt-event-manager'),
             'checked_in' => __('Checked In', 'rt-event-manager'),
             'cancelled'  => __('Cancelled', 'rt-event-manager'),
+            'refunded'   => __('Refunded', 'rt-event-manager'),
         );
     }
 

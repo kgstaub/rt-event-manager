@@ -168,6 +168,11 @@ class RT_Event_Manager {
         // Update ticket statuses when order status changes
         add_action('woocommerce_order_status_changed', array($this, 'on_order_status_changed'), 10, 4);
 
+        // A full WooCommerce refund confirms any refund request and refunds the
+        // tickets. Runs before woocommerce_order_status_changed so the refunded
+        // status is set first and preserved by the recalculation.
+        add_action('woocommerce_order_status_refunded', array($this, 'on_order_refunded'), 10, 1);
+
         // Handle order trashed/deleted
         add_action('woocommerce_trash_order', array($this, 'on_order_trashed'));
         add_action('woocommerce_delete_order', array($this, 'on_order_deleted'));
@@ -2646,8 +2651,8 @@ class RT_Event_Manager {
 
         // Status badge (read-only)
         $ticket_status = isset($ticket['status']) ? $ticket['status'] : 'draft';
-        $status_labels = array('valid' => __('Valid', 'rt-event-manager'), 'draft' => __('Draft', 'rt-event-manager'), 'invalid' => __('Invalid', 'rt-event-manager'), 'checked_in' => __('Checked In', 'rt-event-manager'), 'cancelled' => __('Cancelled', 'rt-event-manager'));
-        $status_colors = array('valid' => '#00a32a', 'draft' => '#dba617', 'invalid' => '#d63638', 'checked_in' => '#2271b1', 'cancelled' => '#8c8f94');
+        $status_labels = array('valid' => __('Valid', 'rt-event-manager'), 'draft' => __('Draft', 'rt-event-manager'), 'invalid' => __('Invalid', 'rt-event-manager'), 'checked_in' => __('Checked In', 'rt-event-manager'), 'cancelled' => __('Cancelled', 'rt-event-manager'), 'refunded' => __('Refunded', 'rt-event-manager'));
+        $status_colors = array('valid' => '#00a32a', 'draft' => '#dba617', 'invalid' => '#d63638', 'checked_in' => '#2271b1', 'cancelled' => '#8c8f94', 'refunded' => '#8250df');
         $badge_color = isset($status_colors[$ticket_status]) ? $status_colors[$ticket_status] : '#999';
         $badge_label = isset($status_labels[$ticket_status]) ? $status_labels[$ticket_status] : ucfirst($ticket_status);
         echo '<td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;color:#fff;background:' . esc_attr($badge_color) . ';">' . esc_html($badge_label) . '</span></td>';
@@ -3440,6 +3445,29 @@ class RT_Event_Manager {
     }
 
     /**
+     * When an order is fully refunded in WooCommerce, mark its tickets refunded:
+     * confirm any pending refund request, and auto-cancel (refund) tickets that
+     * had no request. Checked-in tickets are left untouched.
+     *
+     * @param int $order_id
+     */
+    public function on_order_refunded($order_id) {
+        $tickets = self::get_tickets_for_order($order_id);
+        foreach ($tickets as $t) {
+            $status = isset($t['status']) ? $t['status'] : '';
+            if (in_array($status, array('checked_in', 'refunded'), true)) {
+                continue;
+            }
+            // A refund was processed → the ticket is refunded and the refund is
+            // confirmed, whether or not the holder had requested one.
+            $this->update_ticket(absint($t['id']), array(
+                'status'        => 'refunded',
+                'refund_status' => 'confirmed',
+            ));
+        }
+    }
+
+    /**
      * Mark tickets as invalid when order is trashed (HPOS)
      *
      * @param int $order_id Order ID
@@ -3514,8 +3542,8 @@ class RT_Event_Manager {
         ), ARRAY_A);
 
         foreach ($tickets as $ticket) {
-            // Never overwrite checked_in or cancelled status automatically.
-            if (in_array($ticket['status'], array('checked_in', 'cancelled'), true)) {
+            // Never overwrite terminal states set deliberately.
+            if (in_array($ticket['status'], array('checked_in', 'cancelled', 'refunded'), true)) {
                 continue;
             }
             $status = rt_event_manager_determine_ticket_status($order, $ticket['holder_name']);
@@ -3616,7 +3644,7 @@ class RT_Event_Manager {
         $rows = $wpdb->get_results(
             "SELECT t.*, p.post_title AS product_name
              FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
-             WHERE t.status = 'cancelled'
+             WHERE t.status IN ('cancelled', 'refunded')
              ORDER BY t.updated_at DESC, t.id DESC",
             ARRAY_A
         );
@@ -3854,6 +3882,7 @@ class RT_Event_Manager {
             'checked_in' => __('Checked In', 'rt-event-manager'),
             'invalid'    => __('Invalid', 'rt-event-manager'),
             'cancelled'  => __('Cancelled', 'rt-event-manager'),
+            'refunded'   => __('Refunded', 'rt-event-manager'),
         );
         $status_colors = array(
             'valid'      => '#00a32a',
@@ -3861,6 +3890,7 @@ class RT_Event_Manager {
             'checked_in' => '#2271b1',
             'invalid'    => '#d63638',
             'cancelled'  => '#8c8f94',
+            'refunded'   => '#8250df',
         );
 
         // Handle search / filters
