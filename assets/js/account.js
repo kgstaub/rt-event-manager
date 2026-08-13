@@ -118,7 +118,7 @@
         $.post(cfg.ajaxUrl, {
             action:     'rt_event_manager_add_pretours_to_cart',
             nonce:      cfg.addTicketNonce,
-            product_id: $form.data('product'),
+            product_id: $form.find('[name="product_id"]').val(),
             members:    members
         }, function (response) {
             if (response && response.success && response.data && response.data.checkout_url) {

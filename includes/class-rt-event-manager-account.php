@@ -563,20 +563,19 @@ class RT_Event_Manager_Account {
         // checkout collects the traveller's own details rather than the buyer's.
         $primary_id = !empty($mine) ? absint($mine[0]['id']) : 0;
 
-        // A ticket added here is a co-traveller linked to the member's own ticket
-        // (so checkout captures the traveller's own details, not the buyer's).
+        // Add buttons live inside their respective section (co-travellers under
+        // "Travelling with me", Future members under "Future members").
         $add_ticket_button = $this->cotraveller_add_button($primary_id);
+        $future_options    = $this->ticket_options($event_parents);
+        $future_button     = $this->future_add_button($future_options);
 
         $this->render_editable_sections('rtacc-tickets-form', array(
             array('label' => __('My Ticket', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a ticket assigned to yourself yet.', 'rt-event-manager')),
             array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional tickets yet.', 'rt-event-manager'), 'after' => $add_ticket_button),
-            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true),
+            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'after' => $future_button),
         ), $by_id, $can_edit);
 
-        // Add a Future member (minor) co-traveller attached to an event ticket.
-        $this->render_future_add_section($this->ticket_options($event_parents));
-
-        // Customize-ticket modal for the co-traveller "Add a ticket" button.
+        // Customize-ticket modals (rendered once, opened by the section buttons).
         $primary_product = $this->first_purchasable_product($this->get_event_product_ids());
         if ($primary_product && !$this->product_needs_options($primary_product)) {
             $this->render_ticket_modal('cotraveller', array(
@@ -586,6 +585,7 @@ class RT_Event_Manager_Account {
                 'is_minor'   => false,
             ));
         }
+        $this->render_future_modal($future_options);
     }
 
     private function render_pretour() {
@@ -962,34 +962,38 @@ class RT_Event_Manager_Account {
      *
      * @param array $parent_options id => label
      */
-    private function render_future_add_section($parent_options) {
+    /**
+     * "Add a Future member" button, placed inside the Future members section.
+     * Returns '' if there is no Future product or the member has no ticket to
+     * link to; a product-page link for variable/MTO products; otherwise a modal
+     * trigger.
+     *
+     * @param array $parent_options Guardian ticket options (id => label).
+     * @return string Escaped button HTML.
+     */
+    private function future_add_button($parent_options) {
         $future_pid     = $this->get_future_product_id();
         $future_product = $future_pid ? wc_get_product($future_pid) : null;
-
-        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
-        echo '<h3 class="rtacc-subtitle">' . esc_html__('Add a Future member', 'rt-event-manager') . '</h3>';
-
-        if (!$future_product) {
-            echo '<p>' . esc_html__('No Future member ticket product is configured yet.', 'rt-event-manager') . '</p></section>';
-            return;
+        if (!$future_product || empty($parent_options)) {
+            return '';
         }
-        if (empty($parent_options)) {
-            echo '<p>' . esc_html__('You need an existing ticket before you can add a Future member co-traveller.', 'rt-event-manager') . '</p></section>';
-            return;
-        }
-
-        echo '<p class="rtacc-hint">' . esc_html__('A Future Tabler or Future Circler travels with their legal guardian\'s ticket.', 'rt-event-manager') . '</p>';
-
         if ($this->product_needs_options($future_product)) {
-            // Options must be chosen on the product page.
-            echo '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($future_product->get_permalink()) . '">' . esc_html__('Add a Future member', 'rt-event-manager') . '</a></p></section>';
+            return '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($future_product->get_permalink()) . '">' . esc_html__('Add a Future member', 'rt-event-manager') . '</a></p>';
+        }
+        return '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="future">' . esc_html__('Add a Future member', 'rt-event-manager') . '</button></p>';
+    }
+
+    /**
+     * Render the Future member customize modal (once), opened by the button.
+     *
+     * @param array $parent_options Guardian ticket options (id => label).
+     */
+    private function render_future_modal($parent_options) {
+        $future_pid     = $this->get_future_product_id();
+        $future_product = $future_pid ? wc_get_product($future_pid) : null;
+        if (!$future_product || empty($parent_options) || $this->product_needs_options($future_product)) {
             return;
         }
-
-        echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="future">' . esc_html__('Add a Future member', 'rt-event-manager') . '</button></p>';
-        echo '</section>';
-
-        // Customize-ticket modal for the Future member button.
         $this->render_ticket_modal('future', array(
             'title'          => __('Add a Future member', 'rt-event-manager'),
             'product_id'     => $future_product->get_id(),
@@ -1095,12 +1099,20 @@ class RT_Event_Manager_Account {
      * @param array $candidates Member ticket rows eligible to join the tour.
      */
     private function render_pretour_bulk_add($candidates) {
-        $product = $this->first_purchasable_product($this->get_pretour_product_ids());
+        // Simple, purchasable pretour products the bulk flow can offer (variable
+        // / MTO pretours must be bought via their own product page).
+        $products = array();
+        foreach ($this->get_pretour_product_ids() as $pid) {
+            $p = wc_get_product($pid);
+            if ($p && $p->is_purchasable() && $p->is_in_stock() && !$this->product_needs_options($p)) {
+                $products[] = $p;
+            }
+        }
 
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Add a pretour', 'rt-event-manager') . '</h3>';
 
-        if (!$product) {
+        if (empty($products)) {
             echo '<p>' . esc_html__('No pretour products are available. Set a Pretour category under WooCommerce settings.', 'rt-event-manager') . '</p></section>';
             return;
         }
@@ -1108,12 +1120,8 @@ class RT_Event_Manager_Account {
             echo '<p>' . esc_html__('Everyone in your group already has a pretour, or you have no tickets yet.', 'rt-event-manager') . '</p></section>';
             return;
         }
-        if ($this->product_needs_options($product)) {
-            echo '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($product->get_permalink()) . '">' . esc_html__('Add a pretour', 'rt-event-manager') . '</a></p></section>';
-            return;
-        }
 
-        echo '<p class="rtacc-hint">' . esc_html__('Choose who is joining the tour. A pretour is added for each selected member.', 'rt-event-manager') . '</p>';
+        echo '<p class="rtacc-hint">' . esc_html__('Choose the tour and who is joining. A pretour is added for each selected member.', 'rt-event-manager') . '</p>';
         echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="pretour">' . esc_html__('Add a pretour', 'rt-event-manager') . '</button></p>';
         echo '</section>';
 
@@ -1121,9 +1129,23 @@ class RT_Event_Manager_Account {
         echo '<div class="rtacc-modal" id="rtacc-modal-pretour" hidden>';
         echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
         echo '<div class="rtacc-modal-dialog">';
-        echo '<form class="rtacc-pretour-form rtacc-form uk-form-stacked" data-product="' . esc_attr($product->get_id()) . '">';
+        echo '<form class="rtacc-pretour-form rtacc-form uk-form-stacked">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Add a pretour', 'rt-event-manager') . '</h3>';
-        echo '<p class="rtacc-hint">' . esc_html($product->get_name()) . ' — ' . wp_kses_post($product->get_price_html()) . '</p>';
+
+        // Pretour selector (a dropdown when there is more than one to choose).
+        if (count($products) > 1) {
+            echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Tour', 'rt-event-manager') . '</label>';
+            echo '<select class="uk-select" name="product_id">';
+            foreach ($products as $p) {
+                echo '<option value="' . esc_attr($p->get_id()) . '">' . esc_html($p->get_name()) . ' — ' . esc_html(wp_strip_all_tags($p->get_price_html())) . '</option>';
+            }
+            echo '</select></p>';
+        } else {
+            $only = $products[0];
+            echo '<input type="hidden" name="product_id" value="' . esc_attr($only->get_id()) . '" />';
+            echo '<p class="rtacc-hint">' . esc_html($only->get_name()) . ' — ' . wp_kses_post($only->get_price_html()) . '</p>';
+        }
+
         echo '<div class="rtacc-checklist">';
         foreach ($candidates as $t) {
             $id    = absint($t['id']);
