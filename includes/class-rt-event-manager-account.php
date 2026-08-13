@@ -211,7 +211,8 @@ class RT_Event_Manager_Account {
                 'confirmWithdraw' => __('Withdraw the pending transfer for this ticket?', 'rt-event-manager'),
                 'generating'  => __('Generating…', 'rt-event-manager'),
                 'downloadPdf' => __('Download PDF', 'rt-event-manager'),
-                'childTooOld' => __('This child is old enough to need their own Future Tabler / Future Circler ticket. Please register them for a ticket instead.', 'rt-event-manager'),
+                'childTooOld' => __('This child is old enough to need their own Future Tabler / Future Circler ticket. Please register them for a ticket instead. Once registered, their letter of invitation can be generated below.', 'rt-event-manager'),
+                'childTooOldNamed' => __('%s is old enough to need their own Future Tabler / Future Circler ticket. Please register them for a ticket instead. Once registered, their letter of invitation can be generated below.', 'rt-event-manager'),
             ),
         ));
     }

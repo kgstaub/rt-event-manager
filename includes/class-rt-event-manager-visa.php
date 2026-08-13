@@ -591,7 +591,11 @@ class RT_Event_Manager_Visa {
             }
             $max = self::child_letter_max_age();
             if ($this->age_at_event($dob) >= $max) {
-                wp_send_json_error(sprintf(__('This child is %d or older and needs their own Future Tabler / Future Circler ticket. Please register them for a ticket instead.', 'rt-event-manager'), $max));
+                $who = ('' !== $applicant_name) ? $applicant_name : __('This child', 'rt-event-manager');
+                wp_send_json_error(sprintf(
+                    __('%s is old enough to need their own Future Tabler / Future Circler ticket. Please register them for a ticket instead. Once registered, their letter of invitation can be generated below.', 'rt-event-manager'),
+                    $who
+                ));
             }
             $guardian_name = ($t['holder_name'] !== '') ? $t['holder_name'] : '';
             $is_child      = true;

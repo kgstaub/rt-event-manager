@@ -77,14 +77,27 @@
         if (id) { $('#' + id).toggle(); }
     });
 
-    // ---- Accompanying child: live age check on date of birth ----
-    $(document).on('change', '.rtacc-visa-form input[name="for_child"] ~ .rtacc-field input[name="dob"], .rtacc-visa-form input[name="dob"]', function () {
+    // Message for a too-old child — personalised with their name when entered.
+    function childTooOldMsg($form) {
+        var name = ($form.find('input[name="child_name"]').val() || '').trim();
+        if (name && i18n.childTooOldNamed) {
+            return i18n.childTooOldNamed.replace('%s', name);
+        }
+        return i18n.childTooOld || 'This child needs their own Future member ticket.';
+    }
+
+    function childTooOld($form) {
+        var age = ageAtEvent($form.find('input[name="dob"]').val());
+        return age !== null && cfg.visaChildMax && age >= cfg.visaChildMax;
+    }
+
+    // Re-evaluate the child age warning on date-of-birth or name changes.
+    $(document).on('input change', '.rtacc-visa-form input[name="dob"], .rtacc-visa-form input[name="child_name"]', function () {
         var $form = $(this).closest('.rtacc-visa-form');
         if (!$form.find('input[name="for_child"]').length) { return; }
         var $warn = $form.find('.rtacc-visa-child-warn');
-        var age = ageAtEvent($(this).val());
-        if (age !== null && cfg.visaChildMax && age >= cfg.visaChildMax) {
-            $warn.find('p').text(i18n.childTooOld || 'This child needs their own Future member ticket.');
+        if (childTooOld($form)) {
+            $warn.find('p').text(childTooOldMsg($form));
             $warn.show();
         } else {
             $warn.hide();
@@ -101,13 +114,10 @@
         $err.hide();
 
         // Accompanying child must be younger than the cutoff at the event.
-        if ($form.find('input[name="for_child"]').length) {
-            var age = ageAtEvent($form.find('input[name="dob"]').val());
-            if (age !== null && cfg.visaChildMax && age >= cfg.visaChildMax) {
-                $form.find('.rtacc-visa-child-warn p').text(i18n.childTooOld || 'This child needs their own Future member ticket.');
-                $form.find('.rtacc-visa-child-warn').show();
-                return;
-            }
+        if ($form.find('input[name="for_child"]').length && childTooOld($form)) {
+            $form.find('.rtacc-visa-child-warn p').text(childTooOldMsg($form));
+            $form.find('.rtacc-visa-child-warn').show();
+            return;
         }
 
         var data = $form.serializeArray();
