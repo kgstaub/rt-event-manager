@@ -859,7 +859,7 @@ class RT_Event_Manager_Account {
         echo '<p>' . esc_html($note) . '</p>';
         echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
         echo '<p class="rtacc-actions">';
-        echo '<button type="submit" class="uk-button uk-button-danger">' . esc_html__('Confirm cancellation', 'rt-event-manager') . '</button>';
+        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Confirm cancellation', 'rt-event-manager') . '</button>';
         echo '<button type="button" class="uk-button uk-button-secondary" data-rtacc-close>' . esc_html__('Keep ticket', 'rt-event-manager') . '</button>';
         echo '</p></form></div></div>';
     }
@@ -1265,7 +1265,7 @@ class RT_Event_Manager_Account {
         $cancel_label = $refund_open
             ? __('Cancel and request refund', 'rt-event-manager')
             : __('Cancel', 'rt-event-manager');
-        $out .= '<button type="button" class="uk-button uk-button-danger uk-button-small rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '">' . esc_html($cancel_label) . '</button>';
+        $out .= '<button type="button" class="uk-button uk-button-primary uk-button-small rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '">' . esc_html($cancel_label) . '</button>';
         $out .= '</div>';
 
         return $out;
