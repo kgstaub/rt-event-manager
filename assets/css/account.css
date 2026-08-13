@@ -348,11 +348,29 @@
 }
 .rtacc-visa-row {
     display: flex;
-    gap: 12px;
+    gap: 16px;
     flex-wrap: wrap;
+    align-items: flex-start;
 }
-.rtacc-visa-row .rtacc-field {
-    flex: 1 1 160px;
+.rtacc-visa-row .rtacc-field,
+.rtacc-visa-row .rtacc-field--spacer {
+    flex: 1 1 0;
+    min-width: 180px;
+    margin: 0 0 14px;
+}
+.rtacc-visa-row .rtacc-field--spacer {
+    margin: 0;
+}
+/* Inputs fill their column so the two columns line up. */
+.rtacc-visa-form .uk-input,
+.rtacc-visa-form .uk-select {
+    width: 100%;
+    max-width: none;
+}
+.rtacc-visa-subhead {
+    margin: 16px 0 8px;
+    color: var(--rtacc-accent);
+    font-size: 14px;
 }
 
 /* ---- Description list (skin from uk-description-list; brand the terms) ---- */

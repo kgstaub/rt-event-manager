@@ -407,23 +407,48 @@ class RT_Event_Manager_Visa {
      *                              for children / Future members).
      */
     private function visa_fields_html($b, $dob_prefill = '', $include_contact = true) {
-        $h  = '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Date of birth', 'rt-event-manager') . '</label><input type="date" class="uk-input" name="dob" value="' . esc_attr($dob_prefill) . '" required /></p>';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Nationality', 'rt-event-manager') . '</label>' . $this->country_select('nationality', $b['country']) . '</p>';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Street and number', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="addr1" value="' . esc_attr($b['addr1']) . '" required /></p>';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Address line 2', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="addr2" value="' . esc_attr($b['addr2']) . '" /></p>';
+        $field = function ($label, $input) {
+            return '<p class="rtacc-field"><label class="uk-form-label">' . esc_html($label) . '</label>' . $input . '</p>';
+        };
+
+        // Personal details: DOB + Nationality side by side.
+        $h  = '<h4 class="rtacc-visa-subhead">' . esc_html__('Personal details', 'rt-event-manager') . '</h4>';
         $h .= '<div class="rtacc-visa-row">';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Postcode', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="postcode" value="' . esc_attr($b['postcode']) . '" required /></p>';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('City', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="city" value="' . esc_attr($b['city']) . '" required /></p>';
+        $h .= $field(__('Date of birth', 'rt-event-manager'), '<input type="date" class="uk-input" name="dob" value="' . esc_attr($dob_prefill) . '" required />');
+        $h .= $field(__('Nationality', 'rt-event-manager'), $this->country_select('nationality', $b['country']));
         $h .= '</div>';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Country of residence', 'rt-event-manager') . '</label>' . $this->country_select('country', $b['country']) . '</p>';
+
+        // Residence: address + country of residence.
+        $h .= '<h4 class="rtacc-visa-subhead">' . esc_html__('Residence', 'rt-event-manager') . '</h4>';
         $h .= '<div class="rtacc-visa-row">';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Planned arrival', 'rt-event-manager') . '</label><input type="date" class="uk-input" name="arrival" value="' . esc_attr(self::get_option('stay_from')) . '" required /></p>';
-        $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Planned departure', 'rt-event-manager') . '</label><input type="date" class="uk-input" name="departure" value="' . esc_attr(self::get_option('stay_to')) . '" required /></p>';
+        $h .= $field(__('Street and number', 'rt-event-manager'), '<input type="text" class="uk-input" name="addr1" value="' . esc_attr($b['addr1']) . '" required />');
+        $h .= $field(__('Address line 2', 'rt-event-manager'), '<input type="text" class="uk-input" name="addr2" value="' . esc_attr($b['addr2']) . '" />');
         $h .= '</div>';
+        $h .= '<div class="rtacc-visa-row">';
+        $h .= $field(__('Postcode', 'rt-event-manager'), '<input type="text" class="uk-input" name="postcode" value="' . esc_attr($b['postcode']) . '" required />');
+        $h .= $field(__('City', 'rt-event-manager'), '<input type="text" class="uk-input" name="city" value="' . esc_attr($b['city']) . '" required />');
+        $h .= '</div>';
+        $h .= '<div class="rtacc-visa-row">';
+        $h .= $field(__('Country of residence', 'rt-event-manager'), $this->country_select('country', $b['country']));
+        $h .= '<span class="rtacc-field rtacc-field--spacer"></span>';
+        $h .= '</div>';
+
+        // Travel plans.
+        $h .= '<h4 class="rtacc-visa-subhead">' . esc_html__('Travel plans', 'rt-event-manager') . '</h4>';
+        $h .= '<div class="rtacc-visa-row">';
+        $h .= $field(__('Planned arrival', 'rt-event-manager'), '<input type="date" class="uk-input" name="arrival" value="' . esc_attr(self::get_option('stay_from')) . '" required />');
+        $h .= $field(__('Planned departure', 'rt-event-manager'), '<input type="date" class="uk-input" name="departure" value="' . esc_attr(self::get_option('stay_to')) . '" required />');
+        $h .= '</div>';
+
+        // Contact (dropped for children / Future members).
         if ($include_contact) {
-            $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Phone', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="phone" value="' . esc_attr($b['phone']) . '" /></p>';
-            $h .= '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('E-mail', 'rt-event-manager') . '</label><input type="email" class="uk-input" name="email" value="' . esc_attr($b['email']) . '" /></p>';
+            $h .= '<h4 class="rtacc-visa-subhead">' . esc_html__('Contact', 'rt-event-manager') . '</h4>';
+            $h .= '<div class="rtacc-visa-row">';
+            $h .= $field(__('E-mail', 'rt-event-manager'), '<input type="email" class="uk-input" name="email" value="' . esc_attr($b['email']) . '" />');
+            $h .= $field(__('Phone', 'rt-event-manager'), '<input type="text" class="uk-input" name="phone" value="' . esc_attr($b['phone']) . '" />');
+            $h .= '</div>';
         }
+
         return $h;
     }
 
