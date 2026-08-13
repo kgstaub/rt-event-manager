@@ -60,6 +60,44 @@
         $(this).closest('tr').find('.rtacc-allergy-input').toggle($(this).val() === 'allergies');
     });
 
+    // ---- Add-ticket modal (customize the ticket before checkout) ----
+    $(document).on('click', '[data-rtacc-modal]', function (e) {
+        e.preventDefault();
+        $('#rtacc-modal-' + $(this).data('rtacc-modal')).removeAttr('hidden');
+    });
+    $(document).on('click', '[data-rtacc-close]', function () {
+        $(this).closest('.rtacc-modal').attr('hidden', 'hidden');
+    });
+    $(document).on('change', '.rtacc-modal-dietary', function () {
+        $(this).closest('.rtacc-modal-form').find('.rtacc-modal-allergy-field')
+            .toggle($(this).val() === 'allergies');
+    });
+    $(document).on('submit', '.rtacc-modal-form', function (e) {
+        e.preventDefault();
+        var $form = $(this);
+        var $err  = $form.find('.rtacc-modal-error');
+        var $btn  = $form.find('button[type="submit"]');
+        $err.hide();
+
+        var data = $form.serializeArray();
+        data.push({ name: 'action', value: 'rt_event_manager_add_ticket_to_cart' });
+        data.push({ name: 'nonce', value: cfg.addTicketNonce });
+        data.push({ name: 'product_id', value: $form.data('product') });
+
+        $btn.prop('disabled', true);
+        $.post(cfg.ajaxUrl, $.param(data), function (response) {
+            if (response && response.success && response.data && response.data.checkout_url) {
+                window.location.href = response.data.checkout_url;
+            } else {
+                $btn.prop('disabled', false);
+                $err.text((response && response.data) || i18n.error || 'Error').show();
+            }
+        }).fail(function () {
+            $btn.prop('disabled', false);
+            $err.text(i18n.requestFail || 'Request failed.').show();
+        });
+    });
+
     // ---- Ticket save (Event Tickets + Pretour tabs) ----
     $(document).on('submit', '.rtacc-tickets-form', function (e) {
         e.preventDefault();

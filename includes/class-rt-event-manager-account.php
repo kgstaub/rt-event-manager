@@ -48,6 +48,7 @@ class RT_Event_Manager_Account {
         add_action('wp_ajax_rt_event_manager_save_profile', array($this, 'ajax_save_profile'));
         add_action('wp_ajax_rt_event_manager_account_save_tickets', array($this, 'ajax_save_tickets'));
         add_action('wp_ajax_rt_event_manager_receipt', array($this, 'ajax_receipt'));
+        add_action('wp_ajax_rt_event_manager_add_ticket_to_cart', array($this, 'ajax_add_ticket_to_cart'));
     }
 
     /* ---------------------------------------------------------------------
@@ -123,6 +124,7 @@ class RT_Event_Manager_Account {
             'cartUrl'      => wc_get_cart_url(),
             'profileNonce' => wp_create_nonce('rt_event_manager_save_profile'),
             'ticketsNonce' => wp_create_nonce('rt_event_manager_account_save_tickets'),
+            'addTicketNonce' => wp_create_nonce('rt_event_manager_add_ticket'),
             'i18n'         => array(
                 'saving'      => __('Saving…', 'rt-event-manager'),
                 'saved'       => __('Saved!', 'rt-event-manager'),
@@ -571,6 +573,17 @@ class RT_Event_Manager_Account {
 
         // Add a Future member (minor) co-traveller attached to an event ticket.
         $this->render_future_add_section($this->ticket_options($event_parents));
+
+        // Customize-ticket modal for the co-traveller "Add a ticket" button.
+        $primary_product = $this->first_purchasable_product($this->get_event_product_ids());
+        if ($primary_product && !$this->product_needs_options($primary_product)) {
+            $this->render_ticket_modal('cotraveller', array(
+                'title'      => __('Add a ticket', 'rt-event-manager'),
+                'product_id' => $primary_product->get_id(),
+                'parent_id'  => $primary_id,
+                'is_minor'   => false,
+            ));
+        }
     }
 
     private function render_pretour() {
@@ -861,35 +874,40 @@ class RT_Event_Manager_Account {
      * @return string Escaped button HTML.
      */
     private function cotraveller_add_button($parent_id) {
-        $product = null;
-        foreach ($this->get_event_product_ids() as $pid) {
-            $p = wc_get_product($pid);
-            if ($p && $p->is_purchasable() && $p->is_in_stock()) {
-                $product = $p;
-                break;
-            }
-        }
+        $product = $this->first_purchasable_product($this->get_event_product_ids());
         if (!$product) {
             return '';
         }
 
-        $parent_id     = absint($parent_id);
-        $needs_options = $product->is_type('variable') || $product->is_type('make_to_order');
-
-        if ($needs_options) {
+        // Variable / MTO products must choose options on the product page (a modal
+        // can't capture those); simple products open the customize modal.
+        if ($this->product_needs_options($product)) {
+            $parent_id = absint($parent_id);
             $url = $parent_id
                 ? add_query_arg('rti_parent_ticket_id', $parent_id, $product->get_permalink())
                 : $product->get_permalink();
-        } else {
-            $args = array('add-to-cart' => $product->get_id());
-            if ($parent_id) {
-                $args['rti_parent_ticket_id'] = $parent_id;
-            }
-            $url = add_query_arg($args, wc_get_cart_url());
+            return '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($url) . '">'
+                . esc_html__('Add a ticket', 'rt-event-manager') . '</a></p>';
         }
 
-        return '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($url) . '">'
-            . esc_html__('Add a ticket', 'rt-event-manager') . '</a></p>';
+        return '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cotraveller">'
+            . esc_html__('Add a ticket', 'rt-event-manager') . '</button></p>';
+    }
+
+    /** First purchasable, in-stock product from a list of ids, or null. */
+    private function first_purchasable_product($product_ids) {
+        foreach ($product_ids as $pid) {
+            $p = wc_get_product($pid);
+            if ($p && $p->is_purchasable() && $p->is_in_stock()) {
+                return $p;
+            }
+        }
+        return null;
+    }
+
+    /** Whether a product requires choosing options (variable / make-to-order). */
+    private function product_needs_options($product) {
+        return $product->is_type('variable') || $product->is_type('make_to_order');
     }
 
     /** Ticket products in the configured Pretour category. */
@@ -930,12 +948,13 @@ class RT_Event_Manager_Account {
      * @param array $parent_options id => label
      */
     private function render_future_add_section($parent_options) {
-        $future_pid = $this->get_future_product_id();
+        $future_pid     = $this->get_future_product_id();
+        $future_product = $future_pid ? wc_get_product($future_pid) : null;
 
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
-        echo '<h3 class="rtacc-subtitle">' . esc_html__('Add a Future member (co-traveller)', 'rt-event-manager') . '</h3>';
+        echo '<h3 class="rtacc-subtitle">' . esc_html__('Add a Future member', 'rt-event-manager') . '</h3>';
 
-        if (!$future_pid) {
+        if (!$future_product) {
             echo '<p>' . esc_html__('No Future member ticket product is configured yet.', 'rt-event-manager') . '</p></section>';
             return;
         }
@@ -945,23 +964,111 @@ class RT_Event_Manager_Account {
         }
 
         echo '<p class="rtacc-hint">' . esc_html__('A Future Tabler or Future Circler travels with their legal guardian\'s ticket.', 'rt-event-manager') . '</p>';
-        echo '<div class="rtacc-linked-add rtacc-form uk-form-stacked" data-product="' . esc_attr($future_pid) . '">';
 
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Legal guardian (their ticket)', 'rt-event-manager') . '</label>';
-        echo '<select class="rtacc-add-parent uk-select">';
-        foreach ($parent_options as $pid => $label) {
-            echo '<option value="' . esc_attr($pid) . '">' . esc_html($label) . '</option>';
+        if ($this->product_needs_options($future_product)) {
+            // Options must be chosen on the product page.
+            echo '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($future_product->get_permalink()) . '">' . esc_html__('Add a Future member', 'rt-event-manager') . '</a></p></section>';
+            return;
+        }
+
+        echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="future">' . esc_html__('Add a Future member', 'rt-event-manager') . '</button></p>';
+        echo '</section>';
+
+        // Customize-ticket modal for the Future member button.
+        $this->render_ticket_modal('future', array(
+            'title'          => __('Add a Future member', 'rt-event-manager'),
+            'product_id'     => $future_product->get_id(),
+            'is_minor'       => true,
+            'parent_options' => $parent_options,
+        ));
+    }
+
+    /**
+     * Render a "customize the ticket" modal (co-traveller or Future member).
+     * Submitted via account.js to add the product to the cart with the entered
+     * details, then redirect to checkout for payment.
+     *
+     * @param string $key modal key: 'cotraveller' | 'future'
+     * @param array  $cfg title, product_id, is_minor, parent_id | parent_options
+     */
+    private function render_ticket_modal($key, $cfg) {
+        $is_minor            = !empty($cfg['is_minor']);
+        $dietary_options     = RT_Event_Manager::get_dietary_options(true);
+        $allergy_suggestions = RT_Event_Manager::get_allergy_suggestions();
+        $list_id             = 'rtacc-modal-allergy-' . $key;
+
+        echo '<div class="rtacc-modal" id="rtacc-modal-' . esc_attr($key) . '" hidden>';
+        echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
+        echo '<div class="rtacc-modal-dialog">';
+        echo '<form class="rtacc-modal-form rtacc-form uk-form-stacked" data-product="' . esc_attr($cfg['product_id']) . '" data-minor="' . ($is_minor ? '1' : '0') . '">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html($cfg['title']) . '</h3>';
+
+        // Holder / child name.
+        echo '<p class="rtacc-field"><label class="uk-form-label">' . ($is_minor ? esc_html__('Child\'s name', 'rt-event-manager') : esc_html__('Ticket holder name', 'rt-event-manager')) . '</label>';
+        echo '<input type="text" class="uk-input" name="name" required /></p>';
+
+        if ($is_minor) {
+            echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Legal guardian (their ticket)', 'rt-event-manager') . '</label>';
+            echo '<select class="uk-select" name="parent_id" required>';
+            foreach ($cfg['parent_options'] as $pid => $label) {
+                echo '<option value="' . esc_attr($pid) . '">' . esc_html($label) . '</option>';
+            }
+            echo '</select></p>';
+
+            echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Type', 'rt-event-manager') . '</label>';
+            echo '<select class="uk-select" name="gender">';
+            echo '<option value="tabler">' . esc_html__('Future Tabler', 'rt-event-manager') . '</option>';
+            echo '<option value="circler">' . esc_html__('Future Circler', 'rt-event-manager') . '</option>';
+            echo '</select></p>';
+
+            echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Date of birth', 'rt-event-manager') . '</label>';
+            echo '<input type="date" class="uk-input" name="dob" required />';
+            echo '<span class="rtacc-hint">' . esc_html(sprintf(__('Must be between %1$d and %2$d years old at the event.', 'rt-event-manager'), RT_Event_Manager::get_minor_min_age(), RT_Event_Manager::get_minor_max_age())) . '</span></p>';
+        } else {
+            echo '<input type="hidden" name="parent_id" value="' . esc_attr(absint(isset($cfg['parent_id']) ? $cfg['parent_id'] : 0)) . '" />';
+
+            echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Phone', 'rt-event-manager') . '</label>';
+            echo '<input type="tel" class="uk-input" name="phone" required placeholder="+41791234567" /></p>';
+
+            echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Family', 'rt-event-manager') . '</label>';
+            echo '<select class="uk-select" name="family"><option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
+            foreach (RT_Event_Manager::$family_options as $fk => $fl) {
+                echo '<option value="' . esc_attr($fk) . '">' . esc_html($fl) . '</option>';
+            }
+            echo '</select></p>';
+
+            echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Club', 'rt-event-manager') . '</label>';
+            echo '<input type="text" class="uk-input" name="club" /></p>';
+
+            echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('.WORLD ID', 'rt-event-manager') . '</label>';
+            echo '<input type="text" class="uk-input" name="world_id" /></p>';
+        }
+
+        // Dietary + conditional allergy details.
+        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Dietary', 'rt-event-manager') . '</label>';
+        echo '<select class="uk-select rtacc-modal-dietary" name="dietary">';
+        foreach ($dietary_options as $dk => $dl) {
+            echo '<option value="' . esc_attr($dk) . '">' . esc_html($dl) . '</option>';
         }
         echo '</select></p>';
+        echo '<p class="rtacc-field rtacc-modal-allergy-field" style="display:none;"><label class="uk-form-label">' . esc_html__('Please specify the allergies', 'rt-event-manager') . '</label>';
+        echo '<input type="text" class="uk-input rtacc-modal-allergy" name="allergy" list="' . esc_attr($list_id) . '" autocomplete="off" />';
+        if (!empty($allergy_suggestions)) {
+            echo '<datalist id="' . esc_attr($list_id) . '">';
+            foreach ($allergy_suggestions as $s) {
+                echo '<option value="' . esc_attr($s) . '"></option>';
+            }
+            echo '</datalist>';
+        }
+        echo '</p>';
 
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Type', 'rt-event-manager') . '</label>';
-        echo '<select class="rtacc-add-gender uk-select">';
-        echo '<option value="tabler">' . esc_html__('Future Tabler', 'rt-event-manager') . '</option>';
-        echo '<option value="circler">' . esc_html__('Future Circler', 'rt-event-manager') . '</option>';
-        echo '</select></p>';
+        echo '<div class="rtacc-modal-error rtacc-status is-error" style="display:none;"></div>';
+        echo '<p class="rtacc-actions">';
+        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Continue to payment', 'rt-event-manager') . '</button>';
+        echo '<button type="button" class="uk-button uk-button-default" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button>';
+        echo '</p>';
 
-        echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary rtacc-add-linked-btn" data-product="' . esc_attr($future_pid) . '" data-needs-gender="1">' . esc_html__('Add co-traveller', 'rt-event-manager') . '</button></p>';
-        echo '</div></section>';
+        echo '</form></div></div>';
     }
 
     /**
@@ -1282,6 +1389,109 @@ class RT_Event_Manager_Account {
         }
 
         wp_send_json_success();
+    }
+
+    /* ---------------------------------------------------------------------
+     * AJAX: add a customized ticket to the cart (from the modal), then the JS
+     * redirects to checkout for payment.
+     * ------------------------------------------------------------------- */
+
+    public function ajax_add_ticket_to_cart() {
+        check_ajax_referer('rt_event_manager_add_ticket', 'nonce');
+
+        if (!is_user_logged_in()) {
+            wp_send_json_error(__('You must be logged in.', 'rt-event-manager'));
+        }
+        if (!function_exists('WC') || !WC()->cart) {
+            wp_send_json_error(__('Cart is unavailable.', 'rt-event-manager'));
+        }
+
+        $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+        $product    = $product_id ? wc_get_product($product_id) : null;
+        if (!$product || 'yes' !== get_post_meta($product_id, '_rti_is_ticket', true)) {
+            wp_send_json_error(__('Invalid ticket product.', 'rt-event-manager'));
+        }
+        if (!$product->is_purchasable() || !$product->is_in_stock()) {
+            wp_send_json_error(__('This ticket cannot be purchased right now.', 'rt-event-manager'));
+        }
+        // Variable / MTO products need their options chosen on the product page.
+        if ($product->is_type('variable') || $product->is_type('make_to_order')) {
+            wp_send_json_error(__('Please choose this ticket\'s options on its product page.', 'rt-event-manager'));
+        }
+
+        $kind      = RT_Event_Manager::get_ticket_kind_for_product($product_id);
+        $is_minor  = ('minor' === $kind);
+        $name      = isset($_POST['name']) ? sanitize_text_field(wp_unslash($_POST['name'])) : '';
+        $dietary   = isset($_POST['dietary']) ? sanitize_text_field(wp_unslash($_POST['dietary'])) : '';
+        $allergy   = ('allergies' === $dietary && isset($_POST['allergy'])) ? sanitize_text_field(wp_unslash($_POST['allergy'])) : '';
+        $parent_id = isset($_POST['parent_id']) ? absint($_POST['parent_id']) : 0;
+
+        if ($name === '') {
+            wp_send_json_error(__('Please enter the ticket holder name.', 'rt-event-manager'));
+        }
+        if ('allergies' === $dietary && $allergy === '') {
+            wp_send_json_error(__('Please specify the allergies.', 'rt-event-manager'));
+        }
+
+        // Verify any parent ticket belongs to this user.
+        if ($parent_id) {
+            $owned = wp_list_pluck(RT_Event_Manager::get_tickets_for_user(get_current_user_id()), 'id');
+            if (!in_array((string) $parent_id, array_map('strval', $owned), true)) {
+                wp_send_json_error(__('Invalid linked ticket.', 'rt-event-manager'));
+            }
+        }
+
+        $prefill = array(
+            'name'     => $name,
+            'dietary'  => $dietary,
+            'allergy'  => $allergy,
+            'phone'    => '',
+            'family'   => '',
+            'club'     => '',
+            'world_id' => '',
+            'dob'      => '',
+        );
+
+        if ($is_minor) {
+            $gender = isset($_POST['gender']) ? sanitize_key(wp_unslash($_POST['gender'])) : '';
+            $dob    = isset($_POST['dob']) ? RT_Event_Manager::sanitize_dob(wp_unslash($_POST['dob'])) : '';
+            if (!$parent_id) {
+                wp_send_json_error(__('Please choose the legal guardian.', 'rt-event-manager'));
+            }
+            if (!in_array($gender, array('tabler', 'circler'), true)) {
+                wp_send_json_error(__('Please choose the ticket type.', 'rt-event-manager'));
+            }
+            if ($dob === '' || !RT_Event_Manager::is_valid_minor_dob($dob)) {
+                wp_send_json_error(sprintf(
+                    __('The date of birth must make the child between %1$d and %2$d years old at the event.', 'rt-event-manager'),
+                    RT_Event_Manager::get_minor_min_age(),
+                    RT_Event_Manager::get_minor_max_age()
+                ));
+            }
+            $prefill['dob'] = $dob;
+            // Carry parent + gender for the existing linking mechanism.
+            $_REQUEST['rti_parent_ticket_id'] = $parent_id;
+            $_REQUEST['rti_minor_gender']     = $gender;
+        } else {
+            $phone = isset($_POST['phone']) ? RT_Event_Manager::normalize_phone(wp_unslash($_POST['phone'])) : '';
+            if ($phone === '' || !RT_Event_Manager::is_valid_intl_phone($phone)) {
+                wp_send_json_error(__('Please enter a valid phone number in international format, e.g. +41791234567.', 'rt-event-manager'));
+            }
+            $prefill['phone']    = $phone;
+            $prefill['family']   = isset($_POST['family']) ? sanitize_text_field(wp_unslash($_POST['family'])) : '';
+            $prefill['club']     = isset($_POST['club']) ? sanitize_text_field(wp_unslash($_POST['club'])) : '';
+            $prefill['world_id'] = isset($_POST['world_id']) ? sanitize_text_field(wp_unslash($_POST['world_id'])) : '';
+            if ($parent_id) {
+                $_REQUEST['rti_parent_ticket_id'] = $parent_id;
+            }
+        }
+
+        $added = WC()->cart->add_to_cart($product_id, 1, 0, array(), array('rti_prefill' => $prefill));
+        if (!$added) {
+            wp_send_json_error(__('Could not add the ticket to your cart.', 'rt-event-manager'));
+        }
+
+        wp_send_json_success(array('checkout_url' => wc_get_checkout_url()));
     }
 
     /* ---------------------------------------------------------------------

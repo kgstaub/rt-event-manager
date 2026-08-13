@@ -203,6 +203,43 @@
     margin-bottom: 10px;
 }
 
+/* ---- Add-ticket modal ---- */
+.rtacc-modal[hidden] {
+    display: none;
+}
+.rtacc-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 5vh 16px;
+    overflow-y: auto;
+}
+.rtacc-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+.rtacc-modal-dialog {
+    position: relative;
+    z-index: 1;
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+.rtacc-modal-dialog .rtacc-field {
+    margin-bottom: 12px;
+}
+.rtacc-modal-error {
+    display: block;
+    margin: 8px 0;
+}
+
 /* ---- Responsive ---- */
 @media (max-width: 720px) {
     .rtacc-nav {

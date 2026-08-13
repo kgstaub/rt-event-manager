@@ -439,6 +439,9 @@ class RT_Event_Manager {
                     // is never the purchaser, even when it is the only ticket in the
                     // order (ticket_index 0).
                     'has_parent'      => !empty($cart_item['rti_parent_ticket_id']),
+                    // Details entered in the account "customize ticket" modal
+                    // before checkout (holder name, phone, family, etc.).
+                    'prefill'         => isset($cart_item['rti_prefill']) && is_array($cart_item['rti_prefill']) ? $cart_item['rti_prefill'] : array(),
                 );
             }
         }
@@ -489,6 +492,14 @@ class RT_Event_Manager {
                 // when it is not the first ticket of the order OR it is a linked
                 // co-traveller added from the account.
                 $is_additional = ($ticket_index > 0) || !empty($item['has_parent']);
+                $prefill = isset($item['prefill']) ? $item['prefill'] : array();
+
+                if (!empty($prefill)) {
+                    // Details were entered in the account modal before checkout —
+                    // show a read-only summary and pass them through as hidden
+                    // fields so the normal save path stores them unchanged.
+                    $this->render_prefilled_ticket_fields($field_prefix, $prefill);
+                } else {
 
                 $name_value = (!$is_additional && !$is_minor) ? $default_name : '';
 
@@ -594,6 +605,8 @@ class RT_Event_Manager {
                     echo '</span></p>';
                 }
 
+                } // end visible-fields branch
+
                 // Hidden field mapping this ticket index to its product ID
                 echo '<input type="hidden" name="rti_ticket_product_map[' . esc_attr($ticket_index) . ']" value="' . esc_attr($item['product_id']) . '" />';
 
@@ -638,6 +651,27 @@ class RT_Event_Manager {
         <?php
 
         echo '</div>';
+    }
+
+    /**
+     * Render a prefilled ticket (details entered in the account modal) as a
+     * read-only summary plus hidden inputs, so the standard checkout save path
+     * stores them without the buyer re-entering anything.
+     *
+     * @param string $field_prefix e.g. rti_ticket_0
+     * @param array  $prefill      name/phone/family/club/world_id/dietary/allergy/dob
+     */
+    private function render_prefilled_ticket_fields($field_prefix, $prefill) {
+        $val = function ($k) use ($prefill) {
+            return isset($prefill[$k]) ? $prefill[$k] : '';
+        };
+
+        $summary_bits = array_filter(array($val('name'), $val('phone')));
+        echo '<p class="rti-prefilled-summary">' . esc_html(implode(' — ', $summary_bits)) . ' <em>(' . esc_html__('details entered', 'rt-event-manager') . ')</em></p>';
+
+        foreach (array('name', 'phone', 'family', 'club', 'world_id', 'dietary', 'allergy', 'dob') as $key) {
+            echo '<input type="hidden" name="' . esc_attr($field_prefix . '_' . $key) . '" value="' . esc_attr($val($key)) . '" />';
+        }
     }
 
     /**
@@ -2117,7 +2151,7 @@ class RT_Event_Manager {
         echo '<th>' . esc_html__('#', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Product', 'rt-event-manager') . '</th>';
-        echo '<th>' . esc_html__('Parent', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Main ticket / Guardian', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Ticket Phone', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('RTI Family', 'rt-event-manager') . '</th>';
@@ -3283,7 +3317,7 @@ class RT_Event_Manager {
                         <th style="width:40px;"><?php esc_html_e('#', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Type', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Product', 'rt-event-manager'); ?></th>
-                        <th><?php esc_html_e('Parent', 'rt-event-manager'); ?></th>
+                        <th><?php esc_html_e('Main ticket / Guardian', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Holder Name', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Ticket Phone', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Country', 'rt-event-manager'); ?></th>
