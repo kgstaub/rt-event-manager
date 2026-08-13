@@ -1313,11 +1313,11 @@ class RT_Event_Manager_Account {
             // Future members' guardian is shown as a sub-line under the holder.
             echo '<table class="rtacc-table rtacc-tickets rtacc-pretour-table uk-table uk-table-divider uk-table-middle uk-table-small">';
             echo '<thead><tr>';
-            echo '<th style="width:28%;">' . esc_html__('Tour', 'rt-event-manager') . '</th>';
-            echo '<th style="width:26%;">' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
-            echo '<th style="width:22%;">' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
-            echo '<th style="width:120px;">' . esc_html__('Status', 'rt-event-manager') . '</th>';
-            echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
+            echo '<th style="width:30%;">' . esc_html__('Tour', 'rt-event-manager') . '</th>';
+            echo '<th style="width:24%;">' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
+            echo '<th style="width:20%;">' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
+            echo '<th style="width:14%;">' . esc_html__('Status', 'rt-event-manager') . '</th>';
+            echo '<th style="width:12%;">' . esc_html__('Actions', 'rt-event-manager') . '</th>';
             echo '</tr></thead><tbody>';
             foreach ($tickets as $t) {
                 $status  = isset($t['status']) ? $t['status'] : 'draft';
