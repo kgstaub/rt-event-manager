@@ -786,7 +786,13 @@ class RT_Event_Manager_Account {
         foreach ($tickets as $t) {
             if ('event' === $this->effective_kind($t)) {
                 $event_ids[absint($t['id'])] = true;
+                $parent = isset($t['parent_ticket_id']) ? absint($t['parent_ticket_id']) : 0;
+                $status = isset($t['status']) ? $t['status'] : '';
+                $is_dead = in_array($status, array('cancelled', 'refunded'), true);
                 if (absint($t['id']) === $this->own_event_id) {
+                    $mine[] = $t;
+                } elseif (!$parent && $is_dead) {
+                    // A past own ticket (cancelled/refunded) stays under My Ticket.
                     $mine[] = $t;
                 } else {
                     $companions[] = $t;
@@ -1064,6 +1070,12 @@ class RT_Event_Manager_Account {
      */
     private function own_event_ticket_id($tickets) {
         foreach ($tickets as $t) {
+            // Skip cancelled/refunded tickets so a fresh registration becomes the
+            // user's own ticket again after a previous one was cancelled.
+            $status = isset($t['status']) ? $t['status'] : '';
+            if (in_array($status, array('cancelled', 'refunded'), true)) {
+                continue;
+            }
             if ('event' === $this->effective_kind($t) && !absint($t['parent_ticket_id'])) {
                 return absint($t['id']);
             }

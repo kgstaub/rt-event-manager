@@ -2282,6 +2282,12 @@ class RT_Event_Manager {
             if ($exclude_order_id && absint($t['order_id']) === $exclude_order_id) {
                 continue;
             }
+            // A cancelled or refunded ticket no longer counts — the user may
+            // register a fresh ticket as their own.
+            $status = isset($t['status']) ? $t['status'] : '';
+            if (in_array($status, array('cancelled', 'refunded'), true)) {
+                continue;
+            }
             if ('event' === self::get_ticket_kind($t) && !absint($t['parent_ticket_id'])) {
                 return true;
             }
