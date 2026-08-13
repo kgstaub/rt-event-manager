@@ -344,7 +344,6 @@ class RT_Event_Manager_Account {
             __('.WORLD ID', 'rt-event-manager')   => $sso['id'],
             __('Family', 'rt-event-manager')      => $sso['club']['family'],
             __('Club', 'rt-event-manager')        => $sso['club']['name'],
-            __('Club domain', 'rt-event-manager') => $sso['club']['subdomain'],
         );
         echo '<dl class="rtacc-deflist uk-description-list uk-description-list-divider">';
         foreach ($rows as $label => $value) {
