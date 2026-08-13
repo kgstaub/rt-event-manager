@@ -821,7 +821,7 @@ class RT_Event_Manager_Account {
         $this->render_editable_sections('rtacc-tickets-form', array(
             array('label' => __('My Ticket', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a ticket assigned to yourself yet.', 'rt-event-manager')),
             array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional tickets yet.', 'rt-event-manager'), 'after' => $add_ticket_button),
-            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'after' => $future_button, 'guardian_options' => $future_options, 'desc' => sprintf(
+            array('label' => __('Future Tablers / Future Circlers', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'after' => $future_button, 'guardian_options' => $future_options, 'desc' => sprintf(
                 /* translators: 1: minimum age, 2: maximum age */
                 __('Add reduced rate tickets for your accompanying children between %1$d and %2$d. Children under %1$d do not need to register.', 'rt-event-manager'),
                 RT_Event_Manager::get_minor_min_age(),
@@ -916,7 +916,7 @@ class RT_Event_Manager_Account {
         $this->render_editable_sections('rtacc-pretour-form', array(
             array('label' => __('My Pretour', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a pretour ticket yet.', 'rt-event-manager'), 'pretour_view' => true),
             array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional pretour tickets yet.', 'rt-event-manager'), 'pretour_view' => true),
-            array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'pretour_view' => true),
+            array('label' => __('Future Tablers / Future Circlers', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'pretour_view' => true),
         ), $by_id, $can_edit, true);
 
         // The bulk pretour modal (hidden; opened by the title-line button).
