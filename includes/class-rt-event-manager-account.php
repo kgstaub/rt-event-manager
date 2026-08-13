@@ -1683,7 +1683,7 @@ class RT_Event_Manager_Account {
                 if (!$guardian_ok) {
                     $who = ($m['holder_name'] !== '') ? $m['holder_name'] : ('#' . $mid);
                     wp_send_json_error(sprintf(
-                        __('%s can only join the same tour as their guardian — please also select their guardian.', 'rt-event-manager'),
+                        __('%s can only join the same tour as their guardian. Please also select their guardian for this tour, or assign their guardian under Event Tickets.', 'rt-event-manager'),
                         $who
                     ));
                 }
