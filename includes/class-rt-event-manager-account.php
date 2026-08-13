@@ -559,22 +559,15 @@ class RT_Event_Manager_Account {
         // checkout collects the traveller's own details rather than the buyer's.
         $primary_id = !empty($mine) ? absint($mine[0]['id']) : 0;
 
+        // A ticket added here is a co-traveller linked to the member's own ticket
+        // (so checkout captures the traveller's own details, not the buyer's).
+        $add_ticket_button = $this->cotraveller_add_button($primary_id);
+
         $this->render_editable_sections('rtacc-tickets-form', array(
             array('label' => __('My Ticket', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a ticket assigned to yourself yet.', 'rt-event-manager')),
-            array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional tickets yet.', 'rt-event-manager')),
+            array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional tickets yet.', 'rt-event-manager'), 'after' => $add_ticket_button),
             array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true),
         ), $by_id, $can_edit);
-
-        // Add more event tickets. If the member already has their own ticket,
-        // added tickets are co-travellers linked to it (so checkout captures the
-        // traveller's own details, not the buyer's).
-        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
-        echo '<h3 class="rtacc-subtitle">' . esc_html__('Add more tickets', 'rt-event-manager') . '</h3>';
-        if ($primary_id) {
-            echo '<p class="rtacc-hint">' . esc_html__('These tickets travel with you; you can enter each attendee\'s own details at checkout.', 'rt-event-manager') . '</p>';
-        }
-        $this->render_products_grid($this->get_event_product_ids(), $primary_id);
-        echo '</section>';
 
         // Add a Future member (minor) co-traveller attached to an event ticket.
         $this->render_future_add_section($this->ticket_options($event_parents));
@@ -704,6 +697,10 @@ class RT_Event_Manager_Account {
             } else {
                 $has_rows = true;
                 $this->render_ticket_table($sec['tickets'], $can_edit, $by_id, !empty($sec['minor']));
+            }
+            // Optional action for this section (already-escaped HTML).
+            if (!empty($sec['after'])) {
+                echo $sec['after'];
             }
             echo '</section>';
         }
@@ -855,6 +852,46 @@ class RT_Event_Manager_Account {
         }));
     }
 
+    /**
+     * Primary "Add a ticket" button for the co-traveller section. Targets the
+     * first purchasable Event ticket product, carrying the co-traveller link to
+     * the member's own ticket. Returns '' if no event product is available.
+     *
+     * @param int $parent_id The member's own ticket id (0 if they have none yet).
+     * @return string Escaped button HTML.
+     */
+    private function cotraveller_add_button($parent_id) {
+        $product = null;
+        foreach ($this->get_event_product_ids() as $pid) {
+            $p = wc_get_product($pid);
+            if ($p && $p->is_purchasable() && $p->is_in_stock()) {
+                $product = $p;
+                break;
+            }
+        }
+        if (!$product) {
+            return '';
+        }
+
+        $parent_id     = absint($parent_id);
+        $needs_options = $product->is_type('variable') || $product->is_type('make_to_order');
+
+        if ($needs_options) {
+            $url = $parent_id
+                ? add_query_arg('rti_parent_ticket_id', $parent_id, $product->get_permalink())
+                : $product->get_permalink();
+        } else {
+            $args = array('add-to-cart' => $product->get_id());
+            if ($parent_id) {
+                $args['rti_parent_ticket_id'] = $parent_id;
+            }
+            $url = add_query_arg($args, wc_get_cart_url());
+        }
+
+        return '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($url) . '">'
+            . esc_html__('Add a ticket', 'rt-event-manager') . '</a></p>';
+    }
+
     /** Ticket products in the configured Pretour category. */
     private function get_pretour_product_ids() {
         $cat = RT_Event_Manager::get_pretour_category_id();
@@ -884,28 +921,6 @@ class RT_Event_Manager_Account {
             'tax_query'      => array(array('taxonomy' => 'product_cat', 'field' => 'term_id', 'terms' => array($cat))),
         ));
         return !empty($ids) ? absint($ids[0]) : 0;
-    }
-
-    /**
-     * Render a grid of directly-purchasable products (add-to-cart).
-     *
-     * @param array $product_ids
-     */
-    private function render_products_grid($product_ids, $parent_id = 0) {
-        $cards = 0;
-        echo '<div class="rtacc-products">';
-        foreach ($product_ids as $pid) {
-            $product = wc_get_product($pid);
-            if (!$product || !$product->is_purchasable() || !$product->is_in_stock()) {
-                continue;
-            }
-            $this->render_product_card($product, $parent_id);
-            $cards++;
-        }
-        echo '</div>';
-        if (!$cards) {
-            echo '<p>' . esc_html__('Nothing is available for purchase right now.', 'rt-event-manager') . '</p>';
-        }
     }
 
     /**
