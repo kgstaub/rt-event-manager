@@ -432,13 +432,21 @@ class RT_Event_Manager_Visa {
         // Existing letters for this ticket.
         $letters = $this->letters_for_ticket($ticket_id, get_current_user_id());
         if (!empty($letters)) {
-            echo '<ul class="rtacc-visa-list">';
+            echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
+            echo '<thead><tr>';
+            echo '<th>' . esc_html__('Reference', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Generated', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Document', 'rt-event-manager') . '</th>';
+            echo '</tr></thead><tbody>';
             foreach ($letters as $l) {
                 $dl = $this->download_url($l['id']);
-                echo '<li>' . esc_html(sprintf(__('Letter %1$s — generated %2$s', 'rt-event-manager'), $l['reference'], $l['created_at']))
-                    . ' <a class="uk-button uk-button-default uk-button-small" href="' . esc_url($dl) . '" target="_blank" rel="noopener">' . esc_html__('Download PDF', 'rt-event-manager') . '</a></li>';
+                echo '<tr>';
+                echo '<td data-title="' . esc_attr__('Reference', 'rt-event-manager') . '">' . esc_html($l['reference']) . '</td>';
+                echo '<td data-title="' . esc_attr__('Generated', 'rt-event-manager') . '">' . esc_html($l['created_at']) . '</td>';
+                echo '<td data-title="' . esc_attr__('Document', 'rt-event-manager') . '"><a class="uk-button uk-button-default uk-button-small" href="' . esc_url($dl) . '" target="_blank" rel="noopener">' . esc_html__('Download PDF', 'rt-event-manager') . '</a></td>';
+                echo '</tr>';
             }
-            echo '</ul>';
+            echo '</tbody></table>';
         }
 
         $has_attendee = $this->person_has_letter($ticket_id, get_current_user_id(), false, '');

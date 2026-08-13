@@ -321,10 +321,6 @@
     margin: 0 0 12px;
     color: var(--rtacc-muted);
 }
-.rtacc-visa-list {
-    margin: 0 0 12px;
-    padding-left: 18px;
-}
 .rtacc-visa-actions {
     display: flex;
     flex-wrap: wrap;
