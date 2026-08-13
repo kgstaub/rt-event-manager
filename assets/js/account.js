@@ -261,6 +261,48 @@
     });
 
     // ---- Ticket save (Event Tickets + Pretour tabs) ----
+    function collectTicketRow($row) {
+        var data = {};
+        $row.find('.rtacc-ticket-field').each(function () {
+            var name  = $(this).attr('name');
+            var match = name && name.match(/\[([^\]]+)\]$/);
+            if (match) {
+                data[match[1]] = $(this).val();
+            }
+        });
+        return data;
+    }
+
+    function saveTickets($form, tickets, $status) {
+        setStatus($status, i18n.saving || 'Saving…', null);
+        return $.post(cfg.ajaxUrl, {
+            action:  'rt_event_manager_account_save_tickets',
+            nonce:   cfg.ticketsNonce,
+            tickets: tickets
+        }, function (response) {
+            if (response && response.success) {
+                setStatus($status, i18n.saved || 'Saved!', 'success');
+            } else {
+                setStatus($status, (response && response.data) || i18n.error || 'Error', 'error');
+            }
+        }).fail(function () {
+            setStatus($status, i18n.requestFail || 'Request failed.', 'error');
+        });
+    }
+
+    // Auto-save the edited ticket row when the field is left / changed.
+    $(document).on('change', '.rtacc-tickets-form .rtacc-ticket-field', function () {
+        var $row  = $(this).closest('tr[data-ticket-id]');
+        var $form = $(this).closest('.rtacc-tickets-form');
+        if (!$row.length) {
+            return;
+        }
+        var tickets = {};
+        tickets[$row.data('ticket-id')] = collectTicketRow($row);
+        saveTickets($form, tickets, $form.find('.rtacc-status'));
+    });
+
+    // Manual "Save" button still saves every row at once.
     $(document).on('submit', '.rtacc-tickets-form', function (e) {
         e.preventDefault();
         var $form   = $(this);
@@ -269,34 +311,12 @@
 
         var tickets = {};
         $form.find('tr[data-ticket-id]').each(function () {
-            var ticketId = $(this).data('ticket-id');
-            tickets[ticketId] = {};
-            $(this).find('.rtacc-ticket-field').each(function () {
-                var name  = $(this).attr('name');
-                var match = name && name.match(/\[([^\]]+)\]$/);
-                if (match) {
-                    tickets[ticketId][match[1]] = $(this).val();
-                }
-            });
+            tickets[$(this).data('ticket-id')] = collectTicketRow($(this));
         });
 
         $btn.prop('disabled', true);
-        setStatus($status, i18n.saving || 'Saving…', null);
-
-        $.post(cfg.ajaxUrl, {
-            action:  'rt_event_manager_account_save_tickets',
-            nonce:   cfg.ticketsNonce,
-            tickets: tickets
-        }, function (response) {
+        saveTickets($form, tickets, $status).always(function () {
             $btn.prop('disabled', false);
-            if (response && response.success) {
-                setStatus($status, i18n.saved || 'Saved!', 'success');
-            } else {
-                setStatus($status, (response && response.data) || i18n.error || 'Error', 'error');
-            }
-        }).fail(function () {
-            $btn.prop('disabled', false);
-            setStatus($status, i18n.requestFail || 'Request failed.', 'error');
         });
     });
 

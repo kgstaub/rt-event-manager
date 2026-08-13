@@ -11,6 +11,14 @@
  * the theme owns those.
  */
 
+/* No box shadows anywhere in the account portal (flat look). */
+.rtacc,
+.rtacc *,
+.rtacc-modal,
+.rtacc-modal * {
+    box-shadow: none !important;
+}
+
 .rtacc {
     /* Seeded from YOOtheme theme tokens (style "RTS"). */
     --rtacc-primary: #CC0B24;
