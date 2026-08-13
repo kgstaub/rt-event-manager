@@ -1557,12 +1557,21 @@ class RT_Event_Manager {
      * @return bool
      */
     public function validate_future_add_to_cart($passed, $product_id, $quantity) {
-        if (self::is_future_product($product_id) && empty($_REQUEST['rti_parent_ticket_id'])) {
-            wc_add_notice(
-                __('Future member tickets can only be added as a co-traveller from your account.', 'rt-event-manager'),
-                'error'
-            );
-            return false;
+        if (empty($_REQUEST['rti_parent_ticket_id'])) {
+            if (self::is_future_product($product_id)) {
+                wc_add_notice(
+                    __('Future member tickets can only be added as a co-traveller from your account.', 'rt-event-manager'),
+                    'error'
+                );
+                return false;
+            }
+            if (self::is_pretour_product($product_id)) {
+                wc_add_notice(
+                    __('Pretour tickets can only be added from your account, linked to a member\'s ticket.', 'rt-event-manager'),
+                    'error'
+                );
+                return false;
+            }
         }
         return $passed;
     }
@@ -1585,21 +1594,21 @@ class RT_Event_Manager {
     }
 
     /**
-     * Hide Future (minor) products from the shop catalog/archive loop so they
-     * cannot be purchased standalone.
+     * Hide Future (minor) and Pretour products from the shop catalog/archive loop
+     * so they cannot be purchased standalone (both are account-only, linked).
      *
      * @param WP_Query $query
      */
     public function hide_future_from_catalog($query) {
-        $cat = self::get_future_category_id();
-        if (!$cat) {
+        $cats = array_filter(array(self::get_future_category_id(), self::get_pretour_category_id()));
+        if (empty($cats)) {
             return;
         }
         $tax_query = (array) $query->get('tax_query');
         $tax_query[] = array(
             'taxonomy' => 'product_cat',
             'field'    => 'term_id',
-            'terms'    => array($cat),
+            'terms'    => array_map('absint', $cats),
             'operator' => 'NOT IN',
         );
         $query->set('tax_query', $tax_query);

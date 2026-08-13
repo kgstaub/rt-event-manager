@@ -49,6 +49,7 @@ class RT_Event_Manager_Account {
         add_action('wp_ajax_rt_event_manager_account_save_tickets', array($this, 'ajax_save_tickets'));
         add_action('wp_ajax_rt_event_manager_receipt', array($this, 'ajax_receipt'));
         add_action('wp_ajax_rt_event_manager_add_ticket_to_cart', array($this, 'ajax_add_ticket_to_cart'));
+        add_action('wp_ajax_rt_event_manager_add_pretours_to_cart', array($this, 'ajax_add_pretours_to_cart'));
     }
 
     /* ---------------------------------------------------------------------
@@ -131,6 +132,7 @@ class RT_Event_Manager_Account {
                 'error'       => __('Something went wrong. Please try again.', 'rt-event-manager'),
                 'requestFail' => __('Request failed. Please try again.', 'rt-event-manager'),
                 'needParent'  => __('Please choose which ticket to attach this to.', 'rt-event-manager'),
+                'selectMember' => __('Please select at least one member.', 'rt-event-manager'),
             ),
         ));
     }
@@ -636,13 +638,26 @@ class RT_Event_Manager_Account {
             array('label' => __('Future members', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true),
         ), $by_id, $can_edit);
 
-        // Add a pretour, linked to one of the user's event tickets.
-        $this->render_pretour_add_section($this->get_pretour_product_ids(), $this->ticket_options($event_all));
-
-        // Add a Future member (minor) co-traveller attached to a pretour ticket.
-        if (!empty($pretour_parents)) {
-            $this->render_future_add_section($this->ticket_options($pretour_parents));
+        // Bulk pretour add: any group member (event ticket or Future member) who
+        // does not already have a pretour can join the tour. One pretour per
+        // person; each pretour is linked to that member's ticket.
+        $has_pretour = array(); // member ticket id => true
+        foreach ($tickets as $t) {
+            if ('pretour' === $this->effective_kind($t)) {
+                $pp = absint($t['parent_ticket_id']);
+                if ($pp) {
+                    $has_pretour[$pp] = true;
+                }
+            }
         }
+        $candidates = array();
+        foreach ($tickets as $t) {
+            $k = $this->effective_kind($t);
+            if (('event' === $k || 'minor' === $k) && !isset($has_pretour[absint($t['id'])])) {
+                $candidates[] = $t;
+            }
+        }
+        $this->render_pretour_bulk_add($candidates);
     }
 
     /* ---- Ticket rendering helpers ---- */
@@ -1072,54 +1087,57 @@ class RT_Event_Manager_Account {
     }
 
     /**
-     * "Add a pretour" control: pick a parent event ticket, then add a pretour
-     * product carrying the linkage. Products needing options link to their page.
+     * Bulk "Add a pretour" control. The tour is purchased for the group members
+     * selected below (event ticket holders and Future members who do not already
+     * have a pretour); each pretour is linked to that member's ticket and
+     * prefilled from their details, then routed to checkout.
      *
-     * @param array $product_ids
-     * @param array $parent_options id => label
+     * @param array $candidates Member ticket rows eligible to join the tour.
      */
-    private function render_pretour_add_section($product_ids, $parent_options) {
+    private function render_pretour_bulk_add($candidates) {
+        $product = $this->first_purchasable_product($this->get_pretour_product_ids());
+
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Add a pretour', 'rt-event-manager') . '</h3>';
 
-        if (empty($product_ids)) {
+        if (!$product) {
             echo '<p>' . esc_html__('No pretour products are available. Set a Pretour category under WooCommerce settings.', 'rt-event-manager') . '</p></section>';
             return;
         }
-        if (empty($parent_options)) {
-            echo '<p>' . esc_html__('You need an event ticket before you can add a pretour.', 'rt-event-manager') . '</p></section>';
+        if (empty($candidates)) {
+            echo '<p>' . esc_html__('Everyone in your group already has a pretour, or you have no tickets yet.', 'rt-event-manager') . '</p></section>';
+            return;
+        }
+        if ($this->product_needs_options($product)) {
+            echo '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($product->get_permalink()) . '">' . esc_html__('Add a pretour', 'rt-event-manager') . '</a></p></section>';
             return;
         }
 
-        echo '<div class="rtacc-linked-add">';
-        echo '<p class="rtacc-field rtacc-form uk-form-stacked"><label class="uk-form-label">' . esc_html__('Link pretour to event ticket', 'rt-event-manager') . '</label>';
-        echo '<select class="rtacc-add-parent uk-select">';
-        foreach ($parent_options as $pid => $label) {
-            echo '<option value="' . esc_attr($pid) . '">' . esc_html($label) . '</option>';
-        }
-        echo '</select></p>';
+        echo '<p class="rtacc-hint">' . esc_html__('Choose who is joining the tour. A pretour is added for each selected member.', 'rt-event-manager') . '</p>';
+        echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="pretour">' . esc_html__('Add a pretour', 'rt-event-manager') . '</button></p>';
+        echo '</section>';
 
-        echo '<div class="rtacc-products">';
-        foreach ($product_ids as $pid) {
-            $product = wc_get_product($pid);
-            if (!$product || !$product->is_purchasable() || !$product->is_in_stock()) {
-                continue;
-            }
-            $needs_options = $product->is_type('variable') || $product->is_type('make_to_order');
-
-            echo '<div class="rtacc-product uk-card uk-card-default uk-card-body">';
-            echo '<a class="rtacc-product-thumb" href="' . esc_url($product->get_permalink()) . '">' . $product->get_image('woocommerce_thumbnail') . '</a>';
-            echo '<h4 class="rtacc-product-title">' . esc_html($product->get_name()) . '</h4>';
-            echo '<div class="rtacc-product-price">' . wp_kses_post($product->get_price_html()) . '</div>';
-            if ($needs_options) {
-                echo '<button type="button" class="uk-button uk-button-default uk-button-small rtacc-choose-options-btn" data-url="' . esc_url($product->get_permalink()) . '">' . esc_html__('Choose options', 'rt-event-manager') . '</button>';
-            } else {
-                echo '<button type="button" class="uk-button uk-button-primary uk-button-small rtacc-add-linked-btn" data-product="' . esc_attr($product->get_id()) . '">' . esc_html__('Add pretour', 'rt-event-manager') . '</button>';
-            }
-            echo '</div>';
+        // Bulk pretour modal.
+        echo '<div class="rtacc-modal" id="rtacc-modal-pretour" hidden>';
+        echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
+        echo '<div class="rtacc-modal-dialog">';
+        echo '<form class="rtacc-pretour-form rtacc-form uk-form-stacked" data-product="' . esc_attr($product->get_id()) . '">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html__('Add a pretour', 'rt-event-manager') . '</h3>';
+        echo '<p class="rtacc-hint">' . esc_html($product->get_name()) . ' — ' . wp_kses_post($product->get_price_html()) . '</p>';
+        echo '<div class="rtacc-checklist">';
+        foreach ($candidates as $t) {
+            $id    = absint($t['id']);
+            $label = ($t['holder_name'] !== '') ? $t['holder_name'] : sprintf(__('Ticket #%d', 'rt-event-manager'), $id);
+            $type  = RT_Event_Manager::ticket_kind_label($t);
+            echo '<label class="rtacc-check"><input type="checkbox" name="members[]" value="' . esc_attr($id) . '" /> ' . esc_html($label) . ' <span class="rtacc-muted">· ' . esc_html($type) . '</span></label>';
         }
         echo '</div>';
-        echo '</div></section>';
+        echo '<div class="rtacc-modal-error rtacc-status is-error" style="display:none;"></div>';
+        echo '<p class="rtacc-actions">';
+        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Continue to payment', 'rt-event-manager') . '</button>';
+        echo '<button type="button" class="uk-button uk-button-default" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button>';
+        echo '</p>';
+        echo '</form></div></div>';
     }
 
     /* ---------------------------------------------------------------------
@@ -1489,6 +1507,86 @@ class RT_Event_Manager_Account {
         $added = WC()->cart->add_to_cart($product_id, 1, 0, array(), array('rti_prefill' => $prefill));
         if (!$added) {
             wp_send_json_error(__('Could not add the ticket to your cart.', 'rt-event-manager'));
+        }
+
+        wp_send_json_success(array('checkout_url' => wc_get_checkout_url()));
+    }
+
+    /* ---------------------------------------------------------------------
+     * AJAX: add a pretour for each selected group member (bulk), then checkout.
+     * ------------------------------------------------------------------- */
+
+    public function ajax_add_pretours_to_cart() {
+        check_ajax_referer('rt_event_manager_add_ticket', 'nonce');
+
+        if (!is_user_logged_in()) {
+            wp_send_json_error(__('You must be logged in.', 'rt-event-manager'));
+        }
+        if (!function_exists('WC') || !WC()->cart) {
+            wp_send_json_error(__('Cart is unavailable.', 'rt-event-manager'));
+        }
+
+        $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+        $product    = $product_id ? wc_get_product($product_id) : null;
+        if (!$product || !RT_Event_Manager::is_pretour_product($product_id)) {
+            wp_send_json_error(__('Invalid pretour product.', 'rt-event-manager'));
+        }
+        if (!$product->is_purchasable() || !$product->is_in_stock()) {
+            wp_send_json_error(__('This pretour cannot be purchased right now.', 'rt-event-manager'));
+        }
+        if ($product->is_type('variable') || $product->is_type('make_to_order')) {
+            wp_send_json_error(__('Please choose this pretour\'s options on its product page.', 'rt-event-manager'));
+        }
+
+        $members = (isset($_POST['members']) && is_array($_POST['members'])) ? array_map('absint', $_POST['members']) : array();
+        if (empty($members)) {
+            wp_send_json_error(__('Please select at least one member joining the tour.', 'rt-event-manager'));
+        }
+
+        // Index the user's tickets and record who already has a pretour.
+        $by_id       = array();
+        $has_pretour = array();
+        foreach (RT_Event_Manager::get_tickets_for_user(get_current_user_id()) as $t) {
+            $by_id[absint($t['id'])] = $t;
+            if ('pretour' === RT_Event_Manager::get_ticket_kind($t)) {
+                $pp = absint($t['parent_ticket_id']);
+                if ($pp) {
+                    $has_pretour[$pp] = true;
+                }
+            }
+        }
+
+        $added = 0;
+        foreach ($members as $mid) {
+            if (!isset($by_id[$mid]) || isset($has_pretour[$mid])) {
+                continue; // not owned, or already has a pretour (one per person)
+            }
+            $m    = $by_id[$mid];
+            $kind = RT_Event_Manager::get_ticket_kind($m);
+            if (!in_array($kind, array('event', 'minor'), true)) {
+                continue; // pretours attach to event tickets or Future members
+            }
+
+            $prefill = array(
+                'name'     => $m['holder_name'],
+                'phone'    => isset($m['phone']) ? $m['phone'] : '',
+                'family'   => isset($m['rti_family']) ? $m['rti_family'] : '',
+                'club'     => isset($m['rti_club']) ? $m['rti_club'] : '',
+                'world_id' => isset($m['world_id']) ? $m['world_id'] : '',
+                'dietary'  => isset($m['dietary']) ? $m['dietary'] : '',
+                'allergy'  => isset($m['allergy_details']) ? $m['allergy_details'] : '',
+                'dob'      => isset($m['dob']) ? $m['dob'] : '',
+            );
+
+            // Link this pretour to the member's ticket (captured by the filter).
+            $_REQUEST['rti_parent_ticket_id'] = $mid;
+            if (WC()->cart->add_to_cart($product_id, 1, 0, array(), array('rti_prefill' => $prefill))) {
+                $added++;
+            }
+        }
+
+        if (!$added) {
+            wp_send_json_error(__('Could not add any pretour to your cart.', 'rt-event-manager'));
         }
 
         wp_send_json_success(array('checkout_url' => wc_get_checkout_url()));

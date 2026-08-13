@@ -98,6 +98,41 @@
         });
     });
 
+    // ---- Bulk pretour add (select group members, then checkout) ----
+    $(document).on('submit', '.rtacc-pretour-form', function (e) {
+        e.preventDefault();
+        var $form = $(this);
+        var $err  = $form.find('.rtacc-modal-error');
+        var $btn  = $form.find('button[type="submit"]');
+        $err.hide();
+
+        var members = $form.find('input[name="members[]"]:checked').map(function () {
+            return this.value;
+        }).get();
+        if (!members.length) {
+            $err.text(i18n.selectMember || 'Please select at least one member.').show();
+            return;
+        }
+
+        $btn.prop('disabled', true);
+        $.post(cfg.ajaxUrl, {
+            action:     'rt_event_manager_add_pretours_to_cart',
+            nonce:      cfg.addTicketNonce,
+            product_id: $form.data('product'),
+            members:    members
+        }, function (response) {
+            if (response && response.success && response.data && response.data.checkout_url) {
+                window.location.href = response.data.checkout_url;
+            } else {
+                $btn.prop('disabled', false);
+                $err.text((response && response.data) || i18n.error || 'Error').show();
+            }
+        }).fail(function () {
+            $btn.prop('disabled', false);
+            $err.text(i18n.requestFail || 'Request failed.').show();
+        });
+    });
+
     // ---- Ticket save (Event Tickets + Pretour tabs) ----
     $(document).on('submit', '.rtacc-tickets-form', function (e) {
         e.preventDefault();
