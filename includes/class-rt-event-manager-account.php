@@ -195,9 +195,14 @@ class RT_Event_Manager_Account {
                 'ticketFor'   => __('Ticket:', 'rt-event-manager'),
                 'sendTransfer' => __('Send transfer request', 'rt-event-manager'),
                 'declining'   => __('Declining…', 'rt-event-manager'),
-                'shareWarn'   => __('You can also share this link directly, however anyone with this link can accept the transfer!', 'rt-event-manager'),
+                'shareWarn'   => __('Share this link with the new holder. Anyone with this link can accept the transfer!', 'rt-event-manager'),
                 'copyLink'    => __('Copy link', 'rt-event-manager'),
                 'copied'      => __('Copied!', 'rt-event-manager'),
+                'linkReady'   => __('Transfer link ready — share it with the new holder.', 'rt-event-manager'),
+                'shareIntro'  => __("I'd like to transfer my event ticket to you. Accept it here:", 'rt-event-manager'),
+                'shareSubject' => __('Event ticket transfer', 'rt-event-manager'),
+                'sendEmail'   => __('Send email', 'rt-event-manager'),
+                'sendWhatsApp' => __('Send WhatsApp', 'rt-event-manager'),
             ),
         ));
     }
@@ -916,12 +921,10 @@ class RT_Event_Manager_Account {
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Transfer this ticket', 'rt-event-manager') . '</h3>';
         echo '<input type="hidden" name="ticket_id" value="" />';
         echo '<p class="rtacc-modal-target rtacc-muted"></p>';
-        echo '<p>' . esc_html__('The ticket and any pretour linked to it move to the new holder as a package. This is not a refund — the new holder will see the original price paid, and any repayment is arranged between the two of you.', 'rt-event-manager') . '</p>';
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('New holder\'s email address', 'rt-event-manager') . '</label>';
-        echo '<input type="email" class="uk-input" name="email" required placeholder="name@example.com" /></p>';
+        echo '<p>' . esc_html__('Create a transfer link and share it with the new holder. The ticket and any pretour linked to it move to them as a package. This is not a refund — they will see the original price paid, and any repayment is arranged between the two of you.', 'rt-event-manager') . '</p>';
         echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
         echo '<p class="rtacc-actions">';
-        echo '<button type="submit" class="uk-button uk-button-secondary">' . esc_html__('Send transfer request', 'rt-event-manager') . '</button>';
+        echo '<button type="submit" class="uk-button uk-button-secondary">' . esc_html__('Create transfer link', 'rt-event-manager') . '</button>';
         echo '<button type="button" class="uk-button uk-button-primary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button>';
         echo '</p></form></div></div>';
 
@@ -1842,7 +1845,6 @@ class RT_Event_Manager_Account {
         }
         $user_id   = get_current_user_id();
         $ticket_id = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
-        $email     = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
 
         $t = $ticket_id ? RT_Event_Manager::get_ticket_by_id($ticket_id) : null;
         if (!$t || !$this->user_owns_ticket($t, $user_id)) {
@@ -1855,31 +1857,24 @@ class RT_Event_Manager_Account {
             wp_send_json_error(__('This ticket can no longer be transferred.', 'rt-event-manager'));
         }
         if (!empty($t['transfer_token'])) {
-            wp_send_json_error(sprintf(
-                __('A transfer to %s is already pending for this ticket. Please wait for it to be accepted, or ask an organiser to withdraw it, before starting another.', 'rt-event-manager'),
-                $t['transfer_email'] !== '' ? $t['transfer_email'] : __('another person', 'rt-event-manager')
-            ));
-        }
-        if (!is_email($email)) {
-            wp_send_json_error(__('Please enter a valid email address.', 'rt-event-manager'));
-        }
-        if (strtolower($email) === strtolower(wp_get_current_user()->user_email)) {
-            wp_send_json_error(__('That is your own email address.', 'rt-event-manager'));
+            wp_send_json_error(__('A transfer is already pending for this ticket. Please wait for it to be accepted or declined, or ask an organiser to withdraw it, before starting another.', 'rt-event-manager'));
         }
 
         $token = wp_generate_password(32, false);
         RT_Event_Manager::instance()->update_ticket($ticket_id, array(
             'transfer_token'        => $token,
-            'transfer_email'        => $email,
+            'transfer_email'        => '',
             'transfer_requested_at' => current_time('mysql'),
         ));
 
-        $this->send_transfer_email($t, $email, $token);
+        $product = wc_get_product($t['product_id']);
+        $pname   = $product ? $product->get_name() : __('an event ticket', 'rt-event-manager');
+        $hours   = max(1, round(RT_Event_Manager::transfer_expiry_seconds() / HOUR_IN_SECONDS));
 
         wp_send_json_success(array(
-            'message' => sprintf(__('A transfer invitation has been sent to %s.', 'rt-event-manager'), $email),
-            // Exposed so the invite link can be tested without email delivery.
             'accept_url' => add_query_arg('rti_transfer', rawurlencode($token), wc_get_page_permalink('myaccount')),
+            'product'    => $pname,
+            'hours'      => $hours,
         ));
     }
 
@@ -1969,6 +1964,13 @@ class RT_Event_Manager_Account {
         $order  = wc_get_order(absint($event['order_id']));
         $status = $order ? rt_event_manager_determine_ticket_status($order, $new_name) : 'draft';
 
+        // Capture the outgoing owner so the completed transfer can be shown in
+        // the backend (owner_user_id falls back to the order customer for legacy).
+        $from_owner = absint(isset($event['owner_user_id']) ? $event['owner_user_id'] : 0);
+        if (!$from_owner && $order) {
+            $from_owner = absint($order->get_customer_id());
+        }
+
         // Overwrite the event ticket to the new owner; personal fields are reset.
         $mgr->update_ticket(absint($event['id']), array(
             'owner_user_id'   => $user_id,
@@ -1983,6 +1985,8 @@ class RT_Event_Manager_Account {
             'transfer_token'  => '',
             'transfer_email'  => '',
             'status'          => $status,
+            'transferred_from_user_id' => $from_owner,
+            'transferred_at'  => current_time('mysql'),
         ));
 
         // The pretour package follows the same person.
@@ -2023,34 +2027,6 @@ class RT_Event_Manager_Account {
         wp_send_json_success(array(
             'redirect' => wc_get_page_permalink('myaccount'),
         ));
-    }
-
-    /** Email the prospective new holder a transfer-accept link. */
-    private function send_transfer_email($ticket, $email, $token) {
-        $accept_url = add_query_arg('rti_transfer', rawurlencode($token), wc_get_page_permalink('myaccount'));
-        $product    = wc_get_product($ticket['product_id']);
-        $pname      = $product ? $product->get_name() : __('an event ticket', 'rt-event-manager');
-
-        $from      = wp_get_current_user();
-        $from_name = trim($from->first_name . ' ' . $from->last_name);
-        if ('' === $from_name) {
-            $from_name = $from->display_name;
-        }
-
-        $subject = sprintf(__('%s would like to transfer an event ticket to you', 'rt-event-manager'), $from_name);
-
-        $lines   = array();
-        $lines[] = sprintf(__('%1$s has offered to transfer their ticket (%2$s) to you.', 'rt-event-manager'), $from_name, $pname);
-        $lines[] = '';
-        $lines[] = __('To accept, open the link below and log in or create an account:', 'rt-event-manager');
-        $lines[] = $accept_url;
-        $lines[] = '';
-        $hours   = max(1, round(RT_Event_Manager::transfer_expiry_seconds() / HOUR_IN_SECONDS));
-        $lines[] = sprintf(_n('This invitation expires in %d hour.', 'This invitation expires in %d hours.', $hours, 'rt-event-manager'), $hours);
-        $lines[] = '';
-        $lines[] = __('Accepting the ticket is free of charge here. Any repayment for the original price is to be arranged directly between you and the current holder.', 'rt-event-manager');
-
-        wp_mail($email, $subject, implode("\n", $lines));
     }
 
     /** Notify the current owner that their transfer offer was declined. */

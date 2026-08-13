@@ -2446,6 +2446,8 @@ class RT_Event_Manager {
             'transfer_email'        => '%s',
             'transfer_requested_at' => '%s',
             'refund_status'         => '%s',
+            'transferred_from_user_id' => '%d',
+            'transferred_at'        => '%s',
         );
 
         foreach ($allowed_fields as $field => $format) {
@@ -3729,25 +3731,69 @@ class RT_Event_Manager {
         );
 
         echo '<div class="wrap">';
-        echo '<h1>' . esc_html(sprintf(__('Open transfers (%d)', 'rt-event-manager'), count($rows))) . '</h1>';
+        echo '<h1>' . esc_html__('Transfers', 'rt-event-manager') . '</h1>';
+
+        echo '<h2>' . esc_html(sprintf(__('Open transfers (%d)', 'rt-event-manager'), count($rows))) . '</h2>';
         echo '<p class="description">' . esc_html__('Event tickets with a pending transfer offer that the invited person has not yet accepted.', 'rt-event-manager') . '</p>';
 
         if (empty($rows)) {
-            echo '<p>' . esc_html__('No pending transfers.', 'rt-event-manager') . '</p></div>';
+            echo '<p>' . esc_html__('No pending transfers.', 'rt-event-manager') . '</p>';
+        } else {
+            echo '<table class="wp-list-table widefat fixed striped">';
+            echo '<thead><tr>';
+            echo '<th>' . esc_html__('Order', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Current holder', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Requested', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
+            echo '</tr></thead><tbody>';
+
+            foreach ($rows as $r) {
+                $order_id   = absint($r['order_id']);
+                $order      = wc_get_order($order_id);
+                $order_link = $order ? $order->get_edit_order_url() : '';
+                $pname      = $r['product_name'] ? $r['product_name'] : ('#' . $r['product_id']);
+
+                echo '<tr>';
+                echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html($order_id) . '</a>' : ('#' . esc_html($order_id))) . '</td>';
+                echo '<td>' . esc_html($r['holder_name'] !== '' ? $r['holder_name'] : '—') . '</td>';
+                echo '<td>' . esc_html($pname) . '</td>';
+                echo '<td>' . esc_html($r['transfer_requested_at'] ? $r['transfer_requested_at'] : '—') . '</td>';
+                echo '<td><form method="post" style="display:inline">';
+                wp_nonce_field('rti_withdraw_transfer');
+                echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
+                echo '<button type="submit" class="button" name="rti_withdraw_transfer" value="1">' . esc_html__('Withdraw', 'rt-event-manager') . '</button>';
+                echo '</form></td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+        }
+
+        // Completed transfers (a ticket has been reassigned to a new owner).
+        $done = $wpdb->get_results(
+            "SELECT t.*, p.post_title AS product_name
+             FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
+             WHERE t.transferred_at IS NOT NULL
+             ORDER BY t.transferred_at DESC",
+            ARRAY_A
+        );
+
+        echo '<h2>' . esc_html(sprintf(__('Completed transfers (%d)', 'rt-event-manager'), count($done))) . '</h2>';
+        if (empty($done)) {
+            echo '<p>' . esc_html__('No completed transfers.', 'rt-event-manager') . '</p></div>';
             return;
         }
 
         echo '<table class="wp-list-table widefat fixed striped">';
         echo '<thead><tr>';
         echo '<th>' . esc_html__('Order', 'rt-event-manager') . '</th>';
-        echo '<th>' . esc_html__('Current holder', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
-        echo '<th>' . esc_html__('Invited email', 'rt-event-manager') . '</th>';
-        echo '<th>' . esc_html__('Requested', 'rt-event-manager') . '</th>';
-        echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('From', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('To', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Transferred', 'rt-event-manager') . '</th>';
         echo '</tr></thead><tbody>';
 
-        foreach ($rows as $r) {
+        foreach ($done as $r) {
             $order_id   = absint($r['order_id']);
             $order      = wc_get_order($order_id);
             $order_link = $order ? $order->get_edit_order_url() : '';
@@ -3755,18 +3801,30 @@ class RT_Event_Manager {
 
             echo '<tr>';
             echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html($order_id) . '</a>' : ('#' . esc_html($order_id))) . '</td>';
-            echo '<td>' . esc_html($r['holder_name'] !== '' ? $r['holder_name'] : '—') . '</td>';
             echo '<td>' . esc_html($pname) . '</td>';
-            echo '<td>' . esc_html($r['transfer_email']) . '</td>';
-            echo '<td>' . esc_html($r['transfer_requested_at'] ? $r['transfer_requested_at'] : '—') . '</td>';
-            echo '<td><form method="post" style="display:inline">';
-            wp_nonce_field('rti_withdraw_transfer');
-            echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
-            echo '<button type="submit" class="button" name="rti_withdraw_transfer" value="1">' . esc_html__('Withdraw', 'rt-event-manager') . '</button>';
-            echo '</form></td>';
+            echo '<td>' . esc_html(self::user_display($r['transferred_from_user_id'])) . '</td>';
+            echo '<td>' . esc_html(self::user_display($r['owner_user_id']) . ($r['holder_name'] !== '' ? ' — ' . $r['holder_name'] : '')) . '</td>';
+            echo '<td>' . esc_html($r['transferred_at']) . '</td>';
             echo '</tr>';
         }
         echo '</tbody></table></div>';
+    }
+
+    /** Human label (name + email) for a user id, or an em dash. */
+    private static function user_display($user_id) {
+        $user_id = absint($user_id);
+        if (!$user_id) {
+            return '—';
+        }
+        $u = get_userdata($user_id);
+        if (!$u) {
+            return '#' . $user_id;
+        }
+        $name = trim($u->first_name . ' ' . $u->last_name);
+        if ('' === $name) {
+            $name = $u->display_name;
+        }
+        return $u->user_email ? ($name . ' <' . $u->user_email . '>') : $name;
     }
 
     /**

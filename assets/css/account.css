@@ -297,6 +297,12 @@
 .rtacc-copy-link {
     flex: 0 0 auto;
 }
+.rtacc-share-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 0;
+}
 
 /* ---- Description list (skin from uk-description-list; brand the terms) ---- */
 .rtacc-deflist dt {

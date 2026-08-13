@@ -265,15 +265,23 @@
             if (response && response.success) {
                 $form.find('.rtacc-field, .rtacc-modal-target, p:not(.rtacc-actions):not(.rtacc-modal-error)').hide();
                 $err.removeClass().addClass('rtacc-modal-error uk-text-success')
-                    .text((response.data && response.data.message) || (i18n.saved || 'Sent!')).show();
-                // Surface the accept link so it can also be shared directly.
+                    .text(i18n.linkReady || 'Transfer link ready — share it with the new holder.').show();
+                // Surface the accept link and ways to share it with the new holder.
                 if (response.data && response.data.accept_url) {
                     $form.find('.rtacc-sharelink-wrap').remove();
                     var url = response.data.accept_url;
+
+                    var intro = i18n.shareIntro || "I'd like to transfer my event ticket to you. Accept it here:";
+                    var msg   = intro + '\n\n' + url; // link kept in the message body
+                    var mailto = 'mailto:?subject=' + encodeURIComponent(i18n.shareSubject || 'Event ticket transfer') +
+                                 '&body=' + encodeURIComponent(msg);
+                    var wa = 'https://wa.me/?text=' + encodeURIComponent(msg);
+
                     var $wrap = $('<div class="rtacc-sharelink-wrap"></div>');
                     $wrap.append($('<p class="rtacc-sharelink-warn"></p>').text(
                         i18n.shareWarn || 'You can also share this link directly, however anyone with this link can accept the transfer!'
                     ));
+
                     var $row = $('<p class="rtacc-sharelink-row"></p>');
                     $row.append($('<a target="_blank" rel="noopener" class="rtacc-sharelink"></a>').attr('href', url).text(url));
                     $row.append(
@@ -281,6 +289,14 @@
                             .text(i18n.copyLink || 'Copy link').attr('data-url', url)
                     );
                     $wrap.append($row);
+
+                    var $share = $('<p class="rtacc-share-row"></p>');
+                    $share.append($('<a class="uk-button uk-button-primary uk-button-small" target="_blank" rel="noopener"></a>')
+                        .attr('href', mailto).text(i18n.sendEmail || 'Send email'));
+                    $share.append($('<a class="uk-button uk-button-primary uk-button-small" target="_blank" rel="noopener"></a>')
+                        .attr('href', wa).text(i18n.sendWhatsApp || 'Send WhatsApp'));
+                    $wrap.append($share);
+
                     $form.find('.rtacc-actions').before($wrap);
                 }
                 $btn.hide();
