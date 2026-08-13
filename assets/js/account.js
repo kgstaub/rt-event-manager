@@ -391,7 +391,8 @@
                                  '&body=' + encodeURIComponent(msg);
                     var wa = 'https://wa.me/?text=' + encodeURIComponent(msg);
 
-                    var $wrap = $('<div class="rtacc-sharelink-wrap"></div>');
+                    // Shareable link inside a non-closable secondary alert.
+                    var $wrap = $('<div class="rtacc-sharelink-wrap rtacc-alert-secondary"></div>');
                     $wrap.append($('<p class="rtacc-sharelink-warn"></p>').text(
                         i18n.shareWarn || 'You can also share this link directly, however anyone with this link can accept the transfer!'
                     ));
@@ -399,15 +400,15 @@
                     var $row = $('<p class="rtacc-sharelink-row"></p>');
                     $row.append($('<a target="_blank" rel="noopener" class="rtacc-sharelink"></a>').attr('href', url).text(url));
                     $row.append(
-                        $('<button type="button" class="uk-button uk-button-secondary uk-button-small rtacc-copy-link"></button>')
+                        $('<button type="button" class="uk-button uk-button-secondary rtacc-copy-link"></button>')
                             .text(i18n.copyLink || 'Copy link').attr('data-url', url)
                     );
                     $wrap.append($row);
 
                     var $share = $('<p class="rtacc-share-row"></p>');
-                    $share.append($('<a class="uk-button uk-button-primary uk-button-small" target="_blank" rel="noopener"></a>')
+                    $share.append($('<a class="uk-button uk-button-primary" target="_blank" rel="noopener"></a>')
                         .attr('href', mailto).text(i18n.sendEmail || 'Send email'));
-                    $share.append($('<a class="uk-button uk-button-primary uk-button-small" target="_blank" rel="noopener"></a>')
+                    $share.append($('<a class="uk-button uk-button-primary" target="_blank" rel="noopener"></a>')
                         .attr('href', wa).text(i18n.sendWhatsApp || 'Send WhatsApp'));
                     $wrap.append($share);
 

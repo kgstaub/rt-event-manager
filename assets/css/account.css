@@ -279,16 +279,23 @@
 .rtacc-sharelink-wrap {
     margin-top: 12px;
 }
+/* Non-closable secondary (cream) alert wrapping the shareable link. */
+.rtacc-alert-secondary {
+    background: var(--rtacc-secondary-bg);
+    color: var(--rtacc-dark);
+    padding: 14px 16px;
+    border-radius: 4px;
+}
 .rtacc-sharelink-warn {
     color: var(--rtacc-accent);
     font-weight: 600;
-    margin: 0 0 6px;
+    margin: 0 0 10px;
 }
 .rtacc-sharelink-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin: 0;
+    gap: 10px;
+    margin: 0 0 10px;
 }
 .rtacc-sharelink {
     flex: 1 1 auto;
@@ -301,8 +308,8 @@
 .rtacc-share-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin: 10px 0 0;
+    gap: 10px;
+    margin: 0;
 }
 .rtacc-show-cancelled-wrap {
     margin-bottom: 14px;
