@@ -1010,41 +1010,43 @@ class RT_Event_Manager_Account {
         echo '<div class="rtacc-content" style="flex:1 1 100%;">';
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Accept ticket transfer', 'rt-event-manager') . '</h2>';
 
-        $event = RT_Event_Manager::get_ticket_by_transfer_token($token);
-        if ($event && $this->transfer_expired($event)) {
+        $ticket = RT_Event_Manager::get_ticket_by_transfer_token($token);
+        if ($ticket && $this->transfer_expired($ticket)) {
             // Expired — withdraw it now and treat as invalid.
-            RT_Event_Manager::instance()->update_ticket(absint($event['id']), array(
+            RT_Event_Manager::instance()->update_ticket(absint($ticket['id']), array(
                 'transfer_token' => '',
                 'transfer_email' => '',
             ));
-            $event = null;
+            $ticket = null;
         }
-        if (!$event || 'event' !== RT_Event_Manager::get_ticket_kind($event) || 'cancelled' === $event['status']) {
+        $kind = $ticket ? RT_Event_Manager::get_ticket_kind($ticket) : '';
+        if (!$ticket || !in_array($kind, array('event', 'pretour'), true) || 'cancelled' === $ticket['status']) {
             echo '<div class="rtacc-notice uk-alert-danger" uk-alert><p>' . esc_html__('This transfer link is no longer valid. It may have already been accepted, declined, withdrawn, or expired.', 'rt-event-manager') . '</p></div>';
             echo '<p><a class="uk-button uk-button-default" href="' . esc_url(wc_get_page_permalink('myaccount')) . '">' . esc_html__('Go to my account', 'rt-event-manager') . '</a></p>';
             echo '</div></div>';
             return;
         }
 
-        $pretours = RT_Event_Manager::get_child_pretours(absint($event['id']));
-        $product  = wc_get_product($event['product_id']);
-        $ename    = $product ? $product->get_name() : __('Event ticket', 'rt-event-manager');
-        $currency = RT_Event_Manager::get_ticket_currency($event);
-
-        $original = RT_Event_Manager::get_ticket_original_amount($event);
-        $paid     = RT_Event_Manager::get_ticket_paid_amount($event);
-        foreach ($pretours as $p) {
-            $original += RT_Event_Manager::get_ticket_original_amount($p);
-            $paid     += RT_Event_Manager::get_ticket_paid_amount($p);
+        // The package: an event ticket carries its linked pretours; a pretour
+        // transfers on its own.
+        $items = array($ticket);
+        if ('event' === $kind) {
+            $items = array_merge($items, RT_Event_Manager::get_child_pretours(absint($ticket['id'])));
+        }
+        $currency = RT_Event_Manager::get_ticket_currency($ticket);
+        $original = 0;
+        $paid     = 0;
+        foreach ($items as $it) {
+            $original += RT_Event_Manager::get_ticket_original_amount($it);
+            $paid     += RT_Event_Manager::get_ticket_paid_amount($it);
         }
 
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
-        echo '<p>' . esc_html(sprintf(__('%s has offered to transfer the following to you:', 'rt-event-manager'), $event['holder_name'] !== '' ? $event['holder_name'] : __('A member', 'rt-event-manager'))) . '</p>';
+        echo '<p>' . esc_html(sprintf(__('%s has offered to transfer the following to you:', 'rt-event-manager'), $ticket['holder_name'] !== '' ? $ticket['holder_name'] : __('A member', 'rt-event-manager'))) . '</p>';
         echo '<ul class="rtacc-transfer-list">';
-        echo '<li>' . esc_html($ename) . '</li>';
-        foreach ($pretours as $p) {
-            $pp = wc_get_product($p['product_id']);
-            echo '<li>' . esc_html($pp ? $pp->get_name() : __('Pretour', 'rt-event-manager')) . '</li>';
+        foreach ($items as $it) {
+            $pp = wc_get_product($it['product_id']);
+            echo '<li>' . esc_html($pp ? $pp->get_name() : __('Ticket', 'rt-event-manager')) . '</li>';
         }
         echo '</ul>';
 
@@ -1434,7 +1436,7 @@ class RT_Event_Manager_Account {
         $has_pending_transfer = !empty($t['transfer_token']);
 
         $out = '<div class="rtacc-row-actions">';
-        if ('event' === $kind) {
+        if (in_array($kind, array('event', 'pretour'), true)) {
             if ($has_pending_transfer) {
                 $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" title="' . esc_attr($withdraw_label) . '" aria-label="' . esc_attr($withdraw_label) . '">' . $icon_withdraw . '</button>';
             } else {
@@ -1911,8 +1913,8 @@ class RT_Event_Manager_Account {
         if (!$t || !$this->user_owns_ticket($t, $user_id)) {
             wp_send_json_error(__('Ticket not found.', 'rt-event-manager'));
         }
-        if ('event' !== RT_Event_Manager::get_ticket_kind($t)) {
-            wp_send_json_error(__('Only event tickets can be transferred. Future member tickets must be cancelled instead.', 'rt-event-manager'));
+        if (!in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'pretour'), true)) {
+            wp_send_json_error(__('Only event and pretour tickets can be transferred. Future member tickets must be cancelled instead.', 'rt-event-manager'));
         }
         if (in_array($t['status'], array('cancelled', 'checked_in'), true)) {
             wp_send_json_error(__('This ticket can no longer be transferred.', 'rt-event-manager'));
@@ -2007,7 +2009,8 @@ class RT_Event_Manager_Account {
             ));
             wp_send_json_error(__('This transfer invitation has expired. Please ask the current holder to send a new one.', 'rt-event-manager'));
         }
-        if (!$event || 'event' !== RT_Event_Manager::get_ticket_kind($event) || 'cancelled' === $event['status']) {
+        $kind = $event ? RT_Event_Manager::get_ticket_kind($event) : '';
+        if (!$event || !in_array($kind, array('event', 'pretour'), true) || 'cancelled' === $event['status']) {
             wp_send_json_error(__('This transfer link is no longer valid.', 'rt-event-manager'));
         }
 
