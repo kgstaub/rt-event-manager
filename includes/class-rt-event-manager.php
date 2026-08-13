@@ -491,8 +491,31 @@ class RT_Event_Manager {
                     'class'    => array('form-row-wide'),
                 ), $name_value);
 
-                // Minors (Future Tabler / Circler) do not require a phone number.
-                if (!$is_minor) {
+                // Minors (Future Tabler / Circler) do not require a phone number,
+                // but must provide a date of birth for age verification.
+                if ($is_minor) {
+                    $min_age = self::get_minor_min_age();
+                    $max_age = self::get_minor_max_age();
+                    $dob_attrs = array();
+                    $event_date = self::get_event_date();
+                    if ($event_date !== '' && ($ev_ts = strtotime($event_date))) {
+                        $dob_attrs['max'] = gmdate('Y-m-d', strtotime('-' . $min_age . ' years', $ev_ts));
+                        $dob_attrs['min'] = gmdate('Y-m-d', strtotime('-' . ($max_age + 1) . ' years +1 day', $ev_ts));
+                    }
+                    woocommerce_form_field($field_prefix . '_dob', array(
+                        'type'              => 'date',
+                        'label'             => __('Date of Birth', 'rt-event-manager'),
+                        'required'          => true,
+                        'class'             => array('form-row-wide'),
+                        'description'       => sprintf(
+                            /* translators: 1: min age, 2: max age */
+                            __('Future members must be between %1$d and %2$d years old at the time of the event.', 'rt-event-manager'),
+                            $min_age,
+                            $max_age
+                        ),
+                        'custom_attributes' => $dob_attrs,
+                    ), '');
+                } else {
                     woocommerce_form_field($field_prefix . '_phone', array(
                         'type'              => 'tel',
                         'label'             => __('Phone Number', 'rt-event-manager'),
@@ -578,9 +601,25 @@ class RT_Event_Manager {
                 ), 'error');
             }
 
-            // Minors (Future Tabler / Circler) are exempt from the phone requirement.
+            // Minors (Future Tabler / Circler) are exempt from the phone
+            // requirement but must provide a date of birth within the age range.
             $pid = isset($product_map[$i]) ? $product_map[$i] : 0;
             if ($pid && 'minor' === self::get_ticket_kind_for_product($pid)) {
+                $dob_raw = isset($_POST[$field_prefix . '_dob']) ? wp_unslash($_POST[$field_prefix . '_dob']) : '';
+                if (trim($dob_raw) === '') {
+                    wc_add_notice(sprintf(
+                        __('Please enter the date of birth for Ticket %d.', 'rt-event-manager'),
+                        $i + 1
+                    ), 'error');
+                } elseif (!self::is_valid_minor_dob($dob_raw)) {
+                    wc_add_notice(sprintf(
+                        /* translators: 1: ticket number, 2: min age, 3: max age */
+                        __('Ticket %1$d: Future members must be between %2$d and %3$d years old at the time of the event.', 'rt-event-manager'),
+                        $i + 1,
+                        self::get_minor_min_age(),
+                        self::get_minor_max_age()
+                    ), 'error');
+                }
                 continue;
             }
 
@@ -1272,6 +1311,7 @@ class RT_Event_Manager {
                 $parent_id    = isset($parent_map[$i]) ? $parent_map[$i] : 0;
                 $minor_type   = isset($minor_type_map[$i]) ? $minor_type_map[$i] : '';
                 $is_minor     = ('minor' === $kind);
+                $dob          = ($is_minor && isset($_POST[$field_prefix . '_dob'])) ? self::sanitize_dob(wp_unslash($_POST[$field_prefix . '_dob'])) : '';
 
                 // Ticket #1 uses the buyer's family; subsequent tickets have their own
                 // selector. Minors never carry a family organization.
@@ -1303,6 +1343,7 @@ class RT_Event_Manager {
                     'ticket_index'     => $i,
                     'holder_name'      => $holder_name,
                     'phone'            => $phone,
+                    'dob'              => $dob,
                     'rti_family'       => $ticket_family,
                     'rti_club'         => $is_minor ? '' : $buyer_club,
                     'dietary'          => $dietary,
@@ -1363,8 +1404,8 @@ class RT_Event_Manager {
             $item_data[] = array(
                 'key'   => __('Minor', 'rt-event-manager'),
                 'value' => ('circler' === $cart_item['rti_minor_gender'])
-                    ? __('Future Circler (girls)', 'rt-event-manager')
-                    : __('Future Tabler (boys)', 'rt-event-manager'),
+                    ? __('Future Circler', 'rt-event-manager')
+                    : __('Future Tabler', 'rt-event-manager'),
             );
         }
         if (!empty($cart_item['rti_parent_ticket_id'])) {
@@ -1485,6 +1526,88 @@ class RT_Event_Manager {
     }
 
     /**
+     * Normalize a date-of-birth input to Y-m-d, or '' if not a valid date.
+     *
+     * @param string $raw
+     * @return string
+     */
+    public static function sanitize_dob($raw) {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return '';
+        }
+        $ts = strtotime($raw);
+        if (!$ts) {
+            return '';
+        }
+        return gmdate('Y-m-d', $ts);
+    }
+
+    /**
+     * The configured event date (Y-m-d), or '' if unset.
+     *
+     * @return string
+     */
+    public static function get_event_date() {
+        return (string) get_option('rt_event_manager_event_date', '');
+    }
+
+    /**
+     * Minimum / maximum permitted age (in years) for a Future member ticket,
+     * evaluated at the event date. Defaults 5 and 15.
+     *
+     * @return int
+     */
+    public static function get_minor_min_age() {
+        $v = (int) get_option('rt_event_manager_minor_min_age', 5);
+        return $v > 0 ? $v : 5;
+    }
+
+    public static function get_minor_max_age() {
+        $v = (int) get_option('rt_event_manager_minor_max_age', 15);
+        return $v > 0 ? $v : 15;
+    }
+
+    /**
+     * Age in whole years a person with the given DOB has at the event date
+     * (falls back to today's date if the event date is unset).
+     *
+     * @param string $dob Y-m-d (or any strtotime-parseable date)
+     * @return int|null Age in years, or null if DOB invalid.
+     */
+    public static function minor_age_at_event($dob) {
+        $dob = self::sanitize_dob($dob);
+        if ($dob === '') {
+            return null;
+        }
+        $event = self::get_event_date();
+        $ref   = $event !== '' ? $event : current_time('Y-m-d');
+
+        try {
+            $d1 = new DateTime($dob);
+            $d2 = new DateTime($ref);
+        } catch (\Exception $e) {
+            return null;
+        }
+        return (int) $d1->diff($d2)->y;
+    }
+
+    /**
+     * Whether a Future member's DOB yields an age within the configured range
+     * at the event date.
+     *
+     * @param string $dob
+     * @return bool
+     */
+    public static function is_valid_minor_dob($dob) {
+        $age = self::minor_age_at_event($dob);
+        if ($age === null) {
+            return false;
+        }
+        return $age >= self::get_minor_min_age() && $age <= self::get_minor_max_age();
+    }
+
+    /**
      * Insert a ticket into the custom table
      *
      * @param array $data Ticket data
@@ -1499,8 +1622,8 @@ class RT_Event_Manager {
         // Checked-in status must never be clobbered by a re-submit.
         $sql = $wpdb->prepare(
             "INSERT INTO $table_name
-                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, rti_family, rti_club, dietary, world_id, qr_code_url, status)
-             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s)
+                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, dob, rti_family, rti_club, dietary, world_id, qr_code_url, status)
+             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s)
              ON DUPLICATE KEY UPDATE
                 product_id       = VALUES(product_id),
                 combination_id   = VALUES(combination_id),
@@ -1509,6 +1632,7 @@ class RT_Event_Manager {
                 minor_type       = VALUES(minor_type),
                 holder_name      = VALUES(holder_name),
                 phone            = VALUES(phone),
+                dob              = VALUES(dob),
                 rti_family       = VALUES(rti_family),
                 rti_club         = VALUES(rti_club),
                 dietary          = VALUES(dietary),
@@ -1524,6 +1648,7 @@ class RT_Event_Manager {
             absint($data['ticket_index']),
             sanitize_text_field($data['holder_name']),
             self::normalize_phone(isset($data['phone']) ? $data['phone'] : ''),
+            self::sanitize_dob(isset($data['dob']) ? $data['dob'] : ''),
             sanitize_text_field($data['rti_family']),
             sanitize_text_field($data['rti_club']),
             sanitize_text_field($data['dietary']),
@@ -1628,6 +1753,7 @@ class RT_Event_Manager {
         $allowed_fields = array(
             'holder_name'      => '%s',
             'phone'            => '%s',
+            'dob'              => '%s',
             'rti_family'       => '%s',
             'rti_club'         => '%s',
             'dietary'          => '%s',
@@ -2338,6 +2464,7 @@ class RT_Event_Manager {
             'Phone',
             'Function / Role',
             'Ticket Phone',
+            'Date of Birth',
         );
 
         $col = 1;
@@ -2405,6 +2532,7 @@ class RT_Event_Manager {
             $sheet->setCellValueByColumnAndRow(15, $row, $buyer_phone);
             $sheet->setCellValueByColumnAndRow(16, $row, $buyer_function);
             $sheet->setCellValueByColumnAndRow(17, $row, isset($ticket['phone']) ? $ticket['phone'] : '');
+            $sheet->setCellValueByColumnAndRow(18, $row, isset($ticket['dob']) ? $ticket['dob'] : '');
 
             $row++;
         }
@@ -3443,6 +3571,41 @@ class RT_Event_Manager {
             array(
                 'type' => 'sectionend',
                 'id'   => 'rti_shop_settings',
+            ),
+
+            array(
+                'title' => __('Event & Age Limits', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('The event date is used to verify Future member ages, which must fall within the range below at the time of the event.', 'rt-event-manager'),
+                'id'    => 'rti_event_settings',
+            ),
+            array(
+                'title'    => __('Event Date', 'rt-event-manager'),
+                'desc'     => __('The date of the event (used for Future member age verification).', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_event_date',
+                'type'     => 'date',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'             => __('Future member minimum age', 'rt-event-manager'),
+                'desc'              => __('years (at the event date)', 'rt-event-manager'),
+                'id'                => 'rt_event_manager_minor_min_age',
+                'type'              => 'number',
+                'default'           => 5,
+                'custom_attributes' => array('min' => '0', 'step' => '1'),
+            ),
+            array(
+                'title'             => __('Future member maximum age', 'rt-event-manager'),
+                'desc'              => __('years (at the event date)', 'rt-event-manager'),
+                'id'                => 'rt_event_manager_minor_max_age',
+                'type'              => 'number',
+                'default'           => 15,
+                'custom_attributes' => array('min' => '0', 'step' => '1'),
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_event_settings',
             ),
 
             array(

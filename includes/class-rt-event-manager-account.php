@@ -914,10 +914,10 @@ class RT_Event_Manager_Account {
             return;
         }
 
-        echo '<p class="rtacc-hint">' . esc_html__('A Future Tabler (boys) or Future Circler (girls) travels with one of your existing tickets.', 'rt-event-manager') . '</p>';
+        echo '<p class="rtacc-hint">' . esc_html__('A Future Tabler or Future Circler travels with their legal guardian\'s ticket.', 'rt-event-manager') . '</p>';
         echo '<div class="rtacc-linked-add rtacc-form uk-form-stacked" data-product="' . esc_attr($future_pid) . '">';
 
-        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Attach to ticket', 'rt-event-manager') . '</label>';
+        echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Legal guardian (their ticket)', 'rt-event-manager') . '</label>';
         echo '<select class="rtacc-add-parent uk-select">';
         foreach ($parent_options as $pid => $label) {
             echo '<option value="' . esc_attr($pid) . '">' . esc_html($label) . '</option>';
@@ -926,8 +926,8 @@ class RT_Event_Manager_Account {
 
         echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Type', 'rt-event-manager') . '</label>';
         echo '<select class="rtacc-add-gender uk-select">';
-        echo '<option value="tabler">' . esc_html__('Future Tabler (boys)', 'rt-event-manager') . '</option>';
-        echo '<option value="circler">' . esc_html__('Future Circler (girls)', 'rt-event-manager') . '</option>';
+        echo '<option value="tabler">' . esc_html__('Future Tabler', 'rt-event-manager') . '</option>';
+        echo '<option value="circler">' . esc_html__('Future Circler', 'rt-event-manager') . '</option>';
         echo '</select></p>';
 
         echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary rtacc-add-linked-btn" data-product="' . esc_attr($future_pid) . '" data-needs-gender="1">' . esc_html__('Add co-traveller', 'rt-event-manager') . '</button></p>';
