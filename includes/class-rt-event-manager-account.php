@@ -702,15 +702,33 @@ class RT_Event_Manager_Account {
             'email'        => __('Email', 'rt-event-manager'),
             'phone'        => __('Phone', 'rt-event-manager'),
         );
+        $relationships = array(
+            'spouse'   => __('Spouse / Partner', 'rt-event-manager'),
+            'sibling'  => __('Sibling', 'rt-event-manager'),
+            'parent'   => __('Parent', 'rt-event-manager'),
+            'employer' => __('Employer', 'rt-event-manager'),
+            'other'    => __('Other', 'rt-event-manager'),
+        );
+
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html($title) . '</h3>';
         foreach ($fields as $key => $label) {
             $post_name = 'emergency' . absint($n) . '_' . $key;
             $meta_key  = 'rti_emergency' . absint($n) . '_' . $key;
-            $type      = ('email' === $key) ? 'email' : (('phone' === $key) ? 'tel' : 'text');
             $value     = get_user_meta($user_id, $meta_key, true);
             echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-' . esc_attr($post_name) . '">' . esc_html($label) . '</label>';
-            echo '<input type="' . esc_attr($type) . '" id="rtacc-' . esc_attr($post_name) . '" class="uk-input" name="' . esc_attr($post_name) . '" value="' . esc_attr($value) . '" /></p>';
+            if ('relationship' === $key) {
+                echo '<select id="rtacc-' . esc_attr($post_name) . '" class="uk-select" name="' . esc_attr($post_name) . '">';
+                echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
+                foreach ($relationships as $rk => $rl) {
+                    echo '<option value="' . esc_attr($rk) . '" ' . selected($value, $rk, false) . '>' . esc_html($rl) . '</option>';
+                }
+                echo '</select>';
+            } else {
+                $type = ('email' === $key) ? 'email' : (('phone' === $key) ? 'tel' : 'text');
+                echo '<input type="' . esc_attr($type) . '" id="rtacc-' . esc_attr($post_name) . '" class="uk-input" name="' . esc_attr($post_name) . '" value="' . esc_attr($value) . '" />';
+            }
+            echo '</p>';
         }
         echo '</section>';
     }
@@ -1089,11 +1107,19 @@ class RT_Event_Manager_Account {
         echo '<p><strong>' . esc_html__('Price paid (after coupons):', 'rt-event-manager') . '</strong> ' . wp_kses_post(wc_price($paid, array('currency' => $currency))) . '</p>';
         echo '<p class="rtacc-muted">' . esc_html__('Accepting does not charge you and does not refund the current holder. Any repayment or compensation is to be agreed directly between you and the current holder.', 'rt-event-manager') . '</p>';
 
+        // A pretour needs a free host ticket to attach to on the recipient's side.
+        $pretour_no_host = ('pretour' === $kind) && !$this->pretour_eligible_host(get_current_user_id(), $ticket);
+        if ($pretour_no_host) {
+            echo '<div class="rtacc-notice uk-alert-danger" uk-alert><p>' . esc_html__('You need a valid event ticket (or a companion / Future member ticket) without a pretour to accept this pretour. Please register or free up a ticket first.', 'rt-event-manager') . '</p></div>';
+        }
+
         echo '<form class="rtacc-form rtacc-accept-form">';
         echo '<input type="hidden" name="token" value="' . esc_attr($token) . '" />';
         echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
         echo '<p class="rtacc-actions">';
-        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Accept transfer', 'rt-event-manager') . '</button>';
+        if (!$pretour_no_host) {
+            echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Accept transfer', 'rt-event-manager') . '</button>';
+        }
         echo '<button type="button" class="uk-button uk-button-secondary rtacc-decline-btn">' . esc_html__('Decline', 'rt-event-manager') . '</button>';
         echo '<span class="rtacc-status" aria-live="polite"></span>';
         echo '</p></form>';
@@ -2027,6 +2053,49 @@ class RT_Event_Manager_Account {
         ));
     }
 
+    /**
+     * Find a host ticket a transferred pretour can attach to for a user: a valid
+     * event/companion ticket without a pretour, or a Future member ticket without
+     * a pretour whose guardian is already on the same tour. Prefers an event host.
+     *
+     * @param int   $user_id
+     * @param array $pretour
+     * @return int Host ticket id, or 0 if none available.
+     */
+    private function pretour_eligible_host($user_id, $pretour) {
+        $product    = absint($pretour['product_id']);
+        $event_host = 0;
+        $minor_host = 0;
+        foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $t) {
+            $kind = RT_Event_Manager::get_ticket_kind($t);
+            $tid  = absint($t['id']);
+            if (!in_array($kind, array('event', 'minor'), true)) {
+                continue;
+            }
+            if (RT_Event_Manager::ticket_has_pretour($tid)) {
+                continue; // already has a pretour (one per host)
+            }
+            if ('event' === $kind) {
+                if (!$event_host) {
+                    $event_host = $tid;
+                }
+                continue;
+            }
+            // Minor host: the guardian must be on the same tour (safeguard).
+            $guardian = absint($t['parent_ticket_id']);
+            if (!$guardian || $minor_host) {
+                continue;
+            }
+            foreach (RT_Event_Manager::get_child_pretours($guardian) as $gp) {
+                if (absint($gp['product_id']) === $product) {
+                    $minor_host = $tid;
+                    break;
+                }
+            }
+        }
+        return $event_host ?: $minor_host;
+    }
+
     /** Accept a pending transfer: reassign the package to the logged-in user. */
     public function ajax_accept_transfer() {
         check_ajax_referer('rt_event_manager_accept_transfer', 'nonce');
@@ -2068,6 +2137,31 @@ class RT_Event_Manager_Account {
         $from_owner = absint(isset($event['owner_user_id']) ? $event['owner_user_id'] : 0);
         if (!$from_owner && $order) {
             $from_owner = absint($order->get_customer_id());
+        }
+
+        // A pretour is re-attached to one of the recipient's own host tickets: a
+        // valid event/companion or Future member ticket that has no pretour yet.
+        // (A minor host is only eligible when its guardian is on the same tour.)
+        if ('pretour' === $kind) {
+            $host_id = $this->pretour_eligible_host($user_id, $event);
+            if (!$host_id) {
+                wp_send_json_error(__('To accept this pretour you need a valid event ticket (or a companion / Future member ticket) that does not already have a pretour.', 'rt-event-manager'));
+            }
+            $host   = RT_Event_Manager::get_ticket_by_id($host_id);
+            $holder = ($host && $host['holder_name'] !== '') ? $host['holder_name'] : $new_name;
+            $mgr->update_ticket(absint($event['id']), array(
+                'owner_user_id'            => $user_id,
+                'parent_ticket_id'         => $host_id,
+                'holder_name'              => $holder,
+                'transfer_token'           => '',
+                'transfer_email'           => '',
+                'status'                   => $order ? rt_event_manager_determine_ticket_status($order, $holder) : 'draft',
+                'transferred_from_user_id' => $from_owner,
+                'transferred_at'           => current_time('mysql'),
+            ));
+            wp_send_json_success(array(
+                'redirect' => add_query_arg('tab', 'pretour', wc_get_page_permalink('myaccount')),
+            ));
         }
 
         // Overwrite the event ticket to the new owner; personal fields are reset.
