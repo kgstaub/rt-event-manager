@@ -1939,7 +1939,32 @@ class RT_Event_Manager {
             array('%d')
         );
 
+        // Keep a member's pretour ticket holder in sync with their own ticket.
+        if (false !== $result && isset($update_data['holder_name'])) {
+            $this->sync_child_pretour_holder($ticket_id, $update_data['holder_name']);
+        }
+
         return $result !== false;
+    }
+
+    /**
+     * Propagate a holder-name change to any pretour ticket linked to this ticket
+     * (a pretour is for the same person as its parent member ticket). Scoped to
+     * pretour children so it never overwrites a different person (e.g. a minor).
+     *
+     * @param int    $parent_ticket_id
+     * @param string $holder_name
+     */
+    private function sync_child_pretour_holder($parent_ticket_id, $holder_name) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $wpdb->update(
+            $table_name,
+            array('holder_name' => sanitize_text_field($holder_name)),
+            array('parent_ticket_id' => absint($parent_ticket_id), 'ticket_kind' => 'pretour'),
+            array('%s'),
+            array('%d', '%s')
+        );
     }
 
     /**
