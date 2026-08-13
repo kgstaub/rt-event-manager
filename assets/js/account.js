@@ -346,7 +346,7 @@
         $form.find('.rtacc-modal-target').text((i18n.ticketFor || 'Ticket:') + ' ' + $(this).data('name')).show();
         $form.find('.rtacc-transfer-intro, .rtacc-transfer-final, .rtacc-transfer-step1').show();
         $form.find('.rtacc-transfer-step2').hide();
-        $form.find('.rtacc-sharelink-wrap').remove();
+        $form.find('.rtacc-sharelink-wrap, .rtacc-share-row').remove();
         $form.find('.rtacc-modal-error').removeClass('uk-text-success').addClass('uk-text-danger').hide().text('');
         $form.find('button[type="submit"]').prop('disabled', false);
         $modal.removeAttr('hidden');
@@ -398,8 +398,9 @@
                         i18n.shareWarn || 'You can also share this link directly, however anyone with this link can accept the transfer!'
                     ));
 
-                    // The link on its own line, then all buttons below it.
+                    // The alert holds only the warning + link; buttons go below it.
                     $wrap.append($('<a target="_blank" rel="noopener" class="rtacc-sharelink"></a>').attr('href', url).text(url));
+                    $form.append($wrap);
 
                     var $share = $('<p class="rtacc-share-row"></p>');
                     $share.append(
@@ -410,9 +411,7 @@
                         .attr('href', mailto).text(i18n.sendEmail || 'Send email'));
                     $share.append($('<a class="uk-button uk-button-primary" target="_blank" rel="noopener"></a>')
                         .attr('href', wa).text(i18n.sendWhatsApp || 'Send WhatsApp'));
-                    $wrap.append($share);
-
-                    $form.append($wrap);
+                    $form.append($share);
                 }
             } else {
                 $btn.prop('disabled', false).text(i18n.sendTransfer || 'Yes, create the link');

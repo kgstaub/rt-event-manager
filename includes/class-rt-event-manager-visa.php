@@ -118,7 +118,7 @@ class RT_Event_Manager_Visa {
      * Countries & EU/EFTA
      * ------------------------------------------------------------------- */
 
-    /** ISO-3166 alpha-2 codes for EU + EFTA states (no visa letter needed). */
+    /** ISO-3166 alpha-2 codes for EU + EFTA + Schengen-area states (no visa letter needed). */
     public static function eu_efta_codes() {
         return array(
             // EU-27
@@ -127,6 +127,8 @@ class RT_Event_Manager_Visa {
             'SI', 'ES', 'SE',
             // EFTA
             'CH', 'IS', 'LI', 'NO',
+            // Schengen-associated micro-states.
+            'MC', 'SM', 'VA', 'AD',
         );
     }
 
@@ -379,9 +381,9 @@ class RT_Event_Manager_Visa {
         $tickets = RT_Event_Manager::get_tickets_for_user($user_id);
 
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Travel and Visa', 'rt-event-manager') . '</h2>';
-        echo '<div class="uk-alert-primary" uk-alert>'
+        echo '<div class="rtacc-alert-secondary" uk-alert>'
             . '<a href class="uk-alert-close" uk-close></a>'
-            . '<p>' . esc_html__('If you need a visa for Switzerland, generate a letter of invitation for each attendee below. Citizens of EU/EFTA countries do not need a visa or a letter.', 'rt-event-manager') . '</p>'
+            . '<p>' . esc_html__('If you need a visa for Switzerland, generate a letter of invitation for each attendee below. Citizens of EU/EFTA or other Schengen countries do not need a visa or a letter.', 'rt-event-manager') . '</p>'
             . '</div>';
 
         $visa_tickets = array_filter($tickets, function ($t) {
@@ -654,7 +656,7 @@ class RT_Event_Manager_Visa {
             'download_url' => $this->download_url($letter_id),
             'eu_efta'      => $eu_efta,
             'message'      => $eu_efta
-                ? __('Your nationality/country is in the EU/EFTA, so a visa (and this letter) is normally not required. The letter has still been generated — you can download it below.', 'rt-event-manager')
+                ? __('Your nationality/country is in the EU/EFTA/Schengen area, so a visa (and this letter) is normally not required. The letter has still been generated — you can download it below.', 'rt-event-manager')
                 : __('Your letter of invitation has been generated — you can download it below.', 'rt-event-manager'),
         ));
     }
