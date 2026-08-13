@@ -19,6 +19,9 @@ class RT_Event_Manager_Account {
     /** @var RT_Event_Manager_Account|null */
     private static $instance = null;
 
+    /** @var int Id of the current user's own event ticket, for this render pass. */
+    private $own_event_id = 0;
+
     /**
      * @return RT_Event_Manager_Account
      */
@@ -642,9 +645,10 @@ class RT_Event_Manager_Account {
         $this->maybe_cutoff_notice($can_edit);
 
         // Classify event tickets; Future members (minors) go in their own block.
-        // "My Ticket" is the purchaser's own event ticket: ticket_index 0 with no
-        // parent link. Event tickets bought later as co-travellers carry a parent
-        // link and belong under "Travelling with me".
+        // "My Ticket" is the user's OWN event ticket (their first parentless one);
+        // every other event ticket — including a companion registered from scratch
+        // in its own later order — belongs under "Travelling with me".
+        $this->own_event_id = $this->own_event_ticket_id($tickets);
         $mine       = array();
         $companions = array();
         $minors     = array();
@@ -652,8 +656,7 @@ class RT_Event_Manager_Account {
         foreach ($tickets as $t) {
             if ('event' === $this->effective_kind($t)) {
                 $event_ids[absint($t['id'])] = true;
-                $parent = isset($t['parent_ticket_id']) ? absint($t['parent_ticket_id']) : 0;
-                if (intval($t['ticket_index']) === 0 && !$parent) {
+                if (absint($t['id']) === $this->own_event_id) {
                     $mine[] = $t;
                 } else {
                     $companions[] = $t;
@@ -702,18 +705,15 @@ class RT_Event_Manager_Account {
         $can_edit = RT_Event_Manager::instance()->is_frontend_editing_allowed();
         $by_id    = $this->index_by_id($tickets);
 
-        // "Mine" is the buyer's OWN event ticket (index 0, no parent link). Adult
-        // co-travellers have a parent link, so their pretours belong under
-        // "Travelling with me". Also collect Future member ticket ids so pretours
-        // bought for a minor land in the Future members block.
-        $my_event_ids = array();
+        // "Mine" is the user's OWN event ticket (their first parentless one). Adult
+        // co-travellers are separate, so their pretours belong under "Travelling
+        // with me". Also collect Future member ticket ids so pretours bought for a
+        // minor land in the Future members block.
+        $this->own_event_id = $this->own_event_ticket_id($tickets);
+        $my_event_ids = $this->own_event_id ? array($this->own_event_id => true) : array();
         $minor_ids    = array();
         foreach ($tickets as $t) {
-            $k = $this->effective_kind($t);
-            if ('event' === $k && intval($t['ticket_index']) === 0 && !absint($t['parent_ticket_id'])) {
-                $my_event_ids[absint($t['id'])] = true;
-            }
-            if ('minor' === $k) {
+            if ('minor' === $this->effective_kind($t)) {
                 $minor_ids[absint($t['id'])] = true;
             }
         }
@@ -785,6 +785,24 @@ class RT_Event_Manager_Account {
             $by_id[absint($t['id'])] = $t;
         }
         return $by_id;
+    }
+
+    /**
+     * The id of the user's OWN event ticket — their first parentless event
+     * ticket (tickets arrive ordered oldest-order-first). Every other event
+     * ticket is a co-traveller, even when it is ticket_index 0 of a later order
+     * (e.g. a companion registered from scratch in its own order).
+     *
+     * @param array $tickets
+     * @return int 0 when the user has no event ticket of their own.
+     */
+    private function own_event_ticket_id($tickets) {
+        foreach ($tickets as $t) {
+            if ('event' === $this->effective_kind($t) && !absint($t['parent_ticket_id'])) {
+                return absint($t['id']);
+            }
+        }
+        return 0;
     }
 
     /**
@@ -966,10 +984,10 @@ class RT_Event_Manager_Account {
             $kind       = $this->effective_kind($t);
             $is_minor   = ('minor' === $kind);
             $parent_id  = isset($t['parent_ticket_id']) ? absint($t['parent_ticket_id']) : 0;
-            // Additional travellers (companions, or co-travellers linked to the
-            // buyer) own their organization details; the purchaser's own ticket
-            // inherits them and shows them read-only.
-            $is_comp    = (intval($t['ticket_index']) > 0) || ($parent_id > 0);
+            // Additional travellers (every ticket except the user's own) own their
+            // organization details; the user's own ticket inherits them and shows
+            // them read-only.
+            $is_comp    = ($id !== $this->own_event_id);
 
             echo '<tr data-ticket-id="' . esc_attr($id) . '">';
             echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '">' . esc_html(RT_Event_Manager::ticket_kind_label($t)) . '</td>';
