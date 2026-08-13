@@ -232,16 +232,30 @@
         window.location.href = url;
     });
 
-    // ---- Ticket transfer: open modal, prefill target ----
+    // ---- Ticket transfer: open modal, reset to step 1 ----
     $(document).on('click', '.rtacc-transfer-btn', function () {
         var $modal = $('#rtacc-modal-transfer');
-        $modal.find('input[name="ticket_id"]').val($(this).data('ticket'));
-        $modal.find('input[name="email"]').val('');
-        $modal.find('.rtacc-modal-target').text(
-            (i18n.ticketFor || 'Ticket:') + ' ' + $(this).data('name')
-        );
-        $modal.find('.rtacc-modal-error').hide().text('');
+        var $form  = $modal.find('.rtacc-transfer-form');
+        $form.find('input[name="ticket_id"]').val($(this).data('ticket'));
+        $form.find('.rtacc-modal-target').text((i18n.ticketFor || 'Ticket:') + ' ' + $(this).data('name')).show();
+        $form.find('.rtacc-transfer-intro, .rtacc-transfer-final, .rtacc-transfer-step1').show();
+        $form.find('.rtacc-transfer-step2').hide();
+        $form.find('.rtacc-sharelink-wrap').remove();
+        $form.find('.rtacc-modal-error').removeClass('uk-text-success').addClass('uk-text-danger').hide().text('');
+        $form.find('button[type="submit"]').prop('disabled', false);
         $modal.removeAttr('hidden');
+    });
+
+    // Two-step confirm: reveal / hide the "Are you sure?" step.
+    $(document).on('click', '.rtacc-transfer-next', function () {
+        var $form = $(this).closest('.rtacc-transfer-form');
+        $form.find('.rtacc-transfer-step1').hide();
+        $form.find('.rtacc-transfer-step2').show();
+    });
+    $(document).on('click', '.rtacc-transfer-back', function () {
+        var $form = $(this).closest('.rtacc-transfer-form');
+        $form.find('.rtacc-transfer-step2').hide();
+        $form.find('.rtacc-transfer-step1').show();
     });
 
     $(document).on('submit', '.rtacc-transfer-form', function (e) {
@@ -249,21 +263,15 @@
         var $form = $(this);
         var $err  = $form.find('.rtacc-modal-error');
         var $btn  = $form.find('button[type="submit"]');
-        var email = ($form.find('input[name="email"]').val() || '').trim();
         $err.hide();
-        if (!email) {
-            $err.text(i18n.needEmail || 'Please enter an email address.').show();
-            return;
-        }
         $btn.prop('disabled', true).text(i18n.sending || 'Sending…');
         $.post(cfg.ajaxUrl, {
             action:    'rt_event_manager_request_transfer',
             nonce:     cfg.transferNonce,
-            ticket_id: $form.find('input[name="ticket_id"]').val(),
-            email:     email
+            ticket_id: $form.find('input[name="ticket_id"]').val()
         }, function (response) {
             if (response && response.success) {
-                $form.find('.rtacc-field, .rtacc-modal-target, p:not(.rtacc-actions):not(.rtacc-modal-error)').hide();
+                $form.find('.rtacc-transfer-intro, .rtacc-transfer-final, .rtacc-transfer-step1, .rtacc-transfer-step2, .rtacc-modal-target').hide();
                 $err.removeClass().addClass('rtacc-modal-error uk-text-success')
                     .text(i18n.linkReady || 'Transfer link ready — share it with the new holder.').show();
                 // Surface the accept link and ways to share it with the new holder.
@@ -297,17 +305,42 @@
                         .attr('href', wa).text(i18n.sendWhatsApp || 'Send WhatsApp'));
                     $wrap.append($share);
 
-                    $form.find('.rtacc-actions').before($wrap);
+                    $form.append($wrap);
                 }
-                $btn.hide();
             } else {
-                $btn.prop('disabled', false).text(i18n.sendTransfer || 'Send transfer request');
+                $btn.prop('disabled', false).text(i18n.sendTransfer || 'Yes, create the link');
+                $form.find('.rtacc-transfer-step2').show();
+                $form.find('.rtacc-transfer-step1').hide();
                 $err.removeClass().addClass('rtacc-modal-error uk-text-danger')
                     .text((response && response.data) || i18n.error || 'Error').show();
             }
         }).fail(function () {
-            $btn.prop('disabled', false).text(i18n.sendTransfer || 'Send transfer request');
+            $btn.prop('disabled', false).text(i18n.sendTransfer || 'Yes, create the link');
             $err.text(i18n.requestFail || 'Request failed.').show();
+        });
+    });
+
+    // ---- Withdraw a pending transfer (by the current holder) ----
+    $(document).on('click', '.rtacc-withdraw-transfer-btn', function () {
+        if (!window.confirm(i18n.confirmWithdraw || 'Withdraw the pending transfer for this ticket?')) {
+            return;
+        }
+        var $btn = $(this);
+        $btn.prop('disabled', true);
+        $.post(cfg.ajaxUrl, {
+            action:    'rt_event_manager_withdraw_transfer',
+            nonce:     cfg.withdrawNonce,
+            ticket_id: $btn.data('ticket')
+        }, function (response) {
+            if (response && response.success) {
+                window.location.reload();
+            } else {
+                $btn.prop('disabled', false);
+                window.alert((response && response.data) || i18n.error || 'Error');
+            }
+        }).fail(function () {
+            $btn.prop('disabled', false);
+            window.alert(i18n.requestFail || 'Request failed.');
         });
     });
 

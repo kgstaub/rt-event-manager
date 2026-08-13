@@ -60,6 +60,7 @@ class RT_Event_Manager_Account {
         add_action('wp_ajax_rt_event_manager_cancel_ticket', array($this, 'ajax_cancel_ticket'));
         add_action('wp_ajax_rt_event_manager_accept_transfer', array($this, 'ajax_accept_transfer'));
         add_action('wp_ajax_rt_event_manager_decline_transfer', array($this, 'ajax_decline_transfer'));
+        add_action('wp_ajax_rt_event_manager_withdraw_transfer', array($this, 'ajax_withdraw_transfer'));
 
         // Automatically withdraw pending transfers older than the expiry window.
         add_action('init', array($this, 'maybe_schedule_transfer_expiry'));
@@ -181,6 +182,7 @@ class RT_Event_Manager_Account {
             'cancelNonce'  => wp_create_nonce('rt_event_manager_cancel'),
             'acceptNonce'  => wp_create_nonce('rt_event_manager_accept_transfer'),
             'declineNonce' => wp_create_nonce('rt_event_manager_decline_transfer'),
+            'withdrawNonce' => wp_create_nonce('rt_event_manager_withdraw_transfer'),
             'i18n'         => array(
                 'saving'      => __('Saving…', 'rt-event-manager'),
                 'saved'       => __('Saved!', 'rt-event-manager'),
@@ -203,6 +205,7 @@ class RT_Event_Manager_Account {
                 'shareSubject' => __('Event ticket transfer', 'rt-event-manager'),
                 'sendEmail'   => __('Send email', 'rt-event-manager'),
                 'sendWhatsApp' => __('Send WhatsApp', 'rt-event-manager'),
+                'confirmWithdraw' => __('Withdraw the pending transfer for this ticket?', 'rt-event-manager'),
             ),
         ));
     }
@@ -921,12 +924,25 @@ class RT_Event_Manager_Account {
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Transfer this ticket', 'rt-event-manager') . '</h3>';
         echo '<input type="hidden" name="ticket_id" value="" />';
         echo '<p class="rtacc-modal-target rtacc-muted"></p>';
-        echo '<p>' . esc_html__('Create a transfer link and share it with the new holder. The ticket and any pretour linked to it move to them as a package. This is not a refund — they will see the original price paid, and any repayment is arranged between the two of you.', 'rt-event-manager') . '</p>';
+        echo '<p class="rtacc-transfer-intro">' . esc_html__('Create a transfer link and share it with the new holder. The ticket and any pretour linked to it move to them as a package. This is not a refund — they will see the original price paid, and any repayment is arranged between the two of you.', 'rt-event-manager') . '</p>';
+        echo '<p class="rtacc-transfer-final uk-text-danger"><strong>' . esc_html__('All transfers are final. Once a transfer is accepted, the convening team cannot undo it.', 'rt-event-manager') . '</strong></p>';
         echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
-        echo '<p class="rtacc-actions">';
-        echo '<button type="submit" class="uk-button uk-button-secondary">' . esc_html__('Create transfer link', 'rt-event-manager') . '</button>';
+
+        // Step 1 — create the link.
+        echo '<p class="rtacc-actions rtacc-transfer-step1">';
+        echo '<button type="button" class="uk-button uk-button-secondary rtacc-transfer-next">' . esc_html__('Create transfer link', 'rt-event-manager') . '</button>';
         echo '<button type="button" class="uk-button uk-button-primary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button>';
-        echo '</p></form></div></div>';
+        echo '</p>';
+
+        // Step 2 — confirm.
+        echo '<div class="rtacc-transfer-step2" style="display:none;">';
+        echo '<p><strong>' . esc_html__('Are you sure you want to transfer your ticket? This cannot be undone.', 'rt-event-manager') . '</strong></p>';
+        echo '<p class="rtacc-actions">';
+        echo '<button type="submit" class="uk-button uk-button-secondary">' . esc_html__('Yes, create the link', 'rt-event-manager') . '</button>';
+        echo '<button type="button" class="uk-button uk-button-primary rtacc-transfer-back">' . esc_html__('Back', 'rt-event-manager') . '</button>';
+        echo '</p></div>';
+
+        echo '</form></div></div>';
 
         // ---- Cancel ----
         $note = $refund_open
@@ -1356,15 +1372,23 @@ class RT_Event_Manager_Account {
         // the accessible name (aria-label).
         $icon_transfer = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>';
         $icon_cancel   = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+        $icon_withdraw = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="5" y1="5" x2="19" y2="19"></line></svg>';
 
         $transfer_label = __('Request transfer', 'rt-event-manager');
+        $withdraw_label = __('Withdraw pending transfer', 'rt-event-manager');
         $cancel_label   = $refund_open
             ? __('Cancel and request refund', 'rt-event-manager')
             : __('Cancel ticket', 'rt-event-manager');
 
+        $has_pending_transfer = !empty($t['transfer_token']);
+
         $out = '<div class="rtacc-row-actions">';
         if ('event' === $kind) {
-            $out .= '<button type="button" class="rtacc-icon-btn rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" title="' . esc_attr($transfer_label) . '" aria-label="' . esc_attr($transfer_label) . '">' . $icon_transfer . '</button>';
+            if ($has_pending_transfer) {
+                $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" title="' . esc_attr($withdraw_label) . '" aria-label="' . esc_attr($withdraw_label) . '">' . $icon_withdraw . '</button>';
+            } else {
+                $out .= '<button type="button" class="rtacc-icon-btn rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" title="' . esc_attr($transfer_label) . '" aria-label="' . esc_attr($transfer_label) . '">' . $icon_transfer . '</button>';
+            }
         }
         $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" title="' . esc_attr($cancel_label) . '" aria-label="' . esc_attr($cancel_label) . '">' . $icon_cancel . '</button>';
         $out .= '</div>';
@@ -2027,6 +2051,31 @@ class RT_Event_Manager_Account {
         wp_send_json_success(array(
             'redirect' => wc_get_page_permalink('myaccount'),
         ));
+    }
+
+    /** Withdraw a pending transfer offer that the current holder initiated. */
+    public function ajax_withdraw_transfer() {
+        check_ajax_referer('rt_event_manager_withdraw_transfer', 'nonce');
+        if (!is_user_logged_in()) {
+            wp_send_json_error(__('You must be logged in.', 'rt-event-manager'));
+        }
+        $user_id   = get_current_user_id();
+        $ticket_id = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
+
+        $t = $ticket_id ? RT_Event_Manager::get_ticket_by_id($ticket_id) : null;
+        if (!$t || !$this->user_owns_ticket($t, $user_id)) {
+            wp_send_json_error(__('Ticket not found.', 'rt-event-manager'));
+        }
+        if (empty($t['transfer_token'])) {
+            wp_send_json_error(__('There is no pending transfer for this ticket.', 'rt-event-manager'));
+        }
+
+        RT_Event_Manager::instance()->update_ticket($ticket_id, array(
+            'transfer_token' => '',
+            'transfer_email' => '',
+        ));
+
+        wp_send_json_success(array('message' => __('Transfer withdrawn.', 'rt-event-manager')));
     }
 
     /** Notify the current owner that their transfer offer was declined. */
