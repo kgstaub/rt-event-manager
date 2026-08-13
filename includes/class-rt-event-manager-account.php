@@ -814,13 +814,12 @@ class RT_Event_Manager_Account {
         $status_labels = $this->status_labels();
 
         if ($pretour_view) {
+            // Identical columns across all pretour blocks so they align; the
+            // Future members' guardian is shown as a sub-line under the holder.
             echo '<table class="rtacc-table rtacc-tickets rtacc-pretour-table uk-table uk-table-divider uk-table-middle uk-table-small">';
             echo '<thead><tr>';
             echo '<th style="width:35%;">' . esc_html__('Tour', 'rt-event-manager') . '</th>';
             echo '<th style="width:35%;">' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
-            if ($minor_block) {
-                echo '<th style="width:20%;">' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
-            }
             echo '<th style="width:130px;">' . esc_html__('Status', 'rt-event-manager') . '</th>';
             echo '</tr></thead><tbody>';
             foreach ($tickets as $t) {
@@ -829,11 +828,14 @@ class RT_Event_Manager_Account {
                 $pname   = $product ? $product->get_name() : __('(deleted product)', 'rt-event-manager');
                 echo '<tr>';
                 echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($pname) . '</td>';
-                echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($t['holder_name'] ?: '—') . '</td>';
+                echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($t['holder_name'] ?: '—');
                 if ($minor_block) {
                     $g = $this->guardian_label($t, $by_id);
-                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . ($g !== '' ? esc_html($g) : '&mdash;') . '</td>';
+                    if ($g !== '') {
+                        echo '<br><span class="rtacc-muted rtacc-guardian-line">' . esc_html(sprintf(__('Guardian: %s', 'rt-event-manager'), $g)) . '</span>';
+                    }
                 }
+                echo '</td>';
                 echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
                 echo '</tr>';
             }
