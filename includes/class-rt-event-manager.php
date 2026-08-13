@@ -1513,15 +1513,20 @@ class RT_Event_Manager {
             }
 
             // Link any Future member or pretour added directly (no parent yet) to
-            // this order's own event tickets. Future members attach to the buyer's
-            // event ticket (their guardian); pretours are spread one-per-event
-            // ticket so no event ticket ends up with more than one pretour.
+            // this order's own tickets. Future members attach to the buyer's event
+            // ticket (their guardian); pretours are spread one-per-host across the
+            // event AND Future member tickets, so no ticket ends up with more than
+            // one pretour.
             $order_tickets    = self::get_tickets_for_order($order_id);
             $event_ticket_ids = array();
-            $pretour_taken    = array(); // event ticket id => already has a pretour
+            $minor_ticket_ids = array();
+            $pretour_taken    = array(); // host ticket id => already has a pretour
             foreach ($order_tickets as $ot) {
-                if ('event' === self::get_ticket_kind($ot) && !absint($ot['parent_ticket_id'])) {
+                $k = self::get_ticket_kind($ot);
+                if ('event' === $k && !absint($ot['parent_ticket_id'])) {
                     $event_ticket_ids[] = absint($ot['id']);
+                } elseif ('minor' === $k) {
+                    $minor_ticket_ids[] = absint($ot['id']);
                 }
             }
             foreach ($order_tickets as $ot) {
@@ -1530,28 +1535,36 @@ class RT_Event_Manager {
                 }
             }
             $primary_event = !empty($event_ticket_ids) ? $event_ticket_ids[0] : 0;
+
+            // Attach unparented Future members to the buyer's event ticket.
             if ($primary_event) {
                 foreach ($order_tickets as $ot) {
-                    if (absint($ot['parent_ticket_id'])) {
+                    if ('minor' === self::get_ticket_kind($ot) && !absint($ot['parent_ticket_id'])) {
+                        $this->update_ticket($ot['id'], array('parent_ticket_id' => $primary_event));
+                    }
+                }
+            }
+
+            // Distribute unparented pretours across available hosts (event tickets
+            // first, then Future member tickets), one pretour per host.
+            $hosts = array_merge($event_ticket_ids, $minor_ticket_ids);
+            if (!empty($hosts)) {
+                foreach ($order_tickets as $ot) {
+                    if ('pretour' !== self::get_ticket_kind($ot) || absint($ot['parent_ticket_id'])) {
                         continue;
                     }
-                    $ot_kind = self::get_ticket_kind($ot);
-                    if ('minor' === $ot_kind) {
-                        $this->update_ticket($ot['id'], array('parent_ticket_id' => $primary_event));
-                    } elseif ('pretour' === $ot_kind) {
-                        $target = 0;
-                        foreach ($event_ticket_ids as $eid) {
-                            if (empty($pretour_taken[$eid])) {
-                                $target = $eid;
-                                break;
-                            }
+                    $target = 0;
+                    foreach ($hosts as $hid) {
+                        if (empty($pretour_taken[$hid])) {
+                            $target = $hid;
+                            break;
                         }
-                        if (!$target) {
-                            $target = $primary_event;
-                        }
-                        $pretour_taken[$target] = true;
-                        $this->update_ticket($ot['id'], array('parent_ticket_id' => $target));
                     }
+                    if (!$target) {
+                        $target = $hosts[0];
+                    }
+                    $pretour_taken[$target] = true;
+                    $this->update_ticket($ot['id'], array('parent_ticket_id' => $target));
                 }
             }
         }
@@ -1669,12 +1682,12 @@ class RT_Event_Manager {
                     );
                     return false;
                 }
-                // One pretour per event ticket: an unparented pretour links to an
-                // event ticket in this cart at checkout, so the number of pretours
-                // may not exceed the number of event tickets available to host one.
-                $event_tickets   = $this->count_cart_event_tickets();
-                $cart_pretours   = $this->count_cart_unlinked_pretours();
-                if ($cart_pretours + 1 > $event_tickets) {
+                // One pretour per ticket: an unparented pretour links to a ticket
+                // in this cart at checkout, so the number of pretours may not
+                // exceed the number of hosts (event + Future member tickets).
+                $hosts         = $this->count_cart_pretour_hosts();
+                $cart_pretours = $this->count_cart_unlinked_pretours();
+                if ($cart_pretours + 1 > $hosts) {
                     wc_add_notice(
                         __('Each event ticket can have only one pretour. Please remove a pretour from your cart before adding another.', 'rt-event-manager'),
                         'error'
@@ -1697,11 +1710,12 @@ class RT_Event_Manager {
     }
 
     /**
-     * Count event tickets currently in the cart (each can host one pretour).
+     * Count tickets in the cart that can host a pretour — event tickets and
+     * Future member tickets (each can host one pretour).
      *
      * @return int
      */
-    private function count_cart_event_tickets() {
+    private function count_cart_pretour_hosts() {
         $count = 0;
         if (!function_exists('WC') || !WC()->cart) {
             return 0;
@@ -1709,7 +1723,11 @@ class RT_Event_Manager {
         foreach (WC()->cart->get_cart() as $ci) {
             $pid = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
             $qty = isset($ci['quantity']) ? absint($ci['quantity']) : 1;
-            if ($pid && self::is_ticket_product($pid) && 'event' === self::get_ticket_kind_for_product($pid)) {
+            if (!$pid || !self::is_ticket_product($pid)) {
+                continue;
+            }
+            $kind = self::get_ticket_kind_for_product($pid);
+            if ('event' === $kind || 'minor' === $kind) {
                 $count += max(1, $qty);
             }
         }
