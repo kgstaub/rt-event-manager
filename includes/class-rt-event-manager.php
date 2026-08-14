@@ -539,30 +539,32 @@ class RT_Event_Manager {
                 $is_additional = ($ticket_index > 0) || !empty($item['has_parent']) || $buyer_has_ticket;
                 $prefill = isset($item['prefill']) ? $item['prefill'] : array();
 
-                // A pretour added from the cart (no explicit parent, not prefilled)
-                // is booked for one of the attendees in this same order rather than
-                // a new person — offer a picker to choose which one.
-                $is_cart_pretour = (isset($item['kind']) && 'pretour' === $item['kind']) && empty($item['has_parent']);
+                // A pretour / day tour added from the cart (no explicit parent, not
+                // prefilled) is booked for one of the attendees in this same order
+                // rather than a new person — offer a picker to choose which one.
+                $item_kind = isset($item['kind']) ? $item['kind'] : '';
+                $is_cart_tour = in_array($item_kind, array('pretour', 'daytour'), true) && empty($item['has_parent']);
 
                 if (!empty($prefill)) {
                     // Details were entered in the account modal before checkout —
                     // show a read-only summary and pass them through as hidden
                     // fields so the normal save path stores them unchanged.
                     $this->render_prefilled_ticket_fields($field_prefix, $prefill);
-                } elseif ($is_cart_pretour && !empty($host_options)) {
-                    // Link picker: the pretour inherits the chosen attendee's name,
+                } elseif ($is_cart_tour && !empty($host_options)) {
+                    // Link picker: the tour inherits the chosen attendee's name,
                     // phone, family, club and dietary details at checkout.
+                    $tour_word = ('daytour' === $item_kind) ? __('day tour', 'rt-event-manager') : __('pretour', 'rt-event-manager');
                     $link_opts = array('' => __('— Select the attendee —', 'rt-event-manager'));
                     foreach ($host_options as $hidx => $hlabel) {
                         $link_opts[$hidx] = $hlabel;
                     }
                     woocommerce_form_field($field_prefix . '_link', array(
                         'type'        => 'select',
-                        'label'       => __('This pretour is for', 'rt-event-manager'),
+                        'label'       => sprintf(__('This %s is for', 'rt-event-manager'), $tour_word),
                         'required'    => true,
                         'class'       => array('form-row-wide'),
                         'options'     => $link_opts,
-                        'description' => __('Choose which attendee is joining this tour — the pretour uses their name and details.', 'rt-event-manager'),
+                        'description' => sprintf(__('Choose which attendee is joining this %s — it uses their name and details.', 'rt-event-manager'), $tour_word),
                     ), '');
                 } else {
 
@@ -870,11 +872,14 @@ class RT_Event_Manager {
             }
         }
 
-        // Collect picker selections: host ticket index => list of tour product ids.
+        // Collect picker selections per tour kind: kind => host index => products.
+        // Pretours and day tours are tracked separately (a host may have one of
+        // each).
         $assign      = array();
         $host_counts = array();
         for ($i = 0; $i < $ticket_count; $i++) {
-            if ('pretour' !== $kind[$i] || !isset($_POST['rti_ticket_' . $i . '_link'])) {
+            $tk = isset($kind[$i]) ? $kind[$i] : '';
+            if (!in_array($tk, array('pretour', 'daytour'), true) || !isset($_POST['rti_ticket_' . $i . '_link'])) {
                 continue;
             }
             $raw = wp_unslash($_POST['rti_ticket_' . $i . '_link']);
@@ -892,33 +897,38 @@ class RT_Event_Manager {
                 ), 'error');
                 continue;
             }
-            $host_counts[$host] = isset($host_counts[$host]) ? $host_counts[$host] + 1 : 1;
-            $assign[$host][]    = isset($product_map[$i]) ? absint($product_map[$i]) : 0;
+            $host_counts[$tk][$host] = isset($host_counts[$tk][$host]) ? $host_counts[$tk][$host] + 1 : 1;
+            $assign[$tk][$host][]    = isset($product_map[$i]) ? absint($product_map[$i]) : 0;
         }
 
-        // One tour per attendee — no host chosen by more than one pretour.
-        foreach ($host_counts as $host => $count) {
-            if ($count > 1) {
-                wc_add_notice(sprintf(
-                    __('%s can join only one tour. Please assign the other tour to a different attendee.', 'rt-event-manager'),
-                    $this->attendee_label_from_post($host)
-                ), 'error');
-            }
-        }
-
-        // A Future member's tour must match one their guardian is also joining.
-        $guardian_products = ($guardian_index >= 0 && isset($assign[$guardian_index])) ? $assign[$guardian_index] : array();
-        foreach ($assign as $host => $products) {
-            if ('minor' !== $kind[$host]) {
-                continue;
-            }
-            foreach ($products as $p) {
-                if (!in_array($p, $guardian_products, true)) {
+        // One tour of each kind per attendee — no host chosen twice for one kind.
+        foreach ($host_counts as $tk => $hosts) {
+            foreach ($hosts as $host => $count) {
+                if ($count > 1) {
                     wc_add_notice(sprintf(
-                        __('%s can only join the same tour as their guardian. Please also add that tour for their guardian.', 'rt-event-manager'),
+                        __('%s can join only one tour of the same kind. Please assign the other to a different attendee.', 'rt-event-manager'),
                         $this->attendee_label_from_post($host)
                     ), 'error');
-                    break;
+                }
+            }
+        }
+
+        // A Future member's tour must match one their guardian is also joining
+        // (checked per kind).
+        foreach ($assign as $tk => $hostmap) {
+            $guardian_products = ($guardian_index >= 0 && isset($hostmap[$guardian_index])) ? $hostmap[$guardian_index] : array();
+            foreach ($hostmap as $host => $products) {
+                if ('minor' !== $kind[$host]) {
+                    continue;
+                }
+                foreach ($products as $p) {
+                    if (!in_array($p, $guardian_products, true)) {
+                        wc_add_notice(sprintf(
+                            __('%s can only join the same tour as their guardian. Please also add that tour for their guardian.', 'rt-event-manager'),
+                            $this->attendee_label_from_post($host)
+                        ), 'error');
+                        break;
+                    }
                 }
             }
         }
@@ -1684,7 +1694,6 @@ class RT_Event_Manager {
             $order_tickets    = self::get_tickets_for_order($order_id);
             $event_ticket_ids = array();
             $minor_ticket_ids = array();
-            $pretour_taken    = array(); // host ticket id => already has a pretour
             foreach ($order_tickets as $ot) {
                 $k = self::get_ticket_kind($ot);
                 if ('event' === $k && !absint($ot['parent_ticket_id'])) {
@@ -1693,9 +1702,13 @@ class RT_Event_Manager {
                     $minor_ticket_ids[] = absint($ot['id']);
                 }
             }
+            // One tour per host, tracked separately per kind (a ticket may host
+            // one pretour AND one day tour).
+            $tour_taken = array('pretour' => array(), 'daytour' => array());
             foreach ($order_tickets as $ot) {
-                if ('pretour' === self::get_ticket_kind($ot) && absint($ot['parent_ticket_id'])) {
-                    $pretour_taken[absint($ot['parent_ticket_id'])] = true;
+                $ok = self::get_ticket_kind($ot);
+                if (in_array($ok, array('pretour', 'daytour'), true) && absint($ot['parent_ticket_id'])) {
+                    $tour_taken[$ok][absint($ot['parent_ticket_id'])] = true;
                 }
             }
             $primary_event = !empty($event_ticket_ids) ? $event_ticket_ids[0] : 0;
@@ -1709,10 +1722,10 @@ class RT_Event_Manager {
                 }
             }
 
-            // Resolve pretours the buyer linked to a specific attendee at checkout
-            // (the "This pretour is for" picker): copy that attendee's details onto
-            // the pretour and link it to their ticket. The picker value is the host
-            // ticket's checkout index, which equals the stored ticket_index.
+            // Resolve tours the buyer linked to a specific attendee at checkout
+            // (the "This pretour/day tour is for" picker): copy that attendee's
+            // details onto the tour and link it to their ticket. The picker value
+            // is the host ticket's checkout index (== stored ticket_index).
             $idx_to_id = array();
             foreach ($order_tickets as $ot) {
                 $idx_to_id[absint($ot['ticket_index'])] = absint($ot['id']);
@@ -1729,16 +1742,21 @@ class RT_Event_Manager {
                 if ($host_index === $li || !isset($idx_to_id[$li], $idx_to_id[$host_index])) {
                     continue;
                 }
-                $pretour_id = $idx_to_id[$li];
-                $host_id    = $idx_to_id[$host_index];
-                if (!empty($pretour_taken[$host_id])) {
-                    continue; // one pretour per host
+                $tour_id  = $idx_to_id[$li];
+                $tour_row = self::get_ticket_by_id($tour_id);
+                $tour_kind = $tour_row ? self::get_ticket_kind($tour_row) : '';
+                if (!in_array($tour_kind, array('pretour', 'daytour'), true)) {
+                    continue;
+                }
+                $host_id = $idx_to_id[$host_index];
+                if (!empty($tour_taken[$tour_kind][$host_id])) {
+                    continue; // one tour of this kind per host
                 }
                 $host_row = self::get_ticket_by_id($host_id);
                 if (!$host_row || !in_array(self::get_ticket_kind($host_row), array('event', 'minor'), true)) {
                     continue;
                 }
-                $this->update_ticket($pretour_id, array(
+                $this->update_ticket($tour_id, array(
                     'parent_ticket_id' => $host_id,
                     'holder_name'      => $host_row['holder_name'],
                     'phone'            => $host_row['phone'],
@@ -1750,24 +1768,25 @@ class RT_Event_Manager {
                     'qr_code_url'      => $host_row['qr_code_url'],
                     'status'           => rt_event_manager_determine_ticket_status($order, $host_row['holder_name']),
                 ));
-                $pretour_taken[$host_id] = true;
+                $tour_taken[$tour_kind][$host_id] = true;
             }
 
-            // Re-read so pretours just linked above are seen as parented and are
-            // not re-distributed by the fallback below.
+            // Re-read so tours just linked above are seen as parented and are not
+            // re-distributed by the fallback below.
             $order_tickets = self::get_tickets_for_order($order_id);
 
-            // Distribute any still-unparented pretours across available hosts
-            // (event tickets first, then Future member tickets), one per host.
+            // Distribute any still-unparented tours across available hosts (event
+            // tickets first, then Future member tickets), one per host per kind.
             $hosts = array_merge($event_ticket_ids, $minor_ticket_ids);
             if (!empty($hosts)) {
                 foreach ($order_tickets as $ot) {
-                    if ('pretour' !== self::get_ticket_kind($ot) || absint($ot['parent_ticket_id'])) {
+                    $ok = self::get_ticket_kind($ot);
+                    if (!in_array($ok, array('pretour', 'daytour'), true) || absint($ot['parent_ticket_id'])) {
                         continue;
                     }
                     $target = 0;
                     foreach ($hosts as $hid) {
-                        if (empty($pretour_taken[$hid])) {
+                        if (empty($tour_taken[$ok][$hid])) {
                             $target = $hid;
                             break;
                         }
@@ -1775,7 +1794,7 @@ class RT_Event_Manager {
                     if (!$target) {
                         $target = $hosts[0];
                     }
-                    $pretour_taken[$target] = true;
+                    $tour_taken[$ok][$target] = true;
                     $this->update_ticket($ot['id'], array('parent_ticket_id' => $target));
                 }
             }
@@ -4997,6 +5016,15 @@ class RT_Event_Manager {
 
     /**
      * @param int $product_id
+     * @return bool True if the product is a Day Tour ticket product.
+     */
+    public static function is_daytour_product($product_id) {
+        $cat = self::get_daytour_category_id();
+        return $cat && has_term($cat, 'product_cat', $product_id);
+    }
+
+    /**
+     * @param int $product_id
      * @return bool True if the product is a Future/minor ticket product.
      */
     public static function is_future_product($product_id) {
@@ -5018,6 +5046,9 @@ class RT_Event_Manager {
         if (self::is_pretour_product($product_id)) {
             return 'pretour';
         }
+        if (self::is_daytour_product($product_id)) {
+            return 'daytour';
+        }
         return 'event';
     }
 
@@ -5033,7 +5064,7 @@ class RT_Event_Manager {
         if ('yes' === get_post_meta($product_id, '_rti_is_ticket', true)) {
             return true;
         }
-        return self::is_pretour_product($product_id) || self::is_future_product($product_id);
+        return self::is_pretour_product($product_id) || self::is_future_product($product_id) || self::is_daytour_product($product_id);
     }
 
     /**
@@ -5045,7 +5076,7 @@ class RT_Event_Manager {
      */
     public static function get_ticket_kind($row) {
         $k = isset($row['ticket_kind']) ? $row['ticket_kind'] : '';
-        if (in_array($k, array('pretour', 'minor'), true)) {
+        if (in_array($k, array('pretour', 'daytour', 'minor'), true)) {
             return $k;
         }
         return self::get_ticket_kind_for_product(isset($row['product_id']) ? $row['product_id'] : 0);
@@ -5065,6 +5096,9 @@ class RT_Event_Manager {
         }
         if ('pretour' === $kind) {
             return __('Pretour', 'rt-event-manager');
+        }
+        if ('daytour' === $kind) {
+            return __('Day tour', 'rt-event-manager');
         }
         return __('Event', 'rt-event-manager');
     }
@@ -5091,6 +5125,24 @@ class RT_Event_Manager {
      * @return bool
      */
     public static function ticket_has_pretour($ticket_id) {
+        return self::ticket_has_tour($ticket_id, 'pretour');
+    }
+
+    /** Whether a host ticket already hosts a Day tour (one per ticket). */
+    public static function ticket_has_daytour($ticket_id) {
+        return self::ticket_has_tour($ticket_id, 'daytour');
+    }
+
+    /**
+     * Whether a host ticket already hosts a tour of the given kind (one per
+     * ticket per kind). Counts stored rows whose parent is this ticket and which
+     * are not invalid.
+     *
+     * @param int    $ticket_id
+     * @param string $kind 'pretour' | 'daytour'
+     * @return bool
+     */
+    public static function ticket_has_tour($ticket_id, $kind = 'pretour') {
         global $wpdb;
         $ticket_id = absint($ticket_id);
         if (!$ticket_id) {
@@ -5100,7 +5152,7 @@ class RT_Event_Manager {
         $count = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table_name WHERE parent_ticket_id = %d AND ticket_kind = %s AND status <> %s",
             $ticket_id,
-            'pretour',
+            $kind,
             'invalid'
         ));
         return $count > 0;
@@ -5108,23 +5160,36 @@ class RT_Event_Manager {
 
     /**
      * The pretour tickets linked to a host ticket (event / Future member).
-     *
-     * @param int  $ticket_id
-     * @param bool $exclude_cancelled Skip already-cancelled pretours.
-     * @return array Ticket rows (ARRAY_A).
      */
     public static function get_child_pretours($ticket_id, $exclude_cancelled = true) {
+        return self::get_child_tours($ticket_id, 'pretour', $exclude_cancelled);
+    }
+
+    /** The Day tour tickets linked to a host ticket. */
+    public static function get_child_daytours($ticket_id, $exclude_cancelled = true) {
+        return self::get_child_tours($ticket_id, 'daytour', $exclude_cancelled);
+    }
+
+    /**
+     * Tour tickets of a given kind linked to a host ticket.
+     *
+     * @param int    $ticket_id
+     * @param string $kind 'pretour' | 'daytour'
+     * @param bool   $exclude_cancelled
+     * @return array Ticket rows (ARRAY_A).
+     */
+    public static function get_child_tours($ticket_id, $kind = 'pretour', $exclude_cancelled = true) {
         global $wpdb;
         $ticket_id = absint($ticket_id);
         if (!$ticket_id) {
             return array();
         }
         $table_name = $wpdb->prefix . 'rti_tickets';
-        $sql = "SELECT * FROM $table_name WHERE parent_ticket_id = %d AND ticket_kind = 'pretour'";
+        $sql = $wpdb->prepare("SELECT * FROM $table_name WHERE parent_ticket_id = %d AND ticket_kind = %s", $ticket_id, $kind);
         if ($exclude_cancelled) {
             $sql .= " AND status <> 'cancelled'";
         }
-        return $wpdb->get_results($wpdb->prepare($sql, $ticket_id), ARRAY_A);
+        return $wpdb->get_results($sql, ARRAY_A);
     }
 
     /**
