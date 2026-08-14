@@ -1903,40 +1903,55 @@ class RT_Event_Manager {
                     return false;
                 }
             } elseif (self::is_pretour_product($product_id)) {
-                // Allowed without an explicit parent if an event ticket is in the
-                // cart — the pretour links to that event ticket at checkout.
-                if (!$this->cart_has_event_ticket()) {
-                    wc_add_notice(
-                        __('Pretour tickets need an event ticket in your cart, or an existing ticket to link to.', 'rt-event-manager'),
-                        'error'
-                    );
+                if (!$this->validate_unparented_tour('pretour', __('pretour', 'rt-event-manager'))) {
                     return false;
                 }
-                // One pretour per ticket: an unparented pretour links to a ticket
-                // in this cart at checkout, so the number of pretours may not
-                // exceed the number of hosts (event + Future member tickets).
-                $hosts         = $this->count_cart_pretour_hosts();
-                $cart_pretours = $this->count_cart_unlinked_pretours();
-                if ($cart_pretours + 1 > $hosts) {
-                    wc_add_notice(
-                        __('Each event ticket can have only one pretour. Please remove a pretour from your cart before adding another.', 'rt-event-manager'),
-                        'error'
-                    );
+            } elseif (self::is_daytour_product($product_id)) {
+                if (!$this->validate_unparented_tour('daytour', __('day tour', 'rt-event-manager'))) {
                     return false;
                 }
             }
         } elseif (self::is_pretour_product($product_id)) {
-            // Explicit parent chosen (linked add): block if that ticket already
-            // has a pretour — stored on a previous order, or sitting in the cart.
-            if (self::ticket_has_pretour($parent_id) || $this->cart_has_pretour_for_parent($parent_id)) {
-                wc_add_notice(
-                    __('This ticket already has a pretour. Each event ticket can have only one pretour.', 'rt-event-manager'),
-                    'error'
-                );
+            if (self::ticket_has_pretour($parent_id) || $this->cart_has_tour_for_parent($parent_id, 'pretour')) {
+                wc_add_notice(__('This ticket already has a pretour. Each ticket can have only one pretour.', 'rt-event-manager'), 'error');
+                return false;
+            }
+        } elseif (self::is_daytour_product($product_id)) {
+            if (self::ticket_has_daytour($parent_id) || $this->cart_has_tour_for_parent($parent_id, 'daytour')) {
+                wc_add_notice(__('This ticket already has a day tour. Each ticket can have only one day tour.', 'rt-event-manager'), 'error');
                 return false;
             }
         }
         return $passed;
+    }
+
+    /**
+     * Shared rule for adding an unparented pretour / day tour to the cart: it
+     * needs an event ticket in the cart, and the count of that tour kind may not
+     * exceed the available hosts (event + Future member tickets).
+     *
+     * @param string $kind 'pretour' | 'daytour'
+     * @param string $word Human label for the notice.
+     * @return bool
+     */
+    private function validate_unparented_tour($kind, $word) {
+        if (!$this->cart_has_event_ticket()) {
+            wc_add_notice(sprintf(
+                /* translators: %s: pretour / day tour */
+                __('%s tickets need an event ticket in your cart, or an existing ticket to link to.', 'rt-event-manager'),
+                ucfirst($word)
+            ), 'error');
+            return false;
+        }
+        if ($this->count_cart_unlinked_tours($kind) + 1 > $this->count_cart_pretour_hosts()) {
+            wc_add_notice(sprintf(
+                /* translators: %s: pretour / day tour */
+                __('Each ticket can have only one %s. Please remove one from your cart before adding another.', 'rt-event-manager'),
+                $word
+            ), 'error');
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -1965,12 +1980,13 @@ class RT_Event_Manager {
     }
 
     /**
-     * Count pretours in the cart that have no explicit parent (they link to an
-     * event ticket in the same cart at checkout).
+     * Count tours of a kind in the cart that have no explicit parent (they link
+     * to an event ticket in the same cart at checkout).
      *
+     * @param string $kind 'pretour' | 'daytour'
      * @return int
      */
-    private function count_cart_unlinked_pretours() {
+    private function count_cart_unlinked_tours($kind) {
         $count = 0;
         if (!function_exists('WC') || !WC()->cart) {
             return 0;
@@ -1979,7 +1995,7 @@ class RT_Event_Manager {
             $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
             $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
             $qty    = isset($ci['quantity']) ? absint($ci['quantity']) : 1;
-            if ($pid && !$parent && self::is_pretour_product($pid)) {
+            if ($pid && !$parent && self::get_ticket_kind_for_product($pid) === $kind) {
                 $count += max(1, $qty);
             }
         }
@@ -1987,12 +2003,14 @@ class RT_Event_Manager {
     }
 
     /**
-     * Whether the cart already holds a pretour linked to a specific parent ticket.
+     * Whether the cart already holds a tour of the given kind linked to a
+     * specific parent ticket.
      *
-     * @param int $parent_id
+     * @param int    $parent_id
+     * @param string $kind 'pretour' | 'daytour'
      * @return bool
      */
-    private function cart_has_pretour_for_parent($parent_id) {
+    private function cart_has_tour_for_parent($parent_id, $kind) {
         $parent_id = absint($parent_id);
         if (!$parent_id || !function_exists('WC') || !WC()->cart) {
             return false;
@@ -2000,7 +2018,7 @@ class RT_Event_Manager {
         foreach (WC()->cart->get_cart() as $ci) {
             $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
             $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
-            if ($pid && $parent === $parent_id && self::is_pretour_product($pid)) {
+            if ($pid && $parent === $parent_id && self::get_ticket_kind_for_product($pid) === $kind) {
                 return true;
             }
         }
@@ -4695,6 +4713,13 @@ class RT_Event_Manager {
                 'title'   => __('Pretour', 'rt-event-manager'),
                 'desc'    => __('Show the Pretour tab', 'rt-event-manager'),
                 'id'      => 'rt_event_manager_show_pretour',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'title'   => __('Day Tours', 'rt-event-manager'),
+                'desc'    => __('Show the Day Tours tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_daytour',
                 'type'    => 'checkbox',
                 'default' => 'yes',
             ),

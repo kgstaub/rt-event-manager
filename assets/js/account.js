@@ -230,8 +230,8 @@
         });
     });
 
-    // ---- Bulk pretour add (select group members, then checkout) ----
-    $(document).on('submit', '.rtacc-pretour-form', function (e) {
+    // ---- Bulk tour add (pretour / day tour): select group members, then checkout ----
+    $(document).on('submit', '.rtacc-tour-form', function (e) {
         e.preventDefault();
         var $form = $(this);
         var $err  = $form.find('.rtacc-modal-error');
@@ -248,7 +248,7 @@
 
         $btn.prop('disabled', true);
         $.post(cfg.ajaxUrl, {
-            action:     'rt_event_manager_add_pretours_to_cart',
+            action:     $form.data('action') || 'rt_event_manager_add_pretours_to_cart',
             nonce:      cfg.addTicketNonce,
             product_id: $form.find('[name="product_id"]').val(),
             members:    members

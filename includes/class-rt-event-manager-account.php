@@ -56,6 +56,7 @@ class RT_Event_Manager_Account {
         add_action('wp_ajax_rt_event_manager_receipt', array($this, 'ajax_receipt'));
         add_action('wp_ajax_rt_event_manager_add_ticket_to_cart', array($this, 'ajax_add_ticket_to_cart'));
         add_action('wp_ajax_rt_event_manager_add_pretours_to_cart', array($this, 'ajax_add_pretours_to_cart'));
+        add_action('wp_ajax_rt_event_manager_add_daytours_to_cart', array($this, 'ajax_add_daytours_to_cart'));
         add_action('wp_ajax_rt_event_manager_request_transfer', array($this, 'ajax_request_transfer'));
         add_action('wp_ajax_rt_event_manager_cancel_ticket', array($this, 'ajax_cancel_ticket'));
         add_action('wp_ajax_rt_event_manager_accept_transfer', array($this, 'ajax_accept_transfer'));
@@ -120,13 +121,14 @@ class RT_Event_Manager_Account {
             'orders'    => __('Order History', 'rt-event-manager'),
             'tickets'   => __('Event Tickets', 'rt-event-manager'),
             'pretour'   => __('Pretour', 'rt-event-manager'),
+            'daytour'   => __('Day Tours', 'rt-event-manager'),
             'calendar'  => __('My Calendar', 'rt-event-manager'),
             'travel'    => __('Travel and Visa', 'rt-event-manager'),
             'shop'      => __('Shop', 'rt-event-manager'),
         );
 
         // Backend show/hide toggles for the optional tabs.
-        foreach (array('pretour', 'calendar', 'travel', 'shop') as $key) {
+        foreach (array('pretour', 'daytour', 'calendar', 'travel', 'shop') as $key) {
             if ('yes' !== get_option('rt_event_manager_show_' . $key, 'yes')) {
                 unset($tabs[$key]);
             }
@@ -415,6 +417,9 @@ class RT_Event_Manager_Account {
             case 'pretour':
                 $this->render_pretour();
                 break;
+            case 'daytour':
+                $this->render_daytour();
+                break;
             case 'calendar':
                 $this->render_calendar();
                 break;
@@ -442,6 +447,7 @@ class RT_Event_Manager_Account {
             'orders'    => 'fa-receipt',
             'tickets'   => 'fa-ticket',
             'pretour'   => 'fa-route',
+            'daytour'   => 'fa-map-location-dot',
             'calendar'  => 'fa-calendar-days',
             'travel'    => 'fa-passport',
             'shop'      => 'fa-bag-shopping',
@@ -954,70 +960,88 @@ class RT_Event_Manager_Account {
     }
 
     private function render_pretour() {
+        $this->render_tour('pretour');
+    }
+
+    private function render_daytour() {
+        $this->render_tour('daytour');
+    }
+
+    /**
+     * Shared read-only tour tab (Pretour or Day tour): My tour + Travelling with
+     * me, plus a bulk "Add" button/modal. One tour of this kind per person.
+     *
+     * @param string $kind 'pretour' | 'daytour'
+     */
+    private function render_tour($kind) {
+        $is_day     = ('daytour' === $kind);
+        $title      = $is_day ? __('Day Tours', 'rt-event-manager') : __('Pretour', 'rt-event-manager');
+        $mine_lbl   = $is_day ? __('My day tour', 'rt-event-manager') : __('My Pretour', 'rt-event-manager');
+        $add_lbl    = $is_day ? __('Add a day tour', 'rt-event-manager') : __('Add a pretour', 'rt-event-manager');
+        $empty_mine = $is_day ? __('You do not have a day tour yet.', 'rt-event-manager') : __('You do not have a pretour ticket yet.', 'rt-event-manager');
+        $empty_comp = $is_day ? __('No additional day tours yet.', 'rt-event-manager') : __('No additional pretour tickets yet.', 'rt-event-manager');
+        $modal_key  = $kind;
+        $form_id    = 'rtacc-' . $kind . '-form';
+
         $user_id  = get_current_user_id();
         $tickets  = RT_Event_Manager::get_tickets_for_user($user_id);
         $can_edit = RT_Event_Manager::instance()->is_frontend_editing_allowed();
         $by_id    = $this->index_by_id($tickets);
 
-        // "Mine" is the user's OWN event ticket (their first parentless one). Adult
-        // co-travellers are separate, so their pretours belong under "Travelling
-        // with me" — this now includes Future member (child) pretours too.
         $this->own_event_id = $this->own_event_ticket_id($tickets);
         $my_event_ids = $this->own_event_id ? array($this->own_event_id => true) : array();
 
         $mine       = array();
         $companions = array();
         foreach ($tickets as $t) {
-            if ('pretour' !== $this->effective_kind($t)) {
+            if ($kind !== $this->effective_kind($t)) {
                 continue;
             }
             $parent = absint($t['parent_ticket_id']);
             if (isset($my_event_ids[$parent])) {
-                $mine[] = $t;       // the buyer's own pretour
+                $mine[] = $t;       // the buyer's own tour
             } else {
                 $companions[] = $t; // co-travellers and Future members
             }
         }
 
-        // Bulk pretour candidates: members (event ticket or Future member) who do
-        // not already have a pretour (counting unpaid ones in the cart).
-        $has_pretour = array();
+        // Bulk candidates: members (event ticket or Future member) who do not
+        // already have a tour of this kind (counting unpaid ones in the cart).
+        $has_tour = array();
         foreach ($tickets as $t) {
-            if ('pretour' === $this->effective_kind($t)) {
+            if ($kind === $this->effective_kind($t)) {
                 $pp = absint($t['parent_ticket_id']);
                 if ($pp) {
-                    $has_pretour[$pp] = true;
+                    $has_tour[$pp] = true;
                 }
             }
         }
-        foreach ($this->get_cart_pretour_products() as $pp => $pids) {
-            $has_pretour[$pp] = true;
+        foreach ($this->get_cart_tour_products($kind) as $pp => $pids) {
+            $has_tour[$pp] = true;
         }
         $candidates = array();
         foreach ($tickets as $t) {
             $k = $this->effective_kind($t);
-            if (('event' === $k || 'minor' === $k) && !isset($has_pretour[absint($t['id'])])) {
+            if (('event' === $k || 'minor' === $k) && !isset($has_tour[absint($t['id'])])) {
                 $candidates[] = $t;
             }
         }
 
-        // Title line with the "Add a pretour" button at the right edge.
         echo '<div class="rtacc-title-row">';
-        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Pretour', 'rt-event-manager') . '</h2>';
-        echo $this->pretour_add_button_html($candidates);
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html($title) . '</h2>';
+        echo $this->tour_add_button_html($candidates, $kind, $add_lbl, $modal_key);
         echo '</div>';
 
         $this->maybe_cutoff_notice($can_edit);
 
-        // Pretour tickets are read-only (Tour + Holder + Status; Guardian for
-        // Future members). Their details are managed on the Event Tickets tab.
-        $this->render_editable_sections('rtacc-pretour-form', array(
-            array('label' => __('My Pretour', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a pretour ticket yet.', 'rt-event-manager'), 'pretour_view' => true),
-            array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional pretour tickets yet.', 'rt-event-manager'), 'pretour_view' => true),
+        // Tour tickets are read-only (Tour + Holder + Guardian + Status). Their
+        // details are managed on the Event Tickets tab.
+        $this->render_editable_sections($form_id, array(
+            array('label' => $mine_lbl, 'tickets' => $mine, 'empty' => $empty_mine, 'pretour_view' => true),
+            array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => $empty_comp, 'pretour_view' => true),
         ), $by_id, $can_edit, true);
 
-        // The bulk pretour modal (hidden; opened by the title-line button).
-        $this->render_pretour_modal($candidates);
+        $this->render_tour_modal($candidates, $kind, $modal_key, $add_lbl);
         $this->render_transfer_cancel_modals();
     }
 
@@ -1744,7 +1768,12 @@ class RT_Event_Manager_Account {
 
     /** Ticket products in the configured Pretour category. */
     private function get_pretour_product_ids() {
-        $cat = RT_Event_Manager::get_pretour_category_id();
+        return $this->get_tour_product_ids('pretour');
+    }
+
+    /** Product ids in the pretour or day-tour category. */
+    private function get_tour_product_ids($kind) {
+        $cat = ('daytour' === $kind) ? RT_Event_Manager::get_daytour_category_id() : RT_Event_Manager::get_pretour_category_id();
         if (!$cat) {
             return array();
         }
@@ -1914,8 +1943,13 @@ class RT_Event_Manager_Account {
      * @return WC_Product[]
      */
     private function get_bulk_pretour_products() {
+        return $this->get_bulk_tour_products('pretour');
+    }
+
+    /** Simple, purchasable tour products of a kind the bulk flow can offer. */
+    private function get_bulk_tour_products($kind) {
         $products = array();
-        foreach ($this->get_pretour_product_ids() as $pid) {
+        foreach ($this->get_tour_product_ids($kind) as $pid) {
             $p = wc_get_product($pid);
             if ($p && $p->is_purchasable() && $p->is_in_stock() && !$this->product_needs_options($p)) {
                 $products[] = $p;
@@ -1931,31 +1965,35 @@ class RT_Event_Manager_Account {
      * @param array $candidates Eligible member ticket rows.
      * @return string
      */
-    private function pretour_add_button_html($candidates) {
-        if (empty($this->get_bulk_pretour_products()) || empty($candidates)) {
+    private function tour_add_button_html($candidates, $kind, $label, $modal_key) {
+        if (empty($this->get_bulk_tour_products($kind)) || empty($candidates)) {
             return '';
         }
-        return '<button type="button" class="uk-button uk-button-primary rtacc-title-action" data-rtacc-modal="pretour">'
-            . esc_html__('Add a pretour', 'rt-event-manager') . '</button>';
+        return '<button type="button" class="uk-button uk-button-primary rtacc-title-action" data-rtacc-modal="' . esc_attr($modal_key) . '">'
+            . esc_html($label) . '</button>';
     }
 
     /**
-     * The bulk pretour modal: choose the tour and which group members join. One
-     * pretour is added per selected member, then the JS redirects to checkout.
+     * The bulk tour modal: choose the tour and which group members join. One tour
+     * is added per selected member, then the JS redirects to checkout.
      *
-     * @param array $candidates Eligible member ticket rows.
+     * @param array  $candidates Eligible member ticket rows.
+     * @param string $kind       'pretour' | 'daytour'
+     * @param string $modal_key  Modal id suffix + open-trigger key.
+     * @param string $title      Modal heading / add label.
      */
-    private function render_pretour_modal($candidates) {
-        $products = $this->get_bulk_pretour_products();
+    private function render_tour_modal($candidates, $kind, $modal_key, $title) {
+        $products = $this->get_bulk_tour_products($kind);
         if (empty($products) || empty($candidates)) {
             return;
         }
+        $action = ('daytour' === $kind) ? 'rt_event_manager_add_daytours_to_cart' : 'rt_event_manager_add_pretours_to_cart';
 
-        echo '<div class="rtacc-modal" id="rtacc-modal-pretour" hidden>';
+        echo '<div class="rtacc-modal" id="rtacc-modal-' . esc_attr($modal_key) . '" hidden>';
         echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
         echo '<div class="rtacc-modal-dialog">';
-        echo '<form class="rtacc-pretour-form rtacc-form uk-form-stacked">';
-        echo '<h3 class="rtacc-subtitle">' . esc_html__('Add a pretour', 'rt-event-manager') . '</h3>';
+        echo '<form class="rtacc-tour-form rtacc-form uk-form-stacked" data-action="' . esc_attr($action) . '">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html($title) . '</h3>';
 
         // Pretour selector (a dropdown when there is more than one to choose).
         if (count($products) > 1) {
@@ -2734,12 +2772,17 @@ class RT_Event_Manager_Account {
      * @return array
      */
     private function get_cart_pretour_products() {
+        return $this->get_cart_tour_products('pretour');
+    }
+
+    /** parent ticket id => [product ids] for tours of a kind sitting in the cart. */
+    private function get_cart_tour_products($kind) {
         $map = array();
         if (function_exists('WC') && WC()->cart) {
             foreach (WC()->cart->get_cart() as $ci) {
                 $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
                 $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
-                if ($pid && $parent && RT_Event_Manager::is_pretour_product($pid)) {
+                if ($pid && $parent && RT_Event_Manager::get_ticket_kind_for_product($pid) === $kind) {
                     $map[$parent][] = $pid;
                 }
             }
@@ -2748,6 +2791,20 @@ class RT_Event_Manager_Account {
     }
 
     public function ajax_add_pretours_to_cart() {
+        $this->add_tours_to_cart('pretour');
+    }
+
+    public function ajax_add_daytours_to_cart() {
+        $this->add_tours_to_cart('daytour');
+    }
+
+    /**
+     * Bulk-add a tour (pretour or day tour) for selected group members. One per
+     * person; a Future member may only join the same tour as their guardian.
+     *
+     * @param string $kind 'pretour' | 'daytour'
+     */
+    private function add_tours_to_cart($kind) {
         check_ajax_referer('rt_event_manager_add_ticket', 'nonce');
 
         if (!is_user_logged_in()) {
@@ -2756,17 +2813,18 @@ class RT_Event_Manager_Account {
         if (!function_exists('WC') || !WC()->cart) {
             wp_send_json_error(__('Cart is unavailable.', 'rt-event-manager'));
         }
+        $word = ('daytour' === $kind) ? __('day tour', 'rt-event-manager') : __('pretour', 'rt-event-manager');
 
         $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
         $product    = $product_id ? wc_get_product($product_id) : null;
-        if (!$product || !RT_Event_Manager::is_pretour_product($product_id)) {
-            wp_send_json_error(__('Invalid pretour product.', 'rt-event-manager'));
+        if (!$product || RT_Event_Manager::get_ticket_kind_for_product($product_id) !== $kind) {
+            wp_send_json_error(sprintf(__('Invalid %s product.', 'rt-event-manager'), $word));
         }
         if (!$product->is_purchasable() || !$product->is_in_stock()) {
-            wp_send_json_error(__('This pretour cannot be purchased right now.', 'rt-event-manager'));
+            wp_send_json_error(sprintf(__('This %s cannot be purchased right now.', 'rt-event-manager'), $word));
         }
         if ($product->is_type('variable') || $product->is_type('make_to_order')) {
-            wp_send_json_error(__('Please choose this pretour\'s options on its product page.', 'rt-event-manager'));
+            wp_send_json_error(sprintf(__('Please choose this %s\'s options on its product page.', 'rt-event-manager'), $word));
         }
 
         $members = (isset($_POST['members']) && is_array($_POST['members'])) ? array_map('absint', $_POST['members']) : array();
@@ -2774,14 +2832,14 @@ class RT_Event_Manager_Account {
             wp_send_json_error(__('Please select at least one member joining the tour.', 'rt-event-manager'));
         }
 
-        // Index the user's tickets, record who already has a pretour (one per
-        // person) and which pretour products each member already holds.
+        // Index the user's tickets, record who already has a tour of this kind
+        // (one per person) and which tour products each member already holds.
         $by_id            = array();
         $has_pretour      = array();
         $pretour_products = array(); // member ticket id => [product_id, ...]
         foreach (RT_Event_Manager::get_tickets_for_user(get_current_user_id()) as $t) {
             $by_id[absint($t['id'])] = $t;
-            if ('pretour' === RT_Event_Manager::get_ticket_kind($t)) {
+            if ($kind === RT_Event_Manager::get_ticket_kind($t)) {
                 $pp = absint($t['parent_ticket_id']);
                 if ($pp) {
                     $has_pretour[$pp]        = true;
@@ -2789,8 +2847,8 @@ class RT_Event_Manager_Account {
                 }
             }
         }
-        // Also count pretours already sitting in the cart (not yet paid).
-        foreach ($this->get_cart_pretour_products() as $pp => $pids) {
+        // Also count tours of this kind already sitting in the cart (not yet paid).
+        foreach ($this->get_cart_tour_products($kind) as $pp => $pids) {
             $has_pretour[$pp] = true;
             foreach ($pids as $p) {
                 $pretour_products[$pp][] = $p;
@@ -2843,7 +2901,7 @@ class RT_Event_Manager_Account {
         }
 
         if (!$added) {
-            wp_send_json_error(__('Could not add any pretour to your cart.', 'rt-event-manager'));
+            wp_send_json_error(sprintf(__('Could not add any %s to your cart.', 'rt-event-manager'), $word));
         }
 
         wp_send_json_success(array('checkout_url' => wc_get_checkout_url()));
