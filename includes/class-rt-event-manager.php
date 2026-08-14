@@ -156,9 +156,8 @@ class RT_Event_Manager {
         // Frontend AJAX save handler for customers
         add_action('wp_ajax_rti_frontend_save_tickets', array($this, 'ajax_frontend_save_tickets'));
 
-        // WooCommerce settings for ticket edit cutoff
-        add_filter('woocommerce_get_sections_advanced', array($this, 'add_ticket_settings_section'));
-        add_filter('woocommerce_get_settings_advanced', array($this, 'get_ticket_settings_fields'), 10, 2);
+        // Settings live on the RT Event Manager → Settings admin page (see
+        // add_admin_menu / render_settings_page), not the WooCommerce settings page.
         add_action('woocommerce_admin_field_rti_datetime', array($this, 'render_datetime_field'));
         add_action('woocommerce_update_option_rti_datetime', array($this, 'save_datetime_field'));
 
@@ -3675,6 +3674,15 @@ class RT_Event_Manager {
             array($this, 'render_agenda_page')
         );
 
+        add_submenu_page(
+            'rt-event-manager',
+            __('Settings', 'rt-event-manager'),
+            __('Settings', 'rt-event-manager'),
+            'manage_woocommerce',
+            'rt-event-manager-settings',
+            array($this, 'render_settings_page')
+        );
+
         // Badge Template submenu (admin only)
         add_submenu_page(
             'rt-event-manager',
@@ -4592,28 +4600,41 @@ class RT_Event_Manager {
     // =============================================
 
     /**
-     * Add "Ticket Settings" section under WooCommerce > Settings > Advanced
-     *
-     * @param array $sections Existing sections
-     * @return array
+     * RT Event Manager → Settings admin page. Reuses WooCommerce's settings-field
+     * renderer/saver so the field definitions in get_settings_fields() work here.
      */
-    public function add_ticket_settings_section($sections) {
-        $sections['rti_tickets'] = __('Ticket Settings', 'rt-event-manager');
-        return $sections;
+    public function render_settings_page() {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
+        }
+        if (!class_exists('WC_Admin_Settings')) {
+            echo '<div class="wrap"><h1>' . esc_html__('RT Event Manager Settings', 'rt-event-manager') . '</h1><p>' . esc_html__('WooCommerce is required.', 'rt-event-manager') . '</p></div>';
+            return;
+        }
+
+        $fields = $this->get_settings_fields();
+
+        if (isset($_POST['rt_settings_save']) && check_admin_referer('rt_settings_save')) {
+            WC_Admin_Settings::save_fields($fields);
+            WC_Admin_Settings::add_message(__('Settings saved.', 'rt-event-manager'));
+        }
+
+        echo '<div class="wrap woocommerce"><h1>' . esc_html__('RT Event Manager Settings', 'rt-event-manager') . '</h1>';
+        WC_Admin_Settings::show_messages();
+        echo '<form method="post" action="">';
+        WC_Admin_Settings::output_fields($fields);
+        wp_nonce_field('rt_settings_save');
+        echo '<p class="submit"><button type="submit" name="rt_settings_save" value="1" class="button button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button></p>';
+        echo '</form></div>';
     }
 
     /**
-     * Get settings fields for the Ticket Settings section
+     * All plugin settings fields (WooCommerce settings-field format), rendered on
+     * the RT Event Manager → Settings admin page.
      *
-     * @param array  $settings Existing settings
-     * @param string $current_section Current section ID
      * @return array
      */
-    public function get_ticket_settings_fields($settings, $current_section) {
-        if ('rti_tickets' !== $current_section) {
-            return $settings;
-        }
-
+    public function get_settings_fields() {
         return array(
             array(
                 'title' => __('Ticket Edit Settings', 'rt-event-manager'),
