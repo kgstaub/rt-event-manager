@@ -194,6 +194,7 @@ class RT_Event_Manager_Visa {
             . '</table>'
             . '{guardian_note}'
             . '<p>Zeitraum des Aufenthalts: {stay_from} bis {stay_to}.</p>'
+            . '<p>Geplante Anreise: {arrival}. Geplante Abreise: {departure}.</p>'
             . '<p>Wir freuen uns auf den Besuch. Für Rückfragen stehen wir gerne zur Verfügung.</p>'
             . '<p>Ausstellungsdatum: {issue_date}</p>';
     }
@@ -285,7 +286,7 @@ class RT_Event_Manager_Visa {
         echo '</table>';
 
         echo '<h2>' . esc_html__('Letter template (German)', 'rt-event-manager') . '</h2>';
-        echo '<p class="description">' . esc_html__('Available variables:', 'rt-event-manager') . ' <code>{host_name}</code> <code>{host_address}</code> <code>{host_phone}</code> <code>{host_email}</code> <code>{host_nationality}</code> <code>{applicant_name}</code> <code>{applicant_dob}</code> <code>{applicant_nationality}</code> <code>{applicant_address}</code> <code>{applicant_phone}</code> <code>{applicant_email}</code> <code>{stay_from}</code> <code>{stay_to}</code> <code>{issue_date}</code></p>';
+        echo '<p class="description">' . esc_html__('Available variables:', 'rt-event-manager') . ' <code>{host_name}</code> <code>{host_address}</code> <code>{host_phone}</code> <code>{host_email}</code> <code>{host_nationality}</code> <code>{applicant_name}</code> <code>{applicant_dob}</code> <code>{applicant_nationality}</code> <code>{applicant_address}</code> <code>{applicant_phone}</code> <code>{applicant_email}</code> <code>{stay_from}</code> <code>{stay_to}</code> <code>{arrival}</code> <code>{departure}</code> <code>{issue_date}</code></p>';
         wp_editor($template, 'visa_template', array('textarea_name' => 'visa_template', 'media_buttons' => false, 'textarea_rows' => 16));
 
         echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html__('Save visa settings', 'rt-event-manager') . '</button></p>';
@@ -803,6 +804,10 @@ class RT_Event_Manager_Visa {
             '{applicant_email}'       => esc_html($applicant['email']),
             '{stay_from}'             => esc_html($this->fmt_date(!empty($applicant['arrival']) ? $applicant['arrival'] : self::get_option('stay_from'))),
             '{stay_to}'               => esc_html($this->fmt_date(!empty($applicant['departure']) ? $applicant['departure'] : self::get_option('stay_to'))),
+            // Planned travel dates entered on the generation form (fall back to
+            // the configured stay window when the applicant left them blank).
+            '{arrival}'               => esc_html($this->fmt_date(!empty($applicant['arrival']) ? $applicant['arrival'] : self::get_option('stay_from'))),
+            '{departure}'             => esc_html($this->fmt_date(!empty($applicant['departure']) ? $applicant['departure'] : self::get_option('stay_to'))),
             '{issue_date}'            => esc_html($this->fmt_date(current_time('Y-m-d'))),
             '{guardian_name}'         => esc_html(isset($applicant['guardian_name']) ? $applicant['guardian_name'] : ''),
         );
