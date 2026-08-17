@@ -701,13 +701,9 @@ class RT_Event_Manager {
                         'class'    => array('form-row-wide'),
                     ), '');
 
-                    woocommerce_form_field($field_prefix . '_world_id', array(
-                        'type'        => 'text',
-                        'label'       => __('.WORLD ID', 'rt-event-manager'),
-                        'required'    => false,
-                        'class'       => array('form-row-wide'),
-                        'description' => __('Optional — used to generate this attendee\'s badge QR code.', 'rt-event-manager'),
-                    ), '');
+                    // .WORLD ID is not collected on the checkout form (kept as a
+                    // hidden field so the save path still receives the key).
+                    echo '<input type="hidden" name="' . esc_attr($field_prefix . '_world_id') . '" value="" />';
                 }
 
                 if ($item['require_dietary']) {
