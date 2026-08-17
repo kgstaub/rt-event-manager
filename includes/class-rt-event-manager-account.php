@@ -1750,9 +1750,12 @@ class RT_Event_Manager_Account {
             }
 
             // Guardian (parent ticket) — only in the Future members block.
-            // Editable when guardian options are available.
+            // Editable when guardian options are available, but locked once a
+            // pretour or day tour has been assigned to this Future member (their
+            // tour must stay matched to the guardian's).
             if ($minor_block) {
-                if ($can_edit && !empty($guardian_options)) {
+                $guardian_locked = RT_Event_Manager::ticket_has_pretour($id) || RT_Event_Manager::ticket_has_daytour($id);
+                if ($can_edit && !empty($guardian_options) && !$guardian_locked) {
                     echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][parent_ticket_id]">';
                     foreach ($guardian_options as $gid => $glabel) {
                         echo '<option value="' . esc_attr($gid) . '" ' . selected($parent_id, absint($gid), false) . '>' . esc_html($glabel) . '</option>';
@@ -1769,7 +1772,8 @@ class RT_Event_Manager_Account {
                         }
                     }
                     $plabel = ($p['holder_name'] !== '') ? $p['holder_name'] : ('#' . $parent_id);
-                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html($plabel) . '</td>';
+                    $lock   = $guardian_locked ? ' <i class="fa-solid fa-lock rtacc-guardian-lock" title="' . esc_attr__('The guardian cannot be changed once a tour is booked for this Future member.', 'rt-event-manager') . '" aria-hidden="true"></i>' : '';
+                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html($plabel) . $lock . '</td>';
                 } elseif ($parent_id) {
                     echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">#' . esc_html($parent_id) . '</td>';
                 } else {
@@ -2903,10 +2907,12 @@ class RT_Event_Manager_Account {
                 $allowed['rti_family'] = sanitize_text_field($data['rti_family']);
             }
             // Guardian re-assignment (Future members): only to one of the user's
-            // own tickets.
+            // own tickets, and only while the Future member has no tour booked
+            // (their tour must stay matched to the guardian's).
             if (isset($data['parent_ticket_id'])) {
-                $new_parent = absint($data['parent_ticket_id']);
-                if ($new_parent && isset($owned[$new_parent])) {
+                $new_parent   = absint($data['parent_ticket_id']);
+                $tour_locked  = RT_Event_Manager::ticket_has_pretour($ticket_id) || RT_Event_Manager::ticket_has_daytour($ticket_id);
+                if ($new_parent && isset($owned[$new_parent]) && !$tour_locked) {
                     $allowed['parent_ticket_id'] = $new_parent;
                 }
             }
