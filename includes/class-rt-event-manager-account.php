@@ -1200,7 +1200,7 @@ class RT_Event_Manager_Account {
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Transfer this ticket', 'rt-event-manager') . '</h3>';
         echo '<input type="hidden" name="ticket_id" value="" />';
         echo '<p class="rtacc-modal-target rtacc-muted"></p>';
-        echo '<p class="rtacc-transfer-intro">' . esc_html__('Create a transfer link and share it with the new holder. The ticket and any pretour linked to it move to them as a package. This is not a refund — they will see the original price paid, and any repayment is arranged between the two of you.', 'rt-event-manager') . '</p>';
+        echo '<p class="rtacc-transfer-intro">' . esc_html__('Create a transfer link and share it with the new holder. The ticket and any pretour or day tour linked to it move to them as a package. This is not a refund — they will see the original price paid, and any repayment is arranged between the two of you.', 'rt-event-manager') . '</p>';
         echo '<p class="rtacc-transfer-final uk-text-danger"><strong>' . esc_html__('All transfers are final. Once a transfer is accepted, the convening team cannot undo it.', 'rt-event-manager') . '</strong></p>';
         echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
 
@@ -1274,18 +1274,22 @@ class RT_Event_Manager_Account {
             $ticket = null;
         }
         $kind = $ticket ? RT_Event_Manager::get_ticket_kind($ticket) : '';
-        if (!$ticket || !in_array($kind, array('event', 'pretour'), true) || 'cancelled' === $ticket['status']) {
+        if (!$ticket || !in_array($kind, array('event', 'pretour', 'daytour'), true) || 'cancelled' === $ticket['status']) {
             echo '<div class="rtacc-notice uk-alert-danger" uk-alert><p>' . esc_html__('This transfer link is no longer valid. It may have already been accepted, declined, withdrawn, or expired.', 'rt-event-manager') . '</p></div>';
             echo '<p><a class="uk-button uk-button-default" href="' . esc_url(wc_get_page_permalink('myaccount')) . '">' . esc_html__('Go to my account', 'rt-event-manager') . '</a></p>';
             echo '</div></div>';
             return;
         }
 
-        // The package: an event ticket carries its linked pretours; a pretour
-        // transfers on its own.
+        // The package: an event ticket carries its linked pretours and day tours;
+        // a pretour or day tour transfers on its own.
         $items = array($ticket);
         if ('event' === $kind) {
-            $items = array_merge($items, RT_Event_Manager::get_child_pretours(absint($ticket['id'])));
+            $items = array_merge(
+                $items,
+                RT_Event_Manager::get_child_pretours(absint($ticket['id'])),
+                RT_Event_Manager::get_child_daytours(absint($ticket['id']))
+            );
         }
         $currency = RT_Event_Manager::get_ticket_currency($ticket);
         $original = 0;
@@ -1700,7 +1704,7 @@ class RT_Event_Manager_Account {
         $can_transfer         = RT_Event_Manager::instance()->is_frontend_editing_allowed();
 
         $out = '<div class="rtacc-row-actions">';
-        if (in_array($kind, array('event', 'pretour'), true)) {
+        if (in_array($kind, array('event', 'pretour', 'daytour'), true)) {
             if ($has_pending_transfer) {
                 // Withdrawing a pending offer stays available even after the deadline.
                 $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" title="' . esc_attr($withdraw_label) . '" aria-label="' . esc_attr($withdraw_label) . '">' . $icon_withdraw . '</button>';
@@ -2212,8 +2216,8 @@ class RT_Event_Manager_Account {
         if (!$t || !$this->user_owns_ticket($t, $user_id)) {
             wp_send_json_error(__('Ticket not found.', 'rt-event-manager'));
         }
-        if (!in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'pretour'), true)) {
-            wp_send_json_error(__('Only event and pretour tickets can be transferred. Future member tickets must be cancelled instead.', 'rt-event-manager'));
+        if (!in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'pretour', 'daytour'), true)) {
+            wp_send_json_error(__('Only event, pretour and day tour tickets can be transferred. Future member tickets must be cancelled instead.', 'rt-event-manager'));
         }
         if (!RT_Event_Manager::instance()->is_frontend_editing_allowed()) {
             wp_send_json_error(__('The deadline has passed — tickets can no longer be transferred.', 'rt-event-manager'));
@@ -2274,9 +2278,13 @@ class RT_Event_Manager_Account {
             'transfer_token' => '',
             'transfer_email' => '',
         ));
-        // A pretour cannot outlive its host — cascade the cancellation.
+        // A pretour or day tour cannot outlive its host — cascade the cancellation.
         if (in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true)) {
-            foreach (RT_Event_Manager::get_child_pretours($ticket_id) as $child) {
+            $children = array_merge(
+                RT_Event_Manager::get_child_pretours($ticket_id),
+                RT_Event_Manager::get_child_daytours($ticket_id)
+            );
+            foreach ($children as $child) {
                 $mgr->update_ticket(absint($child['id']), array(
                     'status'        => 'cancelled',
                     'refund_status' => $refund_status,
@@ -2304,19 +2312,34 @@ class RT_Event_Manager_Account {
      * @return int Host ticket id, or 0 if none available.
      */
     private function pretour_eligible_host($user_id, $pretour) {
-        $product    = absint($pretour['product_id']);
+        return $this->tour_eligible_host($user_id, $pretour, 'pretour');
+    }
+
+    /**
+     * Find a host ticket a transferred tour (pretour or day tour) can attach to
+     * for a user: a valid event/companion ticket without a tour of that kind, or
+     * a Future member ticket without one whose guardian is already on the same
+     * tour. Prefers an event host.
+     *
+     * @param int    $user_id
+     * @param array  $tour
+     * @param string $kind 'pretour' | 'daytour'
+     * @return int Host ticket id, or 0 if none available.
+     */
+    private function tour_eligible_host($user_id, $tour, $kind = 'pretour') {
+        $product    = absint($tour['product_id']);
         $event_host = 0;
         $minor_host = 0;
         foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $t) {
-            $kind = RT_Event_Manager::get_ticket_kind($t);
-            $tid  = absint($t['id']);
-            if (!in_array($kind, array('event', 'minor'), true)) {
+            $host_kind = RT_Event_Manager::get_ticket_kind($t);
+            $tid       = absint($t['id']);
+            if (!in_array($host_kind, array('event', 'minor'), true)) {
                 continue;
             }
-            if (RT_Event_Manager::ticket_has_pretour($tid)) {
-                continue; // already has a pretour (one per host)
+            if (RT_Event_Manager::ticket_has_tour($tid, $kind)) {
+                continue; // already has a tour of this kind (one per host)
             }
-            if ('event' === $kind) {
+            if ('event' === $host_kind) {
                 if (!$event_host) {
                     $event_host = $tid;
                 }
@@ -2327,7 +2350,7 @@ class RT_Event_Manager_Account {
             if (!$guardian || $minor_host) {
                 continue;
             }
-            foreach (RT_Event_Manager::get_child_pretours($guardian) as $gp) {
+            foreach (RT_Event_Manager::get_child_tours($guardian, $kind) as $gp) {
                 if (absint($gp['product_id']) === $product) {
                     $minor_host = $tid;
                     break;
@@ -2383,13 +2406,17 @@ class RT_Event_Manager_Account {
             $from_owner = absint($order->get_customer_id());
         }
 
-        // A pretour is re-attached to one of the recipient's own host tickets: a
-        // valid event/companion or Future member ticket that has no pretour yet.
-        // (A minor host is only eligible when its guardian is on the same tour.)
-        if ('pretour' === $kind) {
-            $host_id = $this->pretour_eligible_host($user_id, $event);
+        // A pretour or day tour is re-attached to one of the recipient's own host
+        // tickets: a valid event/companion or Future member ticket that has no tour
+        // of that kind yet. (A minor host is only eligible when its guardian is on
+        // the same tour.)
+        if (in_array($kind, array('pretour', 'daytour'), true)) {
+            $host_id = $this->tour_eligible_host($user_id, $event, $kind);
             if (!$host_id) {
-                wp_send_json_error(__('To accept this pretour you need a valid event ticket (or a companion / Future member ticket) that does not already have a pretour.', 'rt-event-manager'));
+                $msg = ('daytour' === $kind)
+                    ? __('To accept this day tour you need a valid event ticket (or a companion / Future member ticket) that does not already have a day tour.', 'rt-event-manager')
+                    : __('To accept this pretour you need a valid event ticket (or a companion / Future member ticket) that does not already have a pretour.', 'rt-event-manager');
+                wp_send_json_error($msg);
             }
             $host   = RT_Event_Manager::get_ticket_by_id($host_id);
             $holder = ($host && $host['holder_name'] !== '') ? $host['holder_name'] : $new_name;
@@ -2404,7 +2431,7 @@ class RT_Event_Manager_Account {
                 'transferred_at'           => current_time('mysql'),
             ));
             wp_send_json_success(array(
-                'redirect' => add_query_arg('tab', 'pretour', wc_get_page_permalink('myaccount')),
+                'redirect' => add_query_arg('tab', ('daytour' === $kind) ? 'daytour' : 'pretour', wc_get_page_permalink('myaccount')),
             ));
         }
 
@@ -2426,8 +2453,12 @@ class RT_Event_Manager_Account {
             'transferred_at'  => current_time('mysql'),
         ));
 
-        // The pretour package follows the same person.
-        foreach (RT_Event_Manager::get_child_pretours(absint($event['id'])) as $child) {
+        // The pretour and day-tour package follows the same person.
+        $child_tours = array_merge(
+            RT_Event_Manager::get_child_pretours(absint($event['id'])),
+            RT_Event_Manager::get_child_daytours(absint($event['id']))
+        );
+        foreach ($child_tours as $child) {
             $mgr->update_ticket(absint($child['id']), array(
                 'owner_user_id' => $user_id,
                 'holder_name'   => $new_name,
