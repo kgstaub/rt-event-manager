@@ -122,8 +122,8 @@
                 // Replace the form body with a result + download button. No reload.
                 $form.children().hide();
                 var $res = $form.find('.rtacc-visa-result');
-                $res.removeClass('uk-alert-danger uk-alert-warning uk-alert-success')
-                    .addClass(response.data.eu_efta ? 'uk-alert-warning' : 'uk-alert-success')
+                $res.removeClass('uk-alert-danger uk-alert-warning uk-alert-success rtacc-alert-secondary')
+                    .addClass(response.data.eu_efta ? 'rtacc-alert-secondary' : 'uk-alert-success')
                     .empty()
                     .append($('<p></p>').text(response.data.message));
                 if (response.data.download_url) {
