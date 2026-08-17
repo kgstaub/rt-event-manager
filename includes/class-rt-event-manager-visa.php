@@ -893,7 +893,7 @@ class RT_Event_Manager_Visa {
                 . $title_html . '</div>';
         }
         $signature_block = ('' !== $cells[0] || '' !== $cells[1])
-            ? '<table style="width:100%;margin-top:0;page-break-inside:avoid;"><tr>'
+            ? '<table class="rti-sign" style="width:100%;margin-top:0;page-break-inside:avoid;"><tr>'
                 . '<td style="width:50%;padding:0;">' . $cells[0] . '</td>'
                 . '<td style="width:50%;padding:0;">' . $cells[1] . '</td>'
                 . '</tr></table>'
@@ -935,7 +935,13 @@ class RT_Event_Manager_Visa {
             table.details { width: 100%; border-collapse: collapse; margin: 3px 0 8px; }
             table.details td { padding: 2px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
             table.details td.lbl { width: 150px; color: #555; white-space: nowrap; }
-            table.details td + td { padding-left: 40px; }
+            /* Space the value column away from the label column in any label/value
+               table the letter template uses (not just the default .details one).
+               The signature table opts out via the rti-sign class. */
+            .rti-visa-body table td + td,
+            .rti-visa-body table th + td,
+            .rti-visa-body table td + th { padding-left: 40px; }
+            .rti-visa-body table.rti-sign td + td { padding-left: 0; }
         </style></head><body>
             <?php echo $bg_html; // phpcs:ignore — trusted local attachment path ?>
             <div class="rti-visa-body">
