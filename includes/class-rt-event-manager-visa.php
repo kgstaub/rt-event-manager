@@ -931,7 +931,7 @@ class RT_Event_Manager_Visa {
             h4 { margin: 10px 0 3px; font-size: 13px; }
             table td, table th { vertical-align: top; }
             pre { display: inline; margin: 0; padding: 0; font-family: 'Source Code Pro', monospace; font-size: inherit; }
-            p { margin: 0 0 7px; }
+            p { margin: 0 0 7px; page-break-inside: avoid; }
             table.details { width: 100%; border-collapse: collapse; margin: 3px 0 8px; }
             table.details td { padding: 2px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
             table.details td.lbl { width: 170px; color: #555; padding-right: 20px; }
