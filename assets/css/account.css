@@ -643,6 +643,7 @@
     box-sizing: border-box;
     overflow: hidden;
     font-size: 10px;
+    font-weight: 600;
     line-height: 1.15;
     padding: 2px 4px;
     border-radius: 3px;
