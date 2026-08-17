@@ -914,10 +914,11 @@ class RT_Event_Manager_Visa {
             .rti-visa-body { position: relative; z-index: 1; }
             h4 { margin: 16px 0 4px; font-size: 13px; }
             table td, table th { vertical-align: top; }
+            pre { display: inline; margin: 0; padding: 0; font-family: inherit; font-size: inherit; }
             p { margin: 0 0 10px; }
             table.details { width: 100%; border-collapse: collapse; margin: 4px 0 12px; }
             table.details td { padding: 3px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
-            table.details td.lbl { width: 170px; color: #555; }
+            table.details td.lbl { width: 170px; color: #555; padding-right: 20px; }
         </style></head><body>
             <?php echo $bg_html; // phpcs:ignore — trusted local attachment path ?>
             <div class="rti-visa-body">
