@@ -492,34 +492,41 @@ class RT_Event_Manager_Account {
         if (empty($tickets)) {
             echo '<p>' . esc_html__('You do not have any event tickets yet.', 'rt-event-manager') . '</p>';
         } else {
+            // Group the rows by the person holding the ticket.
+            $groups = array();
+            foreach ($tickets as $t) {
+                $holder = $t['holder_name'] !== '' ? $t['holder_name'] : __('Unassigned', 'rt-event-manager');
+                $groups[$holder][] = $t;
+            }
+
             echo '<table class="rtacc-table rtacc-tickets rtacc-dashboard-table uk-table uk-table-divider uk-table-middle uk-table-small">';
             echo '<thead><tr>';
-            echo '<th>' . esc_html__('Holder', 'rt-event-manager') . '</th>';
             echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
             echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
             echo '<th>' . esc_html__('Event date', 'rt-event-manager') . '</th>';
             echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
             echo '</tr></thead><tbody>';
-            foreach ($tickets as $t) {
-                $status     = isset($t['status']) ? $t['status'] : 'draft';
-                $product    = wc_get_product($t['product_id']);
-                $what       = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
-                $holder     = $t['holder_name'] !== '' ? $t['holder_name'] : __('Unassigned', 'rt-event-manager');
-                $type_label = RT_Event_Manager::ticket_kind_label($t);
-                $event_date = $this->ticket_event_date($t['product_id']);
-                echo '<tr>';
-                echo '<td data-title="' . esc_attr__('Holder', 'rt-event-manager') . '">' . esc_html($holder) . '</td>';
-                echo '<td data-title="' . esc_attr__('Ticket', 'rt-event-manager') . '">' . esc_html($what) . '</td>';
-                echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--type">' . esc_html($type_label) . '</span></td>';
-                echo '<td data-title="' . esc_attr__('Event date', 'rt-event-manager') . '">';
-                if ('' !== $event_date) {
-                    echo '<span class="rtacc-badge rtacc-badge--date"><i class="fa-regular fa-calendar" aria-hidden="true"></i> ' . esc_html($event_date) . '</span>';
-                } else {
-                    echo '—';
+            foreach ($groups as $holder => $rows) {
+                echo '<tr class="rtacc-group-row"><th colspan="4">' . esc_html($holder) . '</th></tr>';
+                foreach ($rows as $t) {
+                    $status     = isset($t['status']) ? $t['status'] : 'draft';
+                    $product    = wc_get_product($t['product_id']);
+                    $what       = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
+                    $type_label = RT_Event_Manager::ticket_kind_label($t);
+                    $event_date = $this->ticket_event_date($t['product_id']);
+                    echo '<tr>';
+                    echo '<td data-title="' . esc_attr__('Ticket', 'rt-event-manager') . '">' . esc_html($what) . '</td>';
+                    echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--type">' . esc_html($type_label) . '</span></td>';
+                    echo '<td data-title="' . esc_attr__('Event date', 'rt-event-manager') . '">';
+                    if ('' !== $event_date) {
+                        echo '<span class="rtacc-badge rtacc-badge--date"><i class="fa-regular fa-calendar" aria-hidden="true"></i> ' . esc_html($event_date) . '</span>';
+                    } else {
+                        echo '—';
+                    }
+                    echo '</td>';
+                    echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
+                    echo '</tr>';
                 }
-                echo '</td>';
-                echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
-                echo '</tr>';
             }
             echo '</tbody></table>';
         }
