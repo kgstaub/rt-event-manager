@@ -66,6 +66,37 @@ class RT_Event_Manager_Account {
         // Automatically withdraw pending transfers older than the expiry window.
         add_action('init', array($this, 'maybe_schedule_transfer_expiry'));
         add_action('rt_event_manager_expire_transfers', array($this, 'cron_expire_transfers'));
+
+        // Land ticket buyers on their account dashboard after checkout instead of
+        // the WooCommerce order-received summary.
+        add_filter('woocommerce_get_return_url', array($this, 'checkout_return_url'), 10, 2);
+    }
+
+    /**
+     * Send the buyer to the account dashboard after a successful checkout when
+     * the order contains event tickets; other orders keep the default
+     * order-received page.
+     *
+     * @param string        $url
+     * @param WC_Order|null $order
+     * @return string
+     */
+    public function checkout_return_url($url, $order) {
+        if ($order instanceof WC_Order && $this->order_has_ticket($order)) {
+            return add_query_arg('tab', 'dashboard', wc_get_page_permalink('myaccount'));
+        }
+        return $url;
+    }
+
+    /** Whether an order contains at least one ticket product. */
+    private function order_has_ticket($order) {
+        foreach ($order->get_items() as $item) {
+            $pid = $item->get_product_id();
+            if ($pid && RT_Event_Manager::is_ticket_product($pid)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Ensure the hourly transfer-expiry sweep is scheduled. */
