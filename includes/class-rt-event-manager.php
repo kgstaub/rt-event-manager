@@ -1050,15 +1050,16 @@ class RT_Event_Manager {
             }
         }
 
-        // A Future member's tour must match one their guardian is also joining
-        // (checked per kind, with a clear pretour / day tour label).
+        // A Future member's tour must match one their CHOSEN guardian is also on.
+        // The guardian is taken from that minor's guardian picker — either another
+        // attendee in this cart or an event ticket already on the account.
         foreach ($assign as $tk => $hostmap) {
-            $tour_word         = ('daytour' === $tk) ? __('day tour', 'rt-event-manager') : __('pretour', 'rt-event-manager');
-            $guardian_products = ($guardian_index >= 0 && isset($hostmap[$guardian_index])) ? $hostmap[$guardian_index] : array();
+            $tour_word = ('daytour' === $tk) ? __('day tour', 'rt-event-manager') : __('pretour', 'rt-event-manager');
             foreach ($hostmap as $host => $products) {
                 if ('minor' !== $kind[$host]) {
                     continue;
                 }
+                $guardian_products = $this->guardian_tour_products($host, $tk, $assign);
                 foreach ($products as $p) {
                     if (!in_array($p, $guardian_products, true)) {
                         wc_add_notice(sprintf(
@@ -1072,6 +1073,38 @@ class RT_Event_Manager {
                 }
             }
         }
+    }
+
+    /**
+     * The tour products (of a kind) the chosen guardian of a Future member is on.
+     * The guardian comes from that minor's guardian picker: a cart attendee slot
+     * (its tours assigned in this same cart) or an account event ticket (its tours
+     * already stored in the database).
+     *
+     * @param int    $minor_slot Checkout ticket index of the Future member.
+     * @param string $kind       'pretour' | 'daytour'
+     * @param array  $assign     kind => host slot => product ids assigned this cart.
+     * @return int[] Guardian's tour product ids.
+     */
+    private function guardian_tour_products($minor_slot, $kind, $assign) {
+        $raw = isset($_POST['rti_ticket_' . $minor_slot . '_guardian'])
+            ? sanitize_text_field(wp_unslash($_POST['rti_ticket_' . $minor_slot . '_guardian']))
+            : '';
+        if (is_numeric($raw)) {
+            $g = absint($raw);
+            return isset($assign[$kind][$g]) ? $assign[$kind][$g] : array();
+        }
+        if (0 === strpos($raw, 'acct:')) {
+            $gid = absint(substr($raw, 5));
+            $out = array();
+            if ($gid) {
+                foreach (self::get_child_tours($gid, $kind) as $ch) {
+                    $out[] = absint($ch['product_id']);
+                }
+            }
+            return $out;
+        }
+        return array();
     }
 
     /**
