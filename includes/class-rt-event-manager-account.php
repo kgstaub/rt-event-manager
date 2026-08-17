@@ -1698,9 +1698,9 @@ class RT_Event_Manager_Account {
     }
 
     /**
-     * Per-row Transfer / Cancel action buttons. Transfer is offered only for
-     * adult event tickets (they move as a package with their pretours); every
-     * live ticket can be cancelled. Cancelled/checked-in rows show no actions.
+     * Per-row Transfer / Cancel action buttons. Both are offered only for
+     * confirmed tickets; a pending transfer can still be withdrawn. Draft,
+     * invalid and terminal (cancelled/refunded/checked-in) rows show no actions.
      *
      * @param array $t Ticket row.
      * @return string HTML.
@@ -1733,17 +1733,21 @@ class RT_Event_Manager_Account {
 
         $has_pending_transfer = !empty($t['transfer_token']);
         $can_transfer         = RT_Event_Manager::instance()->is_frontend_editing_allowed();
+        // Transfer and cancellation are offered only for confirmed tickets.
+        $is_confirmed         = ('valid' === $status);
 
         $out = '<div class="rtacc-row-actions">';
         if (in_array($kind, array('event', 'pretour', 'daytour'), true)) {
             if ($has_pending_transfer) {
                 // Withdrawing a pending offer stays available even after the deadline.
                 $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" title="' . esc_attr($withdraw_label) . '" aria-label="' . esc_attr($withdraw_label) . '">' . $icon_withdraw . '</button>';
-            } elseif ($can_transfer) {
+            } elseif ($is_confirmed && $can_transfer) {
                 $out .= '<button type="button" class="rtacc-icon-btn rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" title="' . esc_attr($transfer_label) . '" aria-label="' . esc_attr($transfer_label) . '">' . $icon_transfer . '</button>';
             }
         }
-        $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" title="' . esc_attr($cancel_label) . '" aria-label="' . esc_attr($cancel_label) . '">' . $icon_cancel . '</button>';
+        if ($is_confirmed) {
+            $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" title="' . esc_attr($cancel_label) . '" aria-label="' . esc_attr($cancel_label) . '">' . $icon_cancel . '</button>';
+        }
         $out .= '</div>';
 
         return $out;
@@ -2279,8 +2283,8 @@ class RT_Event_Manager_Account {
         if (!RT_Event_Manager::instance()->is_frontend_editing_allowed()) {
             wp_send_json_error(__('The deadline has passed — tickets can no longer be transferred.', 'rt-event-manager'));
         }
-        if (in_array($t['status'], array('cancelled', 'checked_in'), true)) {
-            wp_send_json_error(__('This ticket can no longer be transferred.', 'rt-event-manager'));
+        if ('valid' !== $t['status']) {
+            wp_send_json_error(__('Only confirmed tickets can be transferred.', 'rt-event-manager'));
         }
         if (!empty($t['transfer_token'])) {
             wp_send_json_error(__('A transfer is already pending for this ticket. Please wait for it to be accepted or declined, or ask an organiser to withdraw it, before starting another.', 'rt-event-manager'));
@@ -2317,8 +2321,8 @@ class RT_Event_Manager_Account {
         if (!$t || !$this->user_owns_ticket($t, $user_id)) {
             wp_send_json_error(__('Ticket not found.', 'rt-event-manager'));
         }
-        if (in_array($t['status'], array('cancelled', 'checked_in'), true)) {
-            wp_send_json_error(__('This ticket cannot be cancelled.', 'rt-event-manager'));
+        if ('valid' !== $t['status']) {
+            wp_send_json_error(__('Only confirmed tickets can be cancelled.', 'rt-event-manager'));
         }
 
         $mgr         = RT_Event_Manager::instance();
