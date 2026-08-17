@@ -884,7 +884,7 @@ class RT_Event_Manager_Visa {
             if ($img) {
                 $path = get_attached_file($img);
                 if ($path && file_exists($path)) {
-                    $img_html = '<img src="' . esc_attr($path) . '" style="max-height:60px;" /><br>';
+                    $img_html = '<img src="' . esc_attr($path) . '" style="max-height:90px;" /><br>';
                 }
             }
             $title_html = ('' !== $title) ? '<span style="display:block;color:#555;font-size:11px;">' . esc_html($title) . '</span>' : '';
@@ -893,7 +893,7 @@ class RT_Event_Manager_Visa {
                 . $title_html . '</div>';
         }
         $signature_block = ('' !== $cells[0] || '' !== $cells[1])
-            ? '<table style="width:100%;margin-top:12px;"><tr>'
+            ? '<table style="width:100%;margin-top:0;"><tr>'
                 . '<td style="width:50%;padding:0;">' . $cells[0] . '</td>'
                 . '<td style="width:50%;padding:0;">' . $cells[1] . '</td>'
                 . '</tr></table>'
