@@ -848,6 +848,9 @@ class RT_Event_Manager_Visa {
         if ('' === $template) {
             $template = self::default_template();
         }
+        // Honour line breaks typed in the editor: turn blank lines into
+        // paragraphs and single newlines into <br> (idempotent on existing HTML).
+        $template = wpautop($template);
         $body = strtr($template, $vars);
 
         $sigs = '';
