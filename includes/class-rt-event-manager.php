@@ -993,8 +993,7 @@ class RT_Event_Manager {
         // Collect picker selections per tour kind: kind => host index => products.
         // Pretours and day tours are tracked separately (a host may have one of
         // each).
-        $assign      = array();
-        $host_counts = array();
+        $assign = array();
         for ($i = 0; $i < $ticket_count; $i++) {
             $tk = isset($kind[$i]) ? $kind[$i] : '';
             if (!in_array($tk, array('pretour', 'daytour'), true) || !isset($_POST['rti_ticket_' . $i . '_link'])) {
@@ -1015,16 +1014,36 @@ class RT_Event_Manager {
                 ), 'error');
                 continue;
             }
-            $host_counts[$tk][$host] = isset($host_counts[$tk][$host]) ? $host_counts[$tk][$host] + 1 : 1;
-            $assign[$tk][$host][]    = isset($product_map[$i]) ? absint($product_map[$i]) : 0;
+            $assign[$tk][$host][] = isset($product_map[$i]) ? absint($product_map[$i]) : 0;
         }
 
-        // One tour of each kind per attendee — no host chosen twice for one kind.
-        foreach ($host_counts as $tk => $hosts) {
-            foreach ($hosts as $host => $count) {
-                if ($count > 1) {
+        // Pretours: one per attendee. Day tours: several are allowed per attendee
+        // as long as their times do not overlap.
+        foreach ($assign as $tk => $hosts) {
+            foreach ($hosts as $host => $products) {
+                if ('pretour' === $tk) {
+                    if (count($products) > 1) {
+                        wc_add_notice(sprintf(
+                            __('%s can join only one pretour. Please assign the other pretour to a different attendee.', 'rt-event-manager'),
+                            $this->attendee_label_from_post($host)
+                        ), 'error');
+                    }
+                    continue;
+                }
+                // Day tours — flag only genuinely overlapping selections.
+                $count = count($products);
+                $clash = false;
+                for ($a = 0; $a < $count && !$clash; $a++) {
+                    for ($b = $a + 1; $b < $count; $b++) {
+                        if (self::daytours_conflict($products[$a], $products[$b])) {
+                            $clash = true;
+                            break;
+                        }
+                    }
+                }
+                if ($clash) {
                     wc_add_notice(sprintf(
-                        __('%s can join only one tour of the same kind. Please assign the other to a different attendee.', 'rt-event-manager'),
+                        __('%s has overlapping day tours. Day tours for the same person must not overlap in time — choose day tours at different times, or assign one to a different attendee.', 'rt-event-manager'),
                         $this->attendee_label_from_post($host)
                     ), 'error');
                 }
@@ -1032,8 +1051,9 @@ class RT_Event_Manager {
         }
 
         // A Future member's tour must match one their guardian is also joining
-        // (checked per kind).
+        // (checked per kind, with a clear pretour / day tour label).
         foreach ($assign as $tk => $hostmap) {
+            $tour_word         = ('daytour' === $tk) ? __('day tour', 'rt-event-manager') : __('pretour', 'rt-event-manager');
             $guardian_products = ($guardian_index >= 0 && isset($hostmap[$guardian_index])) ? $hostmap[$guardian_index] : array();
             foreach ($hostmap as $host => $products) {
                 if ('minor' !== $kind[$host]) {
@@ -1042,8 +1062,10 @@ class RT_Event_Manager {
                 foreach ($products as $p) {
                     if (!in_array($p, $guardian_products, true)) {
                         wc_add_notice(sprintf(
-                            __('%s can only join the same tour as their guardian. Please also add that tour for their guardian.', 'rt-event-manager'),
-                            $this->attendee_label_from_post($host)
+                            /* translators: 1: attendee name, 2: pretour / day tour */
+                            __('%1$s can only join the same %2$s as their guardian. Please also add that %2$s for their guardian.', 'rt-event-manager'),
+                            $this->attendee_label_from_post($host),
+                            $tour_word
                         ), 'error');
                         break;
                     }
