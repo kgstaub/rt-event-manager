@@ -340,7 +340,8 @@ class RT_Event_Manager_Account {
             $buttons .= $this->cart_add_link($pretours[0], __('Add a pretour', 'rt-event-manager'));
         }
 
-        // Purchasable day tour products (there can be several to choose from).
+        // Purchasable day tour products (there can be several to choose from),
+        // ordered by their start time.
         $daytours = array();
         foreach ($this->get_tour_product_ids('daytour') as $pid) {
             $p = wc_get_product($pid);
@@ -348,6 +349,7 @@ class RT_Event_Manager_Account {
                 $daytours[] = $p;
             }
         }
+        $daytours = $this->sort_products_by_start($daytours);
         if (count($daytours) > 1) {
             $buttons .= '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cart-daytour">' . esc_html__('Add a day tour', 'rt-event-manager') . '</button>';
             $options = '';
@@ -364,8 +366,10 @@ class RT_Event_Manager_Account {
             $buttons .= $this->cart_add_link($daytours[0], __('Add a day tour', 'rt-event-manager'));
         }
 
+        $has_future = false;
         if ($future && $future->is_purchasable() && $future->is_in_stock()) {
-            $buttons .= $this->cart_add_link($future, __('Add a Future member', 'rt-event-manager'));
+            $buttons .= $this->cart_add_link($future, __('Add a Future Circler / Future Tabler *', 'rt-event-manager'));
+            $has_future = true;
         }
 
         if ($buttons === '') {
@@ -376,6 +380,14 @@ class RT_Event_Manager_Account {
         echo '<h3 class="rtacc-cart-add-title">' . esc_html__('Add more to your registration', 'rt-event-manager') . '</h3>';
         echo '<p class="rtacc-cart-add-hint">' . esc_html__('Attendee details are collected at checkout.', 'rt-event-manager') . '</p>';
         echo '<div class="rtacc-cart-add-buttons">' . $buttons . '</div>';
+        if ($has_future) {
+            echo '<p class="rtacc-future-note uk-text-meta">' . esc_html(sprintf(
+                /* translators: 1: minimum age, 2: maximum age */
+                __('* Discounted event tickets for children between %1$d and %2$d.', 'rt-event-manager'),
+                RT_Event_Manager::get_minor_min_age(),
+                RT_Event_Manager::get_minor_max_age()
+            )) . '</p>';
+        }
         echo '</div>';
         echo $modals;
     }
@@ -2092,6 +2104,28 @@ class RT_Event_Manager_Account {
                 $products[] = $p;
             }
         }
+        return $this->sort_products_by_start($products);
+    }
+
+    /**
+     * Sort a list of tour products by their start time (earliest first);
+     * products without a start time sort last, then by name.
+     *
+     * @param WC_Product[] $products
+     * @return WC_Product[]
+     */
+    private function sort_products_by_start($products) {
+        usort($products, function ($a, $b) {
+            list($as) = RT_Event_Manager::tour_product_range($a->get_id());
+            list($bs) = RT_Event_Manager::tour_product_range($b->get_id());
+            // Unset start times (0) sort after real ones.
+            $ak = $as ? $as : PHP_INT_MAX;
+            $bk = $bs ? $bs : PHP_INT_MAX;
+            if ($ak !== $bk) {
+                return $ak <=> $bk;
+            }
+            return strcasecmp($a->get_name(), $b->get_name());
+        });
         return $products;
     }
 
