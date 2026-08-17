@@ -1177,7 +1177,6 @@ class RT_Event_Manager_Account {
         $cats = array(
             'pretour' => __('Pretours', 'rt-event-manager'),
             'daytour' => __('Day tours', 'rt-event-manager'),
-            'event'   => __('Event tickets', 'rt-event-manager'),
             'agenda'  => __('Official agenda', 'rt-event-manager'),
         );
 
@@ -1195,7 +1194,12 @@ class RT_Event_Manager_Account {
             }
             $holder = ($t['holder_name'] !== '') ? $t['holder_name'] : '';
             if ('' !== $holder) {
-                $holders[$holder] = true;
+                $holders[$holder] = true; // collected from every ticket for the filter
+            }
+            // Event tickets are not charted individually — the official agenda
+            // represents the event schedule for everyone who holds one.
+            if ('event' === RT_Event_Manager::get_calendar_category($pid)) {
+                continue;
             }
             if (isset($by_product[$pid])) {
                 if ('' !== $holder) {
@@ -1271,24 +1275,41 @@ class RT_Event_Manager_Account {
             $day_end = strtotime('+7 days', $day_end);
         }
 
-        // Hour window shown on the grid, derived from the item times (clamped to
-        // whole hours, with sane fallbacks).
+        // Multi-day items (e.g. the event ticket) are shown as all-day banners so
+        // they do not squeeze the hour grid; single-day items are placed on the
+        // hour grid by their times.
+        $timed  = array();
+        $allday = array();
+        foreach ($items as $i) {
+            if (date('Y-m-d', $i['start']) !== date('Y-m-d', $i['end'])) {
+                $allday[] = $i;
+            } else {
+                $timed[] = $i;
+            }
+        }
+
+        // Hour window derived from the timed items (fallback 08:00–18:00).
         $min_min = 24 * 60;
         $max_min = 0;
-        foreach ($items as $i) {
+        foreach ($timed as $i) {
             $sm = (int) date('G', $i['start']) * 60 + (int) date('i', $i['start']);
             $em = (int) date('G', $i['end']) * 60 + (int) date('i', $i['end']);
-            if (0 === $em && date('Y-m-d', $i['end']) !== date('Y-m-d', $i['start'])) {
-                $em = 24 * 60; // midnight end of a multi-day item
+            if (0 === $em) {
+                $em = 24 * 60;
             }
             $min_min = min($min_min, $sm);
             $max_min = max($max_min, $em);
         }
-        $hour_start = max(0, (int) floor($min_min / 60));
-        $hour_end   = min(24, (int) ceil($max_min / 60));
-        if ($hour_end <= $hour_start) {
+        if (empty($timed)) {
             $hour_start = 8;
-            $hour_end   = 20;
+            $hour_end   = 18;
+        } else {
+            $hour_start = max(0, (int) floor($min_min / 60));
+            $hour_end   = min(24, (int) ceil($max_min / 60));
+            if ($hour_end <= $hour_start) {
+                $hour_start = 8;
+                $hour_end   = 18;
+            }
         }
         $hh     = 44; // pixel height of one hour row
         $body_h = ($hour_end - $hour_start) * $hh;
@@ -1335,6 +1356,54 @@ class RT_Event_Manager_Account {
             }
             echo '</div>';
 
+            // All-day banner strip: multi-day items spanning this week.
+            $week_start_ts = strtotime(date('Y-m-d', $day) . ' 00:00');
+            $week_end_ts   = strtotime(date('Y-m-d', strtotime('+7 days', $day)) . ' 00:00');
+            $bars = array();
+            foreach ($allday as $i) {
+                if ($i['start'] < $week_end_ts && $i['end'] > $week_start_ts) {
+                    $sc = (int) floor((strtotime(date('Y-m-d', $i['start']) . ' 00:00') - $week_start_ts) / DAY_IN_SECONDS);
+                    $ec = (int) floor((strtotime(date('Y-m-d', $i['end']) . ' 00:00') - $week_start_ts) / DAY_IN_SECONDS);
+                    $bars[] = array('i' => $i, 'sc' => max(0, $sc), 'ec' => min(6, $ec));
+                }
+            }
+            if (!empty($bars)) {
+                usort($bars, function ($a, $b) {
+                    return $a['sc'] <=> $b['sc'];
+                });
+                // Stack bars into rows so they never overlap horizontally.
+                $rows = array(); // row index => last end column
+                foreach ($bars as $bi => $bar) {
+                    $row = -1;
+                    foreach ($rows as $ri => $end) {
+                        if ($end < $bar['sc']) {
+                            $row = $ri;
+                            break;
+                        }
+                    }
+                    if ($row < 0) {
+                        $row = count($rows);
+                    }
+                    $rows[$row]        = $bar['ec'];
+                    $bars[$bi]['row']  = $row;
+                }
+                $bar_h  = 20;
+                $strip_h = count($rows) * ($bar_h + 2);
+                echo '<div class="rtacc-cal-allday"><div class="rtacc-cal-corner rtacc-cal-allday-label">' . esc_html__('All-day', 'rt-event-manager') . '</div>';
+                echo '<div class="rtacc-cal-allday-track" style="height:' . (int) $strip_h . 'px;">';
+                foreach ($bars as $bar) {
+                    $i     = $bar['i'];
+                    $left  = $bar['sc'] / 7 * 100;
+                    $width = ($bar['ec'] - $bar['sc'] + 1) / 7 * 100;
+                    $top   = $bar['row'] * ($bar_h + 2);
+                    $holder_list = implode('|', array_keys($i['holders']));
+                    echo '<div class="rtacc-cal-allbar rtacc-cal-item--' . esc_attr($i['cat']) . '" data-cat="' . esc_attr($i['cat']) . '" data-holders="' . esc_attr($holder_list) . '"'
+                        . ' style="left:' . round($left, 3) . '%;width:' . round($width, 3) . '%;top:' . (int) $top . 'px;height:' . (int) $bar_h . 'px;"'
+                        . ' title="' . esc_attr($i['title']) . '">' . esc_html($i['title']) . '</div>';
+                }
+                echo '</div></div>';
+            }
+
             // Time gutter + day bodies.
             echo '<div class="rtacc-cal-week-body">';
             echo '<div class="rtacc-cal-timegutter" style="height:' . (int) $body_h . 'px;">';
@@ -1356,7 +1425,7 @@ class RT_Event_Manager_Account {
 
                 // Segments visible in this day's window.
                 $segs = array();
-                foreach ($items as $i) {
+                foreach ($timed as $i) {
                     if ($i['start'] < $win_end && $i['end'] > $win_start) {
                         $s = max($i['start'], $win_start);
                         $e = min($i['end'], $win_end);
