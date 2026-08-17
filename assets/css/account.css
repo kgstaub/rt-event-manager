@@ -531,25 +531,50 @@
 .rtacc-cal-legend {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px;
+    gap: 12px;
     margin-bottom: 16px;
 }
 .rtacc-cal-legitem {
     cursor: pointer;
+}
+/* Visually hide the checkbox — the badge shows the on/off state. */
+.rtacc-cal-legitem .rtacc-cal-toggle {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+/* Badge style matches the dashboard type badges: light tint, coloured text and
+   border. Coloured by category below; dims when the category is toggled off. */
+.rtacc-cal-legbadge {
+    display: block;
+    padding: 6px 12px;
+    border-radius: 10px;
+    border: 1px solid currentColor;
+    transition: opacity 0.15s ease;
+}
+.rtacc-cal-legtitle {
+    display: block;
+    font-weight: 600;
     font-size: 13px;
+    line-height: 1.2;
 }
-.rtacc-cal-swatch {
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    border-radius: 2px;
-    margin-right: 6px;
-    vertical-align: middle;
+.rtacc-cal-legdesc {
+    display: block;
+    font-size: 11px;
+    opacity: 0.85;
 }
-.rtacc-cal-legitem--pretour .rtacc-cal-swatch { background: #A2071A; }
-.rtacc-cal-legitem--daytour .rtacc-cal-swatch { background: #2c8c99; }
-.rtacc-cal-legitem--event   .rtacc-cal-swatch { background: #CC0B24; }
-.rtacc-cal-legitem--agenda  .rtacc-cal-swatch { background: #2271b1; }
+.rtacc-cal-legitem--pretour .rtacc-cal-legbadge { background: #e0f2f2; color: #0b6d6d; }
+.rtacc-cal-legitem--daytour .rtacc-cal-legbadge { background: #fbeede; color: #a8631a; }
+.rtacc-cal-legitem--agenda  .rtacc-cal-legbadge { background: #e7f0ff; color: #1f6feb; }
+.rtacc-cal-legitem .rtacc-cal-toggle:not(:checked) + .rtacc-cal-legbadge {
+    opacity: 0.4;
+    filter: grayscale(0.5);
+}
+.rtacc-cal-legitem .rtacc-cal-toggle:focus-visible + .rtacc-cal-legbadge {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+}
 
 .rtacc-cal-filter {
     margin-bottom: 12px;
@@ -632,10 +657,11 @@
     font-size: 9px;
     opacity: 0.85;
 }
-.rtacc-cal-block.rtacc-cal-item--pretour { background: #A2071A; }
-.rtacc-cal-block.rtacc-cal-item--daytour { background: #2c8c99; }
-.rtacc-cal-block.rtacc-cal-item--event   { background: #CC0B24; }
-.rtacc-cal-block.rtacc-cal-item--agenda  { background: #2271b1; }
+/* Block colours match the dashboard type palette (teal / amber / blue). */
+.rtacc-cal-block.rtacc-cal-item--pretour { background: #0f8a8a; }
+.rtacc-cal-block.rtacc-cal-item--daytour { background: #d9822b; }
+.rtacc-cal-block.rtacc-cal-item--event   { background: #1f6feb; }
+.rtacc-cal-block.rtacc-cal-item--agenda  { background: #1f6feb; }
 
 /* List view (small screens): chronological, grouped by day. */
 .rtacc-cal-list {
@@ -663,10 +689,10 @@
     background: #999;
     align-self: center;
 }
-.rtacc-cal-listdot--pretour { background: #A2071A; }
-.rtacc-cal-listdot--daytour { background: #2c8c99; }
-.rtacc-cal-listdot--event   { background: #CC0B24; }
-.rtacc-cal-listdot--agenda  { background: #2271b1; }
+.rtacc-cal-listdot--pretour { background: #0f8a8a; }
+.rtacc-cal-listdot--daytour { background: #d9822b; }
+.rtacc-cal-listdot--event   { background: #1f6feb; }
+.rtacc-cal-listdot--agenda  { background: #1f6feb; }
 .rtacc-cal-listwhen {
     flex: 0 0 auto;
     font-size: 12px;

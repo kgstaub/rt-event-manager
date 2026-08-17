@@ -1175,9 +1175,18 @@ class RT_Event_Manager_Account {
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('My Calendar', 'rt-event-manager') . '</h2>';
 
         $cats = array(
-            'pretour' => __('Pretours', 'rt-event-manager'),
-            'daytour' => __('Day tours', 'rt-event-manager'),
-            'agenda'  => __('Official agenda', 'rt-event-manager'),
+            'pretour' => array(
+                'label' => __('Pretours', 'rt-event-manager'),
+                'desc'  => __('Optional tours before the event', 'rt-event-manager'),
+            ),
+            'daytour' => array(
+                'label' => __('Day tours', 'rt-event-manager'),
+                'desc'  => __('Alternative programme during the meeting', 'rt-event-manager'),
+            ),
+            'agenda'  => array(
+                'label' => __('Official agenda', 'rt-event-manager'),
+                'desc'  => __('The official event schedule', 'rt-event-manager'),
+            ),
         );
 
         // Gather items. Purchased tickets appear once per product but collect the
@@ -1300,12 +1309,17 @@ class RT_Event_Manager_Account {
             echo '</select></div>';
         }
 
-        // Legend with per-category show/hide toggles.
+        // Legend: each category is a coloured badge that toggles its items and
+        // carries a short description. The checkbox is visually hidden; the badge
+        // dims when the category is off.
         echo '<div class="rtacc-cal-legend">';
-        foreach ($cats as $key => $label) {
+        foreach ($cats as $key => $c) {
             echo '<label class="rtacc-cal-legitem rtacc-cal-legitem--' . esc_attr($key) . '">';
-            echo '<input type="checkbox" class="uk-checkbox rtacc-cal-toggle" data-cat="' . esc_attr($key) . '" checked /> ';
-            echo '<span class="rtacc-cal-swatch"></span>' . esc_html($label);
+            echo '<input type="checkbox" class="rtacc-cal-toggle" data-cat="' . esc_attr($key) . '" checked />';
+            echo '<span class="rtacc-cal-legbadge">';
+            echo '<span class="rtacc-cal-legtitle">' . esc_html($c['label']) . '</span>';
+            echo '<span class="rtacc-cal-legdesc">' . esc_html($c['desc']) . '</span>';
+            echo '</span>';
             echo '</label>';
         }
         echo '</div>';
