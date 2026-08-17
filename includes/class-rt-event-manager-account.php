@@ -499,15 +499,28 @@ class RT_Event_Manager_Account {
                 $groups[$holder][] = $t;
             }
 
-            echo '<table class="rtacc-table rtacc-tickets rtacc-dashboard-table uk-table uk-table-divider uk-table-middle uk-table-small">';
-            echo '<thead><tr>';
-            echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
-            echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
-            echo '<th>' . esc_html__('Event date', 'rt-event-manager') . '</th>';
-            echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
-            echo '</tr></thead><tbody>';
+            // The account owner's own group is expanded by default; the rest are
+            // collapsed and expandable.
+            $own_id     = $this->own_event_ticket_id($tickets);
+            $own_holder = '';
+            foreach ($tickets as $t) {
+                if (absint($t['id']) === $own_id) {
+                    $own_holder = $t['holder_name'] !== '' ? $t['holder_name'] : __('Unassigned', 'rt-event-manager');
+                    break;
+                }
+            }
+
             foreach ($groups as $holder => $rows) {
-                echo '<tr class="rtacc-group-row"><th colspan="4">' . esc_html($holder) . '</th></tr>';
+                $open = ($own_holder !== '' && $holder === $own_holder) ? ' open' : '';
+                echo '<details class="rtacc-dash-group"' . $open . '>';
+                echo '<summary class="rtacc-dash-summary">' . esc_html($holder) . ' <span class="rtacc-dash-count">' . esc_html(sprintf(_n('%d ticket', '%d tickets', count($rows), 'rt-event-manager'), count($rows))) . '</span></summary>';
+                echo '<table class="rtacc-table rtacc-tickets rtacc-dashboard-table uk-table uk-table-divider uk-table-middle uk-table-small">';
+                echo '<thead><tr>';
+                echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
+                echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
+                echo '<th>' . esc_html__('Event date', 'rt-event-manager') . '</th>';
+                echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
+                echo '</tr></thead><tbody>';
                 foreach ($rows as $t) {
                     $status     = isset($t['status']) ? $t['status'] : 'draft';
                     $product    = wc_get_product($t['product_id']);
@@ -528,9 +541,9 @@ class RT_Event_Manager_Account {
                     echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
                     echo '</tr>';
                 }
-                echo '<tr class="rtacc-spacer-row"><td colspan="4"></td></tr>';
+                echo '</tbody></table>';
+                echo '</details>';
             }
-            echo '</tbody></table>';
         }
 
         echo '<p class="rtacc-actions">';

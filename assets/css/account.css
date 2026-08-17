@@ -221,20 +221,41 @@
 .rtacc-badge--checked_in { background: var(--rtacc-checked-in); }
 .rtacc-badge--cancelled { background: #8c8f94; }
 .rtacc-badge--refunded { background: #8250df; }
-.rtacc-dashboard-table .rtacc-spacer-row td {
-    height: 18px;
-    border: none;
-    padding: 0;
+.rtacc-dash-group {
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--rtacc-border);
 }
-.rtacc-dashboard-table .rtacc-group-row th {
-    background: transparent;
+.rtacc-dash-summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 10px 4px 10px 24px;
+    position: relative;
     color: var(--rtacc-primary);
     font-size: 16px;
     font-weight: 700;
     letter-spacing: 0.02em;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--rtacc-border);
 }
+.rtacc-dash-summary::-webkit-details-marker { display: none; }
+/* Custom caret that rotates when the group opens. */
+.rtacc-dash-summary::before {
+    content: "\25B8"; /* ▸ */
+    position: absolute;
+    left: 4px;
+    color: var(--rtacc-primary);
+    transition: transform 0.15s ease;
+}
+.rtacc-dash-group[open] > .rtacc-dash-summary::before { transform: rotate(90deg); }
+.rtacc-dash-count {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--rtacc-muted);
+    text-transform: none;
+    letter-spacing: 0;
+}
+.rtacc-dashboard-table { margin-top: 0; }
 .rtacc-tour-name { display: block; }
 .rtacc-tour-when { display: block; margin-top: 2px; }
 /* Type badges: light tinted background, dark type-coloured text and border. */
