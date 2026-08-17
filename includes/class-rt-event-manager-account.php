@@ -528,6 +528,7 @@ class RT_Event_Manager_Account {
                     echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
                     echo '</tr>';
                 }
+                echo '<tr class="rtacc-spacer-row"><td colspan="4"></td></tr>';
             }
             echo '</tbody></table>';
         }
