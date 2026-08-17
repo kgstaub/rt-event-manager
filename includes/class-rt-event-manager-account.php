@@ -210,18 +210,25 @@ class RT_Event_Manager_Account {
             );
         }
 
+        // Version by file modification time so edits bust browser/CDN caches
+        // immediately (falls back to the plugin version if the file is missing).
+        $css_path = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/css/account.css';
+        $js_path  = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/js/account.js';
+        $css_ver  = file_exists($css_path) ? filemtime($css_path) : RT_EVENT_MANAGER_VERSION;
+        $js_ver   = file_exists($js_path) ? filemtime($js_path) : RT_EVENT_MANAGER_VERSION;
+
         wp_enqueue_style(
             'rt-event-manager-account',
             RT_EVENT_MANAGER_PLUGIN_URL . 'assets/css/account.css',
             array(),
-            RT_EVENT_MANAGER_VERSION
+            $css_ver
         );
 
         wp_enqueue_script(
             'rt-event-manager-account',
             RT_EVENT_MANAGER_PLUGIN_URL . 'assets/js/account.js',
             array('jquery'),
-            RT_EVENT_MANAGER_VERSION,
+            $js_ver,
             true
         );
 
