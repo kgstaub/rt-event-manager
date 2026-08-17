@@ -136,6 +136,10 @@ class RT_Event_Manager {
         // Future (minor) tickets may only be bought as a co-traveller (parent required)
         // and are hidden from the normal catalog.
         add_filter('woocommerce_add_to_cart_validation', array($this, 'validate_future_add_to_cart'), 10, 3);
+        // Re-check tour conflicts at cart/checkout time against the live DB state
+        // so a stale cart (e.g. a second browser window) cannot double-book a tour
+        // after another order has already claimed the host.
+        add_action('woocommerce_check_cart_items', array($this, 'validate_cart_tours_against_db'));
         add_action('woocommerce_product_query', array($this, 'hide_future_from_catalog'));
 
         // Carry the linkage through the single-product "choose options" page for
@@ -1792,8 +1796,10 @@ class RT_Event_Manager {
                     }
                     $target = 0;
                     if ('pretour' === $ok) {
+                        // Prefer a host with no pretour — including any already
+                        // attached by a previous order (checked against the DB).
                         foreach ($hosts as $hid) {
-                            if (empty($tour_taken['pretour'][$hid])) {
+                            if (empty($tour_taken['pretour'][$hid]) && !self::ticket_has_pretour($hid)) {
                                 $target = $hid;
                                 break;
                             }
@@ -1907,6 +1913,47 @@ class RT_Event_Manager {
      * @param int  $quantity
      * @return bool
      */
+    /**
+     * Re-validate the tours in the cart against the current database state.
+     * Add-to-cart validation only reflects the moment an item was added; if
+     * another order (or a second browser window) has since given the host a
+     * pretour — or an overlapping day tour — this blocks checkout so the same
+     * tour cannot be sold twice for the same person.
+     */
+    public function validate_cart_tours_against_db() {
+        if (!function_exists('WC') || !WC()->cart) {
+            return;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+            if (!$pid || !$parent) {
+                continue; // unparented tours are resolved (and guarded) at checkout
+            }
+            $kind = self::get_ticket_kind_for_product($pid);
+            $host = self::get_ticket_by_id($parent);
+            $who  = ($host && $host['holder_name'] !== '') ? $host['holder_name'] : __('this ticket', 'rt-event-manager');
+            $product = wc_get_product($pid);
+            $pname   = $product ? $product->get_name() : __('this tour', 'rt-event-manager');
+
+            if ('pretour' === $kind && self::ticket_has_pretour($parent)) {
+                wc_add_notice(sprintf(
+                    /* translators: 1: attendee name, 2: pretour product name */
+                    __('%1$s already has a pretour, so “%2$s” can no longer be added. Please remove it from your cart.', 'rt-event-manager'),
+                    $who,
+                    $pname
+                ), 'error');
+            } elseif ('daytour' === $kind && self::host_daytour_conflict($parent, $pid)) {
+                wc_add_notice(sprintf(
+                    /* translators: 1: attendee name, 2: day tour product name */
+                    __('%1$s already has a day tour that overlaps “%2$s”. Please remove it from your cart.', 'rt-event-manager'),
+                    $who,
+                    $pname
+                ), 'error');
+            }
+        }
+    }
+
     public function validate_future_add_to_cart($passed, $product_id, $quantity) {
         $parent_id = isset($_REQUEST['rti_parent_ticket_id']) ? absint($_REQUEST['rti_parent_ticket_id']) : 0;
 
