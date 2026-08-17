@@ -513,10 +513,11 @@ class RT_Event_Manager_Account {
                     $product    = wc_get_product($t['product_id']);
                     $what       = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
                     $type_label = RT_Event_Manager::ticket_kind_label($t);
+                    $type_kind  = RT_Event_Manager::get_ticket_kind($t);
                     $event_date = $this->ticket_event_date($t['product_id']);
                     echo '<tr>';
                     echo '<td data-title="' . esc_attr__('Ticket', 'rt-event-manager') . '">' . esc_html($what) . '</td>';
-                    echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--type">' . esc_html($type_label) . '</span></td>';
+                    echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--type rtacc-badge--type-' . esc_attr($type_kind) . '">' . esc_html($type_label) . '</span></td>';
                     echo '<td data-title="' . esc_attr__('Event date', 'rt-event-manager') . '">';
                     if ('' !== $event_date) {
                         echo '<span class="rtacc-badge rtacc-badge--date"><i class="fa-regular fa-calendar" aria-hidden="true"></i> ' . esc_html($event_date) . '</span>';

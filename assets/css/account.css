@@ -234,6 +234,11 @@
 .rtacc-tour-name { display: block; }
 .rtacc-tour-when { display: block; margin-top: 2px; }
 .rtacc-badge--type { background: #1f6feb; }
+/* Distinct colour per ticket type. */
+.rtacc-badge--type-event { background: #1f6feb; }
+.rtacc-badge--type-pretour { background: #0f8a8a; }
+.rtacc-badge--type-daytour { background: #d9822b; }
+.rtacc-badge--type-minor { background: #7048e8; }
 .rtacc-badge--date { background: #eef1f5; color: #33475b; }
 .rtacc-badge--date i { margin-right: 3px; }
 
