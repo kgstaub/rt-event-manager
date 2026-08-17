@@ -340,6 +340,30 @@ class RT_Event_Manager_Account {
             $buttons .= $this->cart_add_link($pretours[0], __('Add a pretour', 'rt-event-manager'));
         }
 
+        // Purchasable day tour products (there can be several to choose from).
+        $daytours = array();
+        foreach ($this->get_tour_product_ids('daytour') as $pid) {
+            $p = wc_get_product($pid);
+            if ($p && $p->is_purchasable() && $p->is_in_stock()) {
+                $daytours[] = $p;
+            }
+        }
+        if (count($daytours) > 1) {
+            $buttons .= '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cart-daytour">' . esc_html__('Add a day tour', 'rt-event-manager') . '</button>';
+            $options = '';
+            foreach ($daytours as $p) {
+                $options .= '<div class="rtacc-cart-pretour-option">' . $this->cart_add_link($p, $p->get_name() . ' — ' . wp_strip_all_tags($p->get_price_html()), 'uk-button uk-button-secondary') . '</div>';
+            }
+            $modals .= '<div class="rtacc-modal" id="rtacc-modal-cart-daytour" hidden>'
+                . '<div class="rtacc-modal-backdrop" data-rtacc-close></div>'
+                . '<div class="rtacc-modal-dialog"><h3 class="rtacc-subtitle">' . esc_html__('Choose a day tour', 'rt-event-manager') . '</h3>'
+                . '<div class="rtacc-cart-pretour-list">' . $options . '</div>'
+                . '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button></p>'
+                . '</div></div>';
+        } elseif (count($daytours) === 1) {
+            $buttons .= $this->cart_add_link($daytours[0], __('Add a day tour', 'rt-event-manager'));
+        }
+
         if ($future && $future->is_purchasable() && $future->is_in_stock()) {
             $buttons .= $this->cart_add_link($future, __('Add a Future member', 'rt-event-manager'));
         }
@@ -1907,10 +1931,17 @@ class RT_Event_Manager_Account {
         if (!$future_product || empty($parent_options)) {
             return '';
         }
+        $label = __('Add a Future Circler / Future Tabler *', 'rt-event-manager');
+        $note  = '<div class="rtacc-future-note uk-text-meta">' . esc_html(sprintf(
+            /* translators: 1: minimum age, 2: maximum age */
+            __('* Discounted event tickets for children between %1$d and %2$d.', 'rt-event-manager'),
+            RT_Event_Manager::get_minor_min_age(),
+            RT_Event_Manager::get_minor_max_age()
+        )) . '</div>';
         if ($this->product_needs_options($future_product)) {
-            return '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($future_product->get_permalink()) . '">' . esc_html__('Add a Future member', 'rt-event-manager') . '</a></p>';
+            return '<div class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($future_product->get_permalink()) . '">' . esc_html($label) . '</a>' . $note . '</div>';
         }
-        return '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="future">' . esc_html__('Add a Future member', 'rt-event-manager') . '</button></p>';
+        return '<div class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="future">' . esc_html($label) . '</button>' . $note . '</div>';
     }
 
     /**
