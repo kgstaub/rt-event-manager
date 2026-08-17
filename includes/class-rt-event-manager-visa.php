@@ -934,7 +934,8 @@ class RT_Event_Manager_Visa {
             p { margin: 0 0 7px; page-break-inside: avoid; }
             table.details { width: 100%; border-collapse: collapse; margin: 3px 0 8px; }
             table.details td { padding: 2px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
-            table.details td.lbl { width: 150px; color: #555; padding-right: 40px; }
+            table.details td.lbl { width: 150px; color: #555; white-space: nowrap; }
+            table.details td + td { padding-left: 40px; }
         </style></head><body>
             <?php echo $bg_html; // phpcs:ignore — trusted local attachment path ?>
             <div class="rti-visa-body">
