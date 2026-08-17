@@ -1519,8 +1519,10 @@ class RT_Event_Manager_Account {
                 $is_minor_pretour = $parent && isset($by_id[$parent]) && 'minor' === RT_Event_Manager::get_ticket_kind($by_id[$parent]);
                 $guardian = ($minor_block || $is_minor_pretour) ? $this->guardian_label($t, $by_id) : '';
 
+                $range = $this->tour_time_range($t['product_id']);
                 echo '<tr>';
-                echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($pname) . '</td>';
+                echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($pname)
+                    . ($range !== '' ? '<span class="rtacc-tour-when">' . esc_html($range) . '</span>' : '') . '</td>';
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($t['holder_name'] ?: '—') . '</td>';
                 echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html('' !== $guardian ? $guardian : '—') . '</td>';
                 echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
@@ -2187,6 +2189,32 @@ class RT_Event_Manager_Account {
         }
         $ts = strtotime($start);
         return $ts ? date_i18n(get_option('date_format'), $ts) : '';
+    }
+
+    /**
+     * Human-readable start–end window for a tour product, e.g.
+     * "14 May 2027, 09:00 – 17:00" (or across days). Returns '' when no start
+     * time is set on the product.
+     *
+     * @param int $product_id
+     * @return string
+     */
+    private function tour_time_range($product_id) {
+        list($s, $e) = RT_Event_Manager::tour_product_range($product_id);
+        if (!$s) {
+            return '';
+        }
+        $date_fmt = get_option('date_format');
+        $time_fmt = get_option('time_format');
+        $start = date_i18n($date_fmt . ', ' . $time_fmt, $s);
+        if (!$e || $e === $s) {
+            return $start;
+        }
+        // Same calendar day → show the end time only; otherwise the full date.
+        if (date('Y-m-d', $s) === date('Y-m-d', $e)) {
+            return $start . ' – ' . date_i18n($time_fmt, $e);
+        }
+        return $start . ' – ' . date_i18n($date_fmt . ', ' . $time_fmt, $e);
     }
 
     /**
