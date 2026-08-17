@@ -1181,20 +1181,28 @@ class RT_Event_Manager_Account {
             'agenda'  => __('Official agenda', 'rt-event-manager'),
         );
 
-        // Gather items. Purchased tickets appear once per product; agenda items
-        // come from the backend-managed list.
-        $items = array();
-        $seen_products = array();
+        // Gather items. Purchased tickets appear once per product but collect the
+        // set of holders (for the attendee filter); agenda items come from the
+        // backend-managed list and apply to everyone.
+        $items      = array();
+        $by_product = array();
+        $holders    = array();
         foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $t) {
-            $pid = absint($t['product_id']);
-            if (isset($seen_products[$pid])) {
-                continue;
-            }
+            $pid   = absint($t['product_id']);
             $start = get_post_meta($pid, '_rti_start', true);
             if ('' === $start) {
                 continue;
             }
-            $seen_products[$pid] = true;
+            $holder = ($t['holder_name'] !== '') ? $t['holder_name'] : '';
+            if ('' !== $holder) {
+                $holders[$holder] = true;
+            }
+            if (isset($by_product[$pid])) {
+                if ('' !== $holder) {
+                    $items[$by_product[$pid]]['holders'][$holder] = true;
+                }
+                continue;
+            }
             $end     = get_post_meta($pid, '_rti_end', true);
             $product = wc_get_product($pid);
             $items[] = array(
@@ -1203,7 +1211,9 @@ class RT_Event_Manager_Account {
                 'end'      => ('' !== $end) ? strtotime($end) : strtotime($start),
                 'cat'      => RT_Event_Manager::get_calendar_category($pid),
                 'location' => '',
+                'holders'  => ('' !== $holder) ? array($holder => true) : array(),
             );
+            $by_product[$pid] = count($items) - 1;
         }
         foreach (RT_Event_Manager::get_agenda() as $a) {
             if (empty($a['start'])) {
@@ -1215,6 +1225,7 @@ class RT_Event_Manager_Account {
                 'end'      => !empty($a['end']) ? strtotime($a['end']) : strtotime($a['start']),
                 'cat'      => 'agenda',
                 'location' => isset($a['location']) ? $a['location'] : '',
+                'holders'  => array(), // agenda applies to everyone
             );
         }
         $items = array_values(array_filter($items, function ($i) {
@@ -1224,6 +1235,14 @@ class RT_Event_Manager_Account {
         if (empty($items)) {
             echo '<p>' . esc_html__('Your calendar is empty. It will fill up once your tickets have dates and the official agenda is published.', 'rt-event-manager') . '</p>';
             return;
+        }
+
+        // Give zero-length items a default one-hour duration so they render as a
+        // block on the time grid.
+        foreach ($items as $k => $i) {
+            if ($items[$k]['end'] <= $items[$k]['start']) {
+                $items[$k]['end'] = $items[$k]['start'] + HOUR_IN_SECONDS;
+            }
         }
 
         // Range: from the first pretour to the last official agenda item
@@ -1252,8 +1271,43 @@ class RT_Event_Manager_Account {
             $day_end = strtotime('+7 days', $day_end);
         }
 
-        // Legend with per-category show/hide toggles.
+        // Hour window shown on the grid, derived from the item times (clamped to
+        // whole hours, with sane fallbacks).
+        $min_min = 24 * 60;
+        $max_min = 0;
+        foreach ($items as $i) {
+            $sm = (int) date('G', $i['start']) * 60 + (int) date('i', $i['start']);
+            $em = (int) date('G', $i['end']) * 60 + (int) date('i', $i['end']);
+            if (0 === $em && date('Y-m-d', $i['end']) !== date('Y-m-d', $i['start'])) {
+                $em = 24 * 60; // midnight end of a multi-day item
+            }
+            $min_min = min($min_min, $sm);
+            $max_min = max($max_min, $em);
+        }
+        $hour_start = max(0, (int) floor($min_min / 60));
+        $hour_end   = min(24, (int) ceil($max_min / 60));
+        if ($hour_end <= $hour_start) {
+            $hour_start = 8;
+            $hour_end   = 20;
+        }
+        $hh     = 44; // pixel height of one hour row
+        $body_h = ($hour_end - $hour_start) * $hh;
+
         echo '<div class="rtacc-cal">';
+
+        // Attendee filter (each block carries its holders; agenda shows for all).
+        if (!empty($holders)) {
+            $holder_names = array_keys($holders);
+            sort($holder_names, SORT_NATURAL | SORT_FLAG_CASE);
+            echo '<div class="rtacc-cal-filter"><label class="uk-form-label" style="display:inline-block;margin-right:8px;">' . esc_html__('Attendee', 'rt-event-manager') . '</label>';
+            echo '<select class="rtacc-cal-holder uk-select uk-form-small uk-form-width-medium"><option value="">' . esc_html__('All attendees', 'rt-event-manager') . '</option>';
+            foreach ($holder_names as $h) {
+                echo '<option value="' . esc_attr($h) . '">' . esc_html($h) . '</option>';
+            }
+            echo '</select></div>';
+        }
+
+        // Legend with per-category show/hide toggles.
         echo '<div class="rtacc-cal-legend">';
         foreach ($cats as $key => $label) {
             echo '<label class="rtacc-cal-legitem rtacc-cal-legitem--' . esc_attr($key) . '">';
@@ -1272,28 +1326,111 @@ class RT_Event_Manager_Account {
         $guard = 0;
         for ($day = $day_start; $day <= $day_end && $guard < 60; $day = strtotime('+7 days', $day), $guard++) {
             echo '<div class="rtacc-cal-week">';
+
+            // Day headings.
+            echo '<div class="rtacc-cal-week-head"><div class="rtacc-cal-corner"></div>';
             for ($d = 0; $d < 7; $d++) {
                 $cell = strtotime('+' . $d . ' days', $day);
-                $cell_ymd = date_i18n('Y-m-d', $cell);
-                echo '<div class="rtacc-cal-day">';
-                echo '<div class="rtacc-cal-daylabel"><span class="rtacc-cal-dow">' . esc_html($week_days[$d]) . '</span> ' . esc_html(date_i18n('j M', $cell)) . '</div>';
+                echo '<div class="rtacc-cal-dayhead"><span class="rtacc-cal-dow">' . esc_html($week_days[$d]) . '</span> ' . esc_html(date_i18n('j M', $cell)) . '</div>';
+            }
+            echo '</div>';
+
+            // Time gutter + day bodies.
+            echo '<div class="rtacc-cal-week-body">';
+            echo '<div class="rtacc-cal-timegutter" style="height:' . (int) $body_h . 'px;">';
+            for ($h = $hour_start; $h < $hour_end; $h++) {
+                echo '<div class="rtacc-cal-hourlabel" style="height:' . (int) $hh . 'px;">' . esc_html(sprintf('%02d:00', $h)) . '</div>';
+            }
+            echo '</div>';
+
+            for ($d = 0; $d < 7; $d++) {
+                $cell      = strtotime('+' . $d . ' days', $day);
+                $cell_ymd  = date('Y-m-d', $cell);
+                $win_start = strtotime($cell_ymd . ' 00:00') + $hour_start * HOUR_IN_SECONDS;
+                $win_end   = strtotime($cell_ymd . ' 00:00') + $hour_end * HOUR_IN_SECONDS;
+
+                echo '<div class="rtacc-cal-daybody" style="height:' . (int) $body_h . 'px;">';
+                for ($h = $hour_start; $h <= $hour_end; $h++) {
+                    echo '<div class="rtacc-cal-hourline" style="top:' . (int) (($h - $hour_start) * $hh) . 'px;"></div>';
+                }
+
+                // Segments visible in this day's window.
+                $segs = array();
                 foreach ($items as $i) {
-                    if (date_i18n('Y-m-d', $i['start']) <= $cell_ymd && date_i18n('Y-m-d', $i['end']) >= $cell_ymd) {
-                        $time = ('agenda' === $i['cat'] || $i['start'] !== $i['end']) ? date_i18n('H:i', $i['start']) : '';
-                        echo '<div class="rtacc-cal-item rtacc-cal-item--' . esc_attr($i['cat']) . '" data-cat="' . esc_attr($i['cat']) . '">';
-                        if ('' !== $time) {
-                            echo '<span class="rtacc-cal-time">' . esc_html($time) . '</span> ';
+                    if ($i['start'] < $win_end && $i['end'] > $win_start) {
+                        $s = max($i['start'], $win_start);
+                        $e = min($i['end'], $win_end);
+                        if ($e > $s) {
+                            $segs[] = array('i' => $i, 's' => $s, 'e' => $e);
                         }
-                        echo esc_html($i['title']);
+                    }
+                }
+                usort($segs, function ($a, $b) {
+                    return $a['s'] <=> $b['s'];
+                });
+
+                // Split into overlap clusters, then assign lanes within each.
+                $clusters = array();
+                $cur = array();
+                $cur_max = 0;
+                foreach ($segs as $seg) {
+                    if (!empty($cur) && $seg['s'] < $cur_max) {
+                        $cur[] = $seg;
+                        $cur_max = max($cur_max, $seg['e']);
+                    } else {
+                        if (!empty($cur)) {
+                            $clusters[] = $cur;
+                        }
+                        $cur = array($seg);
+                        $cur_max = $seg['e'];
+                    }
+                }
+                if (!empty($cur)) {
+                    $clusters[] = $cur;
+                }
+
+                foreach ($clusters as $cluster) {
+                    $lane_ends = array();
+                    foreach ($cluster as $ci => $seg) {
+                        $lane = -1;
+                        foreach ($lane_ends as $ln => $end) {
+                            if ($end <= $seg['s']) {
+                                $lane = $ln;
+                                break;
+                            }
+                        }
+                        if ($lane < 0) {
+                            $lane = count($lane_ends);
+                        }
+                        $lane_ends[$lane]    = $seg['e'];
+                        $cluster[$ci]['lane'] = $lane;
+                    }
+                    $lanes = max(1, count($lane_ends));
+                    foreach ($cluster as $seg) {
+                        $i      = $seg['i'];
+                        $top    = ($seg['s'] - $win_start) / HOUR_IN_SECONDS * $hh;
+                        $height = max(18, ($seg['e'] - $seg['s']) / HOUR_IN_SECONDS * $hh);
+                        $width  = 100 / $lanes;
+                        $left   = $seg['lane'] * $width;
+                        $starts_here = ($i['start'] >= $win_start);
+                        $holder_list = implode('|', array_keys($i['holders']));
+                        echo '<div class="rtacc-cal-block rtacc-cal-item--' . esc_attr($i['cat']) . '" data-cat="' . esc_attr($i['cat']) . '" data-holders="' . esc_attr($holder_list) . '"'
+                            . ' style="top:' . round($top, 1) . 'px;height:' . round($height, 1) . 'px;left:' . round($left, 3) . '%;width:' . round($width, 3) . '%;"'
+                            . ' title="' . esc_attr($i['title'] . ($starts_here ? ' · ' . date_i18n('H:i', $i['start']) : '')) . '">';
+                        if ($starts_here) {
+                            echo '<span class="rtacc-cal-btime">' . esc_html(date_i18n('H:i', $i['start'])) . '</span> ';
+                        }
+                        echo '<span class="rtacc-cal-btitle">' . esc_html($i['title']) . '</span>';
                         if ('' !== $i['location']) {
                             echo '<span class="rtacc-cal-loc">' . esc_html($i['location']) . '</span>';
                         }
                         echo '</div>';
                     }
                 }
-                echo '</div>';
+                echo '</div>'; // .rtacc-cal-daybody
             }
-            echo '</div>';
+            echo '</div>'; // .rtacc-cal-week-body
+            echo '</div>'; // .rtacc-cal-week
         }
         echo '</div>'; // .rtacc-cal-weeks
         echo '</div>'; // .rtacc-cal

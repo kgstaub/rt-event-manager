@@ -551,41 +551,82 @@
 .rtacc-cal-legitem--event   .rtacc-cal-swatch { background: #CC0B24; }
 .rtacc-cal-legitem--agenda  .rtacc-cal-swatch { background: #2271b1; }
 
+.rtacc-cal-filter {
+    margin-bottom: 12px;
+}
+/* Time-grid week: a heading row and a body row (time gutter + 7 day columns)
+   kept in horizontal sync. */
 .rtacc-cal-week {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 6px;
-    margin-bottom: 6px;
+    margin-bottom: 20px;
+    overflow-x: auto;
 }
-.rtacc-cal-day {
-    border: 1px solid var(--rtacc-border);
-    border-radius: 4px;
-    padding: 6px;
-    min-height: 92px;
+.rtacc-cal-week-head,
+.rtacc-cal-week-body {
+    display: flex;
+    min-width: 680px;
+}
+.rtacc-cal-week-body {
+    position: relative;
+}
+.rtacc-cal-corner,
+.rtacc-cal-timegutter {
+    flex: 0 0 52px;
+    position: relative;
+}
+.rtacc-cal-dayhead {
+    flex: 1 1 0;
     min-width: 0;
-}
-.rtacc-cal-daylabel {
+    text-align: center;
     font-size: 11px;
     color: var(--rtacc-muted);
-    margin-bottom: 6px;
+    padding: 4px 2px;
+    border-bottom: 1px solid var(--rtacc-border);
 }
 .rtacc-cal-dow {
     font-weight: 700;
+    color: #333;
 }
-.rtacc-cal-item {
-    font-size: 12px;
+.rtacc-cal-hourlabel {
+    box-sizing: border-box;
+    font-size: 10px;
+    color: var(--rtacc-muted);
+    text-align: right;
+    padding-right: 6px;
+    line-height: 1;
+    transform: translateY(-5px);
+}
+.rtacc-cal-daybody {
+    flex: 1 1 0;
+    min-width: 0;
+    position: relative;
+    border-left: 1px solid var(--rtacc-border);
+}
+.rtacc-cal-daybody:last-child {
+    border-right: 1px solid var(--rtacc-border);
+}
+.rtacc-cal-hourline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1px solid #eee;
+}
+.rtacc-cal-block {
+    position: absolute;
+    box-sizing: border-box;
+    overflow: hidden;
     color: #fff;
-    padding: 3px 6px;
+    font-size: 10px;
+    line-height: 1.15;
+    padding: 2px 4px;
     border-radius: 3px;
-    margin-bottom: 4px;
-    word-break: break-word;
+    border: 1px solid rgba(255, 255, 255, 0.35);
 }
-.rtacc-cal-item .rtacc-cal-time {
+.rtacc-cal-btime {
     font-weight: 700;
 }
 .rtacc-cal-loc {
     display: block;
-    font-size: 11px;
+    font-size: 9px;
     opacity: 0.85;
 }
 .rtacc-cal-item--pretour { background: #A2071A; }
@@ -599,6 +640,10 @@
 .rtacc-cal-hide-agenda  .rtacc-cal-item--agenda {
     display: none;
 }
+/* Attendee filter: JS marks blocks not matching the chosen holder. */
+.rtacc-cal-block.rtacc-cal-hidden-holder {
+    display: none;
+}
 
 /* ---- Responsive ---- */
 @media (max-width: 720px) {
@@ -606,16 +651,8 @@
         flex: 1 1 100%;
         max-width: none;
     }
-    /* Calendar: one day per row, hide empty days. */
-    .rtacc-cal-week {
-        grid-template-columns: 1fr;
-    }
-    .rtacc-cal-day {
-        min-height: 0;
-    }
-    .rtacc-cal-day:not(:has(.rtacc-cal-item)) {
-        display: none;
-    }
+    /* Calendar: the week grid scrolls horizontally (min-width keeps columns
+       usable), so no per-day stacking is needed. */
 }
 
 /* Keep the sidebar in view while scrolling on larger screens. */

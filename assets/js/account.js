@@ -148,6 +148,20 @@
         $(this).closest('.rtacc-cal').toggleClass('rtacc-cal-hide-' + $(this).data('cat'), !this.checked);
     });
 
+    // ---- Calendar: filter by attendee (agenda blocks always show) ----
+    $(document).on('change', '.rtacc-cal-holder', function () {
+        var holder = String(this.value || '');
+        $(this).closest('.rtacc-cal').find('.rtacc-cal-block').each(function () {
+            var $b = $(this);
+            if (holder === '' || $b.data('cat') === 'agenda') {
+                $b.removeClass('rtacc-cal-hidden-holder');
+                return;
+            }
+            var holders = String($b.attr('data-holders') || '').split('|');
+            $b.toggleClass('rtacc-cal-hidden-holder', holders.indexOf(holder) === -1);
+        });
+    });
+
     // ---- Copy a share link to the clipboard ----
     $(document).on('click', '.rtacc-copy-link', function () {
         var $btn = $(this);
