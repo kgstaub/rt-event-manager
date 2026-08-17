@@ -233,7 +233,6 @@
     font-weight: 700;
     letter-spacing: 0.02em;
     padding: 10px 12px;
-    border-top: 3px solid var(--rtacc-primary);
     border-bottom: 1px solid var(--rtacc-border);
 }
 .rtacc-tour-name { display: block; }
