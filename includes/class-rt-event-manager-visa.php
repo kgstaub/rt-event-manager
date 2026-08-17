@@ -941,8 +941,8 @@ class RT_Event_Manager_Visa {
                The signature table opts out via the rti-sign class. */
             .rti-visa-body table td + td,
             .rti-visa-body table th + td,
-            .rti-visa-body table td + th { padding-left: 40px; }
-            .rti-visa-body table.rti-sign td + td { padding-left: 0; }
+            .rti-visa-body table td + th { padding-left: 40px !important; }
+            .rti-visa-body table.rti-sign td + td { padding-left: 0 !important; }
         </style></head><body>
             <?php echo $bg_html; // phpcs:ignore — trusted local attachment path ?>
             <div class="rti-visa-body">
