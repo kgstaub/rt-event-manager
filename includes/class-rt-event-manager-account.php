@@ -2029,6 +2029,19 @@ class RT_Event_Manager_Account {
         $is_confirmed         = ('valid' === $status);
 
         $out = '<div class="rtacc-row-actions">';
+
+        // Download the QR check-in ticket (attendee tickets only).
+        if (in_array($kind, array('event', 'minor'), true)) {
+            $pass_label = __('Download ticket', 'rt-event-manager');
+            $pass_url   = add_query_arg(array(
+                'action'    => 'rt_event_manager_ticket_pass',
+                'ticket_id' => $id,
+                'nonce'     => wp_create_nonce('rt_event_manager_ticket_pass_' . $id),
+            ), admin_url('admin-ajax.php'));
+            $icon_pass = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><line x1="14" y1="14" x2="14" y2="14"></line><line x1="21" y1="14" x2="21" y2="21"></line><line x1="14" y1="21" x2="18" y2="21"></line></svg>';
+            $out .= '<a class="rtacc-icon-btn rtacc-ticket-pass-btn" href="' . esc_url($pass_url) . '" target="_blank" rel="noopener" title="' . esc_attr($pass_label) . '" aria-label="' . esc_attr($pass_label) . '">' . $icon_pass . '</a>';
+        }
+
         if (in_array($kind, array('event', 'pretour', 'daytour'), true)) {
             if ($has_pending_transfer) {
                 // Withdrawing a pending offer stays available even after the deadline.
@@ -2591,7 +2604,7 @@ class RT_Event_Manager_Account {
      * @param int   $user_id
      * @return bool
      */
-    private function user_owns_ticket($t, $user_id) {
+    public function user_owns_ticket($t, $user_id) {
         $owner = absint(isset($t['owner_user_id']) ? $t['owner_user_id'] : 0);
         if ($owner) {
             return $owner === absint($user_id);

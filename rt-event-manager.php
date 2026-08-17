@@ -100,6 +100,7 @@ function rt_event_manager_init() {
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-receipt.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-account.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-visa.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-ticket-pass.php';
 
     // Initialize
     RT_Event_Manager::instance();
@@ -112,6 +113,9 @@ function rt_event_manager_init() {
 
     // Initialize visa letter of invitation handler
     RT_Event_Manager_Visa::instance();
+
+    // Initialize the QR check-in ticket generator
+    RT_Event_Manager_Ticket_Pass::instance();
 
     // Run one-time ticket migration for old orders
     rt_event_manager_migrate_tickets();
