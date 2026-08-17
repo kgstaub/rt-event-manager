@@ -143,15 +143,63 @@
         });
     });
 
+    // Re-pack the visible blocks in every day column so they fill the full width
+    // (recomputing overlap lanes from the blocks' pixel top/height positions).
+    function relayoutCalendar($cal) {
+        $cal.find('.rtacc-cal-daybody').each(function () {
+            var segs = [];
+            $(this).children('.rtacc-cal-block').each(function () {
+                if ($(this).is(':hidden')) {
+                    return; // category- or attendee-filtered out
+                }
+                var top = parseFloat(this.style.top) || 0;
+                var h   = parseFloat(this.style.height) || 0;
+                segs.push({ el: this, s: top, e: top + h });
+            });
+            segs.sort(function (a, b) { return a.s - b.s; });
+
+            var i = 0;
+            while (i < segs.length) {
+                var cluster = [segs[i]];
+                var maxE = segs[i].e;
+                var j = i + 1;
+                while (j < segs.length && segs[j].s < maxE) {
+                    cluster.push(segs[j]);
+                    maxE = Math.max(maxE, segs[j].e);
+                    j++;
+                }
+                var laneEnds = [];
+                cluster.forEach(function (seg) {
+                    var lane = -1;
+                    for (var l = 0; l < laneEnds.length; l++) {
+                        if (laneEnds[l] <= seg.s) { lane = l; break; }
+                    }
+                    if (lane < 0) { lane = laneEnds.length; }
+                    laneEnds[lane] = seg.e;
+                    seg.lane = lane;
+                });
+                var width = 100 / laneEnds.length;
+                cluster.forEach(function (seg) {
+                    seg.el.style.width = width + '%';
+                    seg.el.style.left  = (seg.lane * width) + '%';
+                });
+                i = j;
+            }
+        });
+    }
+
     // ---- Calendar: show/hide a category ----
     $(document).on('change', '.rtacc-cal-toggle', function () {
-        $(this).closest('.rtacc-cal').toggleClass('rtacc-cal-hide-' + $(this).data('cat'), !this.checked);
+        var $cal = $(this).closest('.rtacc-cal');
+        $cal.toggleClass('rtacc-cal-hide-' + $(this).data('cat'), !this.checked);
+        relayoutCalendar($cal);
     });
 
     // ---- Calendar: filter by attendee (agenda blocks always show) ----
     $(document).on('change', '.rtacc-cal-holder', function () {
         var holder = String(this.value || '');
-        $(this).closest('.rtacc-cal').find('.rtacc-cal-block, .rtacc-cal-listitem').each(function () {
+        var $cal = $(this).closest('.rtacc-cal');
+        $cal.find('.rtacc-cal-block, .rtacc-cal-listitem').each(function () {
             var $b = $(this);
             if (holder === '' || $b.data('cat') === 'agenda') {
                 $b.removeClass('rtacc-cal-hidden-holder');
@@ -160,6 +208,7 @@
             var holders = String($b.attr('data-holders') || '').split('|');
             $b.toggleClass('rtacc-cal-hidden-holder', holders.indexOf(holder) === -1);
         });
+        relayoutCalendar($cal);
     });
 
     // ---- Calendar: focus the day viewport on 08:00 (scroll to reveal the rest) ----
