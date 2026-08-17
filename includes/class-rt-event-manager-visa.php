@@ -196,6 +196,7 @@ class RT_Event_Manager_Visa {
             . '<table class="details">'
             . '<tr><td class="lbl">Name</td><td>{applicant_name}</td></tr>'
             . '<tr><td class="lbl">Geburtsdatum</td><td>{applicant_dob}</td></tr>'
+            . '<tr><td class="lbl">Reisepass-Nr.</td><td>{applicant_ppno}</td></tr>'
             . '<tr><td class="lbl">Staatsangehörigkeit</td><td>{applicant_nationality}</td></tr>'
             . '<tr><td class="lbl">Adresse</td><td>{applicant_address}</td></tr>'
             . '{applicant_contact}'
@@ -305,7 +306,7 @@ class RT_Event_Manager_Visa {
         echo '</table>';
 
         echo '<h2>' . esc_html__('Letter template (German)', 'rt-event-manager') . '</h2>';
-        echo '<p class="description">' . esc_html__('Available variables:', 'rt-event-manager') . ' <code>{host_name}</code> <code>{host_address}</code> <code>{host_phone}</code> <code>{host_email}</code> <code>{host_nationality}</code> <code>{applicant_name}</code> <code>{applicant_dob}</code> <code>{applicant_nationality}</code> <code>{applicant_address}</code> <code>{applicant_phone}</code> <code>{applicant_email}</code> <code>{event_start}</code> <code>{event_end}</code> <code>{arrival}</code> <code>{departure}</code> <code>{issue_date}</code></p>';
+        echo '<p class="description">' . esc_html__('Available variables:', 'rt-event-manager') . ' <code>{host_name}</code> <code>{host_address}</code> <code>{host_phone}</code> <code>{host_email}</code> <code>{host_nationality}</code> <code>{applicant_name}</code> <code>{applicant_dob}</code> <code>{applicant_ppno}</code> <code>{applicant_nationality}</code> <code>{applicant_address}</code> <code>{applicant_phone}</code> <code>{applicant_email}</code> <code>{event_start}</code> <code>{event_end}</code> <code>{arrival}</code> <code>{departure}</code> <code>{issue_date}</code></p>';
         wp_editor($template, 'visa_template', array('textarea_name' => 'visa_template', 'media_buttons' => false, 'textarea_rows' => 16));
 
         echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html__('Save visa settings', 'rt-event-manager') . '</button></p>';
@@ -436,6 +437,10 @@ class RT_Event_Manager_Visa {
         $h .= '<div class="rtacc-visa-row">';
         $h .= $field(__('Date of birth', 'rt-event-manager'), '<input type="date" class="uk-input" name="dob" value="' . esc_attr($dob_prefill) . '" required />');
         $h .= $field(__('Nationality', 'rt-event-manager'), $this->country_select('nationality', $b['country']));
+        $h .= '</div>';
+        $h .= '<div class="rtacc-visa-row">';
+        $h .= $field(__('Passport number', 'rt-event-manager'), '<input type="text" class="uk-input" name="ppno" value="" required />');
+        $h .= '<span class="rtacc-field rtacc-field--spacer"></span>';
         $h .= '</div>';
 
         // Residence: address + country of residence.
@@ -673,6 +678,7 @@ class RT_Event_Manager_Visa {
             'name'          => $applicant_name,
             'dob'           => $dob,
             'nationality'   => $nationality,
+            'ppno'          => sanitize_text_field(wp_unslash($_POST['ppno'] ?? '')),
             'addr1'         => sanitize_text_field(wp_unslash($_POST['addr1'] ?? '')),
             'addr2'         => sanitize_text_field(wp_unslash($_POST['addr2'] ?? '')),
             'postcode'      => sanitize_text_field(wp_unslash($_POST['postcode'] ?? '')),
@@ -817,6 +823,7 @@ class RT_Event_Manager_Visa {
             '{host_nationality}'      => esc_html(self::get_option('host_nationality', 'Schweiz')),
             '{applicant_name}'        => esc_html($applicant['name']),
             '{applicant_dob}'         => esc_html($this->fmt_date($applicant['dob'])),
+            '{applicant_ppno}'        => esc_html(isset($applicant['ppno']) ? $applicant['ppno'] : ''),
             '{applicant_nationality}' => esc_html($this->country_name($applicant['nationality'])),
             '{applicant_address}'     => $applicant_address,
             '{applicant_phone}'       => esc_html($applicant['phone']),
@@ -903,7 +910,7 @@ class RT_Event_Manager_Visa {
         <html><head><meta charset="utf-8" />
         <style>
             @page { margin: 45mm 15mm 20mm 30mm; }
-            body { font-family: 'DejaVu Sans', sans-serif; font-size: 5.5pt; color: #1a1a1a; line-height: 1.5; }
+            body { font-family: 'DejaVu Sans', sans-serif; font-size: 8pt; color: #1a1a1a; line-height: 1.5; }
             .rti-visa-body { position: relative; z-index: 1; }
             h4 { margin: 16px 0 4px; font-size: 13px; }
             p { margin: 0 0 10px; }
