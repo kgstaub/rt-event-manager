@@ -222,7 +222,7 @@
 .rtacc-badge--cancelled { background: #8c8f94; }
 .rtacc-badge--refunded { background: #8250df; }
 .rtacc-dashboard-table .rtacc-group-row th {
-    background: var(--rtacc-secondary-bg);
+    background: transparent;
     color: var(--rtacc-primary);
     font-size: 16px;
     font-weight: 700;
