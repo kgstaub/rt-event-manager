@@ -904,17 +904,24 @@ class RT_Event_Manager_Visa {
             }
         }
 
+        // Bundled Source Code Pro (OFL) for <pre> spans. Absolute paths sit under
+        // ABSPATH, which is inside DomPDF's chroot, so no remote fetch is needed.
+        $font_dir  = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/fonts/';
+        $font_face = "@font-face { font-family: 'Source Code Pro'; font-weight: normal; font-style: normal; src: url('" . $font_dir . "SourceCodePro-Regular.ttf') format('truetype'); }"
+            . "@font-face { font-family: 'Source Code Pro'; font-weight: bold; font-style: normal; src: url('" . $font_dir . "SourceCodePro-Bold.ttf') format('truetype'); }";
+
         ob_start();
         ?>
         <!DOCTYPE html>
         <html><head><meta charset="utf-8" />
         <style>
+            <?php echo $font_face; // phpcs:ignore — trusted local font paths ?>
             @page { margin: 45mm 15mm 20mm 30mm; }
             body { font-family: 'DejaVu Sans', sans-serif; font-size: 8pt; color: #1a1a1a; line-height: 1.5; }
             .rti-visa-body { position: relative; z-index: 1; }
             h4 { margin: 16px 0 4px; font-size: 13px; }
             table td, table th { vertical-align: top; }
-            pre { display: inline; margin: 0; padding: 0; font-family: inherit; font-size: inherit; }
+            pre { display: inline; margin: 0; padding: 0; font-family: 'Source Code Pro', monospace; font-size: inherit; }
             p { margin: 0 0 10px; }
             table.details { width: 100%; border-collapse: collapse; margin: 4px 0 12px; }
             table.details td { padding: 3px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
@@ -935,6 +942,13 @@ class RT_Event_Manager_Visa {
             $options->set('isHtml5ParserEnabled', true);
             $options->set('defaultFont', 'DejaVu Sans');
             $options->set('chroot', array(ABSPATH, wp_upload_dir()['basedir']));
+            // Cache parsed @font-face fonts (Source Code Pro) in a writable uploads
+            // subdir so it does not depend on the plugin folder being writable.
+            $font_cache = trailingslashit(wp_upload_dir()['basedir']) . 'rt-event-manager-fonts';
+            if (wp_mkdir_p($font_cache)) {
+                $options->set('fontDir', $font_cache);
+                $options->set('fontCache', $font_cache);
+            }
             $dompdf = new Dompdf($options);
             $dompdf->loadHtml($html);
             $dompdf->setPaper('A4', 'portrait');
