@@ -234,7 +234,7 @@
 .rtacc-tour-name { display: block; }
 .rtacc-tour-when { display: block; margin-top: 2px; }
 /* Type badges: light tinted background, dark type-coloured text and border. */
-.rtacc-badge--type { background: transparent; border: 1px solid currentColor; }
+.rtacc-badge--type { background: transparent; border: 1px solid currentColor; font-weight: 500; }
 .rtacc-badge--type-event { background: #e7f0ff; color: #1f6feb; border-color: #1f6feb; }
 .rtacc-badge--type-pretour { background: #e0f2f2; color: #0b6d6d; border-color: #0f8a8a; }
 .rtacc-badge--type-daytour { background: #fbeede; color: #a8631a; border-color: #d9822b; }
