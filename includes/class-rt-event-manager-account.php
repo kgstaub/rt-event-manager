@@ -507,8 +507,14 @@ class RT_Event_Manager_Account {
                     $status  = isset($t['status']) ? $t['status'] : 'draft';
                     $product = wc_get_product($t['product_id']);
                     $what    = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
+                    $type_label = RT_Event_Manager::ticket_kind_label($t);
+                    $event_date = $this->ticket_event_date($t['product_id']);
                     echo '<li>';
                     echo '<span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span> ';
+                    echo '<span class="rtacc-badge rtacc-badge--type">' . esc_html($type_label) . '</span> ';
+                    if ('' !== $event_date) {
+                        echo '<span class="rtacc-badge rtacc-badge--date"><i class="fa-regular fa-calendar" aria-hidden="true"></i> ' . esc_html($event_date) . '</span> ';
+                    }
                     echo esc_html($what);
                     echo '</li>';
                 }
@@ -2150,6 +2156,26 @@ class RT_Event_Manager_Account {
             'cancelled'  => __('Cancelled', 'rt-event-manager'),
             'refunded'   => __('Refunded', 'rt-event-manager'),
         );
+    }
+
+    /**
+     * Human-readable event date for a ticket product. Uses the product's own
+     * start datetime (_rti_start) when set, otherwise the global event start
+     * date. Returns '' when neither is available.
+     *
+     * @param int $product_id
+     * @return string
+     */
+    private function ticket_event_date($product_id) {
+        $start = get_post_meta($product_id, '_rti_start', true);
+        if ('' === $start) {
+            $start = (string) get_option('rt_event_manager_event_start', '');
+        }
+        if ('' === $start) {
+            return '';
+        }
+        $ts = strtotime($start);
+        return $ts ? date_i18n(get_option('date_format'), $ts) : '';
     }
 
     /**

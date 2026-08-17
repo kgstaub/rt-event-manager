@@ -221,6 +221,9 @@
 .rtacc-badge--checked_in { background: var(--rtacc-checked-in); }
 .rtacc-badge--cancelled { background: #8c8f94; }
 .rtacc-badge--refunded { background: #8250df; }
+.rtacc-badge--type { background: #1f6feb; }
+.rtacc-badge--date { background: #eef1f5; color: #33475b; }
+.rtacc-badge--date i { margin-right: 3px; }
 
 /* Per-row Transfer / Cancel actions (icon buttons with title tooltips). */
 .rtacc-row-actions {
