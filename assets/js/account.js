@@ -151,7 +151,7 @@
     // ---- Calendar: filter by attendee (agenda blocks always show) ----
     $(document).on('change', '.rtacc-cal-holder', function () {
         var holder = String(this.value || '');
-        $(this).closest('.rtacc-cal').find('.rtacc-cal-block').each(function () {
+        $(this).closest('.rtacc-cal').find('.rtacc-cal-block, .rtacc-cal-listitem').each(function () {
             var $b = $(this);
             if (holder === '' || $b.data('cat') === 'agenda') {
                 $b.removeClass('rtacc-cal-hidden-holder');

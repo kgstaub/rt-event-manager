@@ -632,10 +632,53 @@
     font-size: 9px;
     opacity: 0.85;
 }
-.rtacc-cal-item--pretour { background: #A2071A; }
-.rtacc-cal-item--daytour { background: #2c8c99; }
-.rtacc-cal-item--event   { background: #CC0B24; }
-.rtacc-cal-item--agenda  { background: #2271b1; }
+.rtacc-cal-block.rtacc-cal-item--pretour { background: #A2071A; }
+.rtacc-cal-block.rtacc-cal-item--daytour { background: #2c8c99; }
+.rtacc-cal-block.rtacc-cal-item--event   { background: #CC0B24; }
+.rtacc-cal-block.rtacc-cal-item--agenda  { background: #2271b1; }
+
+/* List view (small screens): chronological, grouped by day. */
+.rtacc-cal-list {
+    display: none;
+}
+.rtacc-cal-list-day {
+    font-weight: 700;
+    color: var(--rtacc-primary);
+    margin: 16px 0 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--rtacc-border);
+}
+.rtacc-cal-listitem {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 2px;
+    border-bottom: 1px solid #f0f0f0;
+}
+.rtacc-cal-listdot {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #999;
+    align-self: center;
+}
+.rtacc-cal-listdot--pretour { background: #A2071A; }
+.rtacc-cal-listdot--daytour { background: #2c8c99; }
+.rtacc-cal-listdot--event   { background: #CC0B24; }
+.rtacc-cal-listdot--agenda  { background: #2271b1; }
+.rtacc-cal-listwhen {
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    white-space: nowrap;
+}
+.rtacc-cal-listtitle {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 14px;
+}
 /* Category show/hide toggles. */
 .rtacc-cal-hide-pretour .rtacc-cal-item--pretour,
 .rtacc-cal-hide-daytour .rtacc-cal-item--daytour,
@@ -654,8 +697,13 @@
         flex: 1 1 100%;
         max-width: none;
     }
-    /* Calendar: the week grid scrolls horizontally (min-width keeps columns
-       usable), so no per-day stacking is needed. */
+    /* Calendar: swap the time-grid for a chronological list on small screens. */
+    .rtacc-cal-weeks {
+        display: none;
+    }
+    .rtacc-cal-list {
+        display: block;
+    }
 }
 
 /* Keep the sidebar in view while scrolling on larger screens. */

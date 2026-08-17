@@ -1304,7 +1304,7 @@ class RT_Event_Manager_Account {
         echo '<div class="rtacc-cal-legend">';
         foreach ($cats as $key => $label) {
             echo '<label class="rtacc-cal-legitem rtacc-cal-legitem--' . esc_attr($key) . '">';
-            echo '<input type="checkbox" class="rtacc-cal-toggle" data-cat="' . esc_attr($key) . '" checked /> ';
+            echo '<input type="checkbox" class="uk-checkbox rtacc-cal-toggle" data-cat="' . esc_attr($key) . '" checked /> ';
             echo '<span class="rtacc-cal-swatch"></span>' . esc_html($label);
             echo '</label>';
         }
@@ -1428,6 +1428,40 @@ class RT_Event_Manager_Account {
             echo '</div>'; // .rtacc-cal-week
         }
         echo '</div>'; // .rtacc-cal-weeks
+
+        // List view (shown on small screens): every item in chronological order,
+        // grouped by day. Shares the category / holder data attributes so the same
+        // toggles and attendee filter apply.
+        $list = $items;
+        usort($list, function ($a, $b) {
+            return $a['start'] <=> $b['start'];
+        });
+        echo '<div class="rtacc-cal-list">';
+        $cur_day = '';
+        foreach ($list as $i) {
+            $day_key = date('Y-m-d', $i['start']);
+            if ($day_key !== $cur_day) {
+                echo '<div class="rtacc-cal-list-day">' . esc_html(date_i18n('l, j M Y', $i['start'])) . '</div>';
+                $cur_day = $day_key;
+            }
+            if (date('Y-m-d', $i['start']) === date('Y-m-d', $i['end'])) {
+                $when = date_i18n('H:i', $i['start']) . ' – ' . date_i18n('H:i', $i['end']);
+            } else {
+                $when = date_i18n('H:i', $i['start']) . ' → ' . date_i18n('j M, H:i', $i['end']);
+            }
+            $holder_list = implode('|', array_keys($i['holders']));
+            echo '<div class="rtacc-cal-listitem rtacc-cal-item--' . esc_attr($i['cat']) . '" data-cat="' . esc_attr($i['cat']) . '" data-holders="' . esc_attr($holder_list) . '">';
+            echo '<span class="rtacc-cal-listdot rtacc-cal-listdot--' . esc_attr($i['cat']) . '"></span>';
+            echo '<span class="rtacc-cal-listwhen">' . esc_html($when) . '</span>';
+            echo '<span class="rtacc-cal-listtitle">' . esc_html($i['title']);
+            if ('' !== $i['location']) {
+                echo ' <span class="rtacc-cal-loc">' . esc_html($i['location']) . '</span>';
+            }
+            echo '</span>';
+            echo '</div>';
+        }
+        echo '</div>'; // .rtacc-cal-list
+
         echo '</div>'; // .rtacc-cal
     }
 
