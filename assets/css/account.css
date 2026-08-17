@@ -567,6 +567,9 @@
 }
 .rtacc-cal-week-body {
     position: relative;
+    overflow-y: auto;
+    border: 1px solid var(--rtacc-border);
+    border-top: none;
 }
 .rtacc-cal-corner,
 .rtacc-cal-timegutter {
@@ -594,37 +597,6 @@
     padding-right: 6px;
     line-height: 1;
     transform: translateY(-5px);
-}
-/* All-day banner strip (multi-day items). */
-.rtacc-cal-allday {
-    display: flex;
-    min-width: 680px;
-    margin: 2px 0;
-}
-.rtacc-cal-allday-label {
-    font-size: 9px;
-    color: var(--rtacc-muted);
-    text-align: right;
-    padding-right: 6px;
-    align-self: center;
-}
-.rtacc-cal-allday-track {
-    flex: 1 1 0;
-    min-width: 0;
-    position: relative;
-}
-.rtacc-cal-allbar {
-    position: absolute;
-    box-sizing: border-box;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    color: #fff;
-    font-size: 10px;
-    line-height: 18px;
-    padding: 0 6px;
-    border-radius: 3px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
 }
 .rtacc-cal-daybody {
     flex: 1 1 0;

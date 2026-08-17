@@ -151,7 +151,7 @@
     // ---- Calendar: filter by attendee (agenda blocks always show) ----
     $(document).on('change', '.rtacc-cal-holder', function () {
         var holder = String(this.value || '');
-        $(this).closest('.rtacc-cal').find('.rtacc-cal-block, .rtacc-cal-allbar').each(function () {
+        $(this).closest('.rtacc-cal').find('.rtacc-cal-block').each(function () {
             var $b = $(this);
             if (holder === '' || $b.data('cat') === 'agenda') {
                 $b.removeClass('rtacc-cal-hidden-holder');
@@ -159,6 +159,16 @@
             }
             var holders = String($b.attr('data-holders') || '').split('|');
             $b.toggleClass('rtacc-cal-hidden-holder', holders.indexOf(holder) === -1);
+        });
+    });
+
+    // ---- Calendar: focus the day viewport on 08:00 (scroll to reveal the rest) ----
+    $(function () {
+        $('.rtacc-cal-week-body').each(function () {
+            var top = parseInt($(this).attr('data-focus-top'), 10);
+            if (!isNaN(top)) {
+                this.scrollTop = top;
+            }
         });
     });
 

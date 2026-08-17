@@ -1275,44 +1275,16 @@ class RT_Event_Manager_Account {
             $day_end = strtotime('+7 days', $day_end);
         }
 
-        // Multi-day items (e.g. the event ticket) are shown as all-day banners so
-        // they do not squeeze the hour grid; single-day items are placed on the
-        // hour grid by their times.
-        $timed  = array();
-        $allday = array();
-        foreach ($items as $i) {
-            if (date('Y-m-d', $i['start']) !== date('Y-m-d', $i['end'])) {
-                $allday[] = $i;
-            } else {
-                $timed[] = $i;
-            }
-        }
-
-        // Hour window derived from the timed items (fallback 08:00–18:00).
-        $min_min = 24 * 60;
-        $max_min = 0;
-        foreach ($timed as $i) {
-            $sm = (int) date('G', $i['start']) * 60 + (int) date('i', $i['start']);
-            $em = (int) date('G', $i['end']) * 60 + (int) date('i', $i['end']);
-            if (0 === $em) {
-                $em = 24 * 60;
-            }
-            $min_min = min($min_min, $sm);
-            $max_min = max($max_min, $em);
-        }
-        if (empty($timed)) {
-            $hour_start = 8;
-            $hour_end   = 18;
-        } else {
-            $hour_start = max(0, (int) floor($min_min / 60));
-            $hour_end   = min(24, (int) ceil($max_min / 60));
-            if ($hour_end <= $hour_start) {
-                $hour_start = 8;
-                $hour_end   = 18;
-            }
-        }
-        $hh     = 44; // pixel height of one hour row
-        $body_h = ($hour_end - $hour_start) * $hh;
+        // The grid always spans the full day (00:00–24:00). Multi-day items are
+        // drawn as spanning blocks (start time → end of start day, a full block
+        // on each day between, then 00:00 → end time on the final day). The body
+        // viewport focuses on 08:00–20:00 and scrolls to reveal the rest.
+        $hour_start = 0;
+        $hour_end   = 24;
+        $hh         = 40;               // pixel height of one hour row
+        $body_h     = 24 * $hh;         // full-day content height
+        $focus_top  = 8 * $hh;          // scroll so 08:00 is at the top
+        $view_h     = (20 - 8) * $hh;   // visible viewport height (08:00–20:00)
 
         echo '<div class="rtacc-cal">';
 
@@ -1356,56 +1328,10 @@ class RT_Event_Manager_Account {
             }
             echo '</div>';
 
-            // All-day banner strip: multi-day items spanning this week.
-            $week_start_ts = strtotime(date('Y-m-d', $day) . ' 00:00');
-            $week_end_ts   = strtotime(date('Y-m-d', strtotime('+7 days', $day)) . ' 00:00');
-            $bars = array();
-            foreach ($allday as $i) {
-                if ($i['start'] < $week_end_ts && $i['end'] > $week_start_ts) {
-                    $sc = (int) floor((strtotime(date('Y-m-d', $i['start']) . ' 00:00') - $week_start_ts) / DAY_IN_SECONDS);
-                    $ec = (int) floor((strtotime(date('Y-m-d', $i['end']) . ' 00:00') - $week_start_ts) / DAY_IN_SECONDS);
-                    $bars[] = array('i' => $i, 'sc' => max(0, $sc), 'ec' => min(6, $ec));
-                }
-            }
-            if (!empty($bars)) {
-                usort($bars, function ($a, $b) {
-                    return $a['sc'] <=> $b['sc'];
-                });
-                // Stack bars into rows so they never overlap horizontally.
-                $rows = array(); // row index => last end column
-                foreach ($bars as $bi => $bar) {
-                    $row = -1;
-                    foreach ($rows as $ri => $end) {
-                        if ($end < $bar['sc']) {
-                            $row = $ri;
-                            break;
-                        }
-                    }
-                    if ($row < 0) {
-                        $row = count($rows);
-                    }
-                    $rows[$row]        = $bar['ec'];
-                    $bars[$bi]['row']  = $row;
-                }
-                $bar_h  = 20;
-                $strip_h = count($rows) * ($bar_h + 2);
-                echo '<div class="rtacc-cal-allday"><div class="rtacc-cal-corner rtacc-cal-allday-label">' . esc_html__('All-day', 'rt-event-manager') . '</div>';
-                echo '<div class="rtacc-cal-allday-track" style="height:' . (int) $strip_h . 'px;">';
-                foreach ($bars as $bar) {
-                    $i     = $bar['i'];
-                    $left  = $bar['sc'] / 7 * 100;
-                    $width = ($bar['ec'] - $bar['sc'] + 1) / 7 * 100;
-                    $top   = $bar['row'] * ($bar_h + 2);
-                    $holder_list = implode('|', array_keys($i['holders']));
-                    echo '<div class="rtacc-cal-allbar rtacc-cal-item--' . esc_attr($i['cat']) . '" data-cat="' . esc_attr($i['cat']) . '" data-holders="' . esc_attr($holder_list) . '"'
-                        . ' style="left:' . round($left, 3) . '%;width:' . round($width, 3) . '%;top:' . (int) $top . 'px;height:' . (int) $bar_h . 'px;"'
-                        . ' title="' . esc_attr($i['title']) . '">' . esc_html($i['title']) . '</div>';
-                }
-                echo '</div></div>';
-            }
-
-            // Time gutter + day bodies.
-            echo '<div class="rtacc-cal-week-body">';
+            // Time gutter + day bodies. The body is a viewport focused on
+            // 08:00–20:00 that scrolls to reveal the full day (JS sets the initial
+            // scroll to $focus_top).
+            echo '<div class="rtacc-cal-week-body" style="max-height:' . (int) $view_h . 'px;" data-focus-top="' . (int) $focus_top . '">';
             echo '<div class="rtacc-cal-timegutter" style="height:' . (int) $body_h . 'px;">';
             for ($h = $hour_start; $h < $hour_end; $h++) {
                 echo '<div class="rtacc-cal-hourlabel" style="height:' . (int) $hh . 'px;">' . esc_html(sprintf('%02d:00', $h)) . '</div>';
@@ -1423,9 +1349,9 @@ class RT_Event_Manager_Account {
                     echo '<div class="rtacc-cal-hourline" style="top:' . (int) (($h - $hour_start) * $hh) . 'px;"></div>';
                 }
 
-                // Segments visible in this day's window.
+                // Segments visible in this day's window (multi-day items span).
                 $segs = array();
-                foreach ($timed as $i) {
+                foreach ($items as $i) {
                     if ($i['start'] < $win_end && $i['end'] > $win_start) {
                         $s = max($i['start'], $win_start);
                         $e = min($i['end'], $win_end);
