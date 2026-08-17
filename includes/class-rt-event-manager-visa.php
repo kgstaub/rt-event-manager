@@ -903,7 +903,7 @@ class RT_Event_Manager_Visa {
         <html><head><meta charset="utf-8" />
         <style>
             @page { margin: 45mm 15mm 20mm 30mm; }
-            body { font-family: 'DejaVu Sans', sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.5; }
+            body { font-family: 'DejaVu Sans', sans-serif; font-size: 5.5pt; color: #1a1a1a; line-height: 1.5; }
             .rti-visa-body { position: relative; z-index: 1; }
             h4 { margin: 16px 0 4px; font-size: 13px; }
             p { margin: 0 0 10px; }
