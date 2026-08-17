@@ -173,6 +173,14 @@ class RT_Event_Manager_Visa {
         return get_option('rt_event_manager_visa_' . $key, $default);
     }
 
+    /** Event start / end dates (managed on the main RT Event Manager settings). */
+    public static function event_start() {
+        return (string) get_option('rt_event_manager_event_start', '');
+    }
+    public static function event_end() {
+        return (string) get_option('rt_event_manager_event_end', '');
+    }
+
     public static function default_template() {
         return '<p>Sehr geehrte Damen und Herren</p>'
             . '<p>Hiermit bestätigen wir, {host_name}, dass wir die untenstehende Person zum Anlass in der Schweiz erwarten.</p>'
@@ -228,7 +236,7 @@ class RT_Event_Manager_Visa {
         }
 
         if (isset($_POST['rt_visa_settings_nonce']) && wp_verify_nonce($_POST['rt_visa_settings_nonce'], 'rt_visa_settings')) {
-            $text_fields = array('host_type', 'host_name', 'host_first_name', 'host_dob', 'host_phone', 'host_email', 'host_nationality', 'stay_from', 'stay_to', 'sig1_name', 'sig1_title', 'sig2_name', 'sig2_title');
+            $text_fields = array('host_type', 'host_name', 'host_first_name', 'host_dob', 'host_phone', 'host_email', 'host_nationality', 'sig1_name', 'sig1_title', 'sig2_name', 'sig2_title');
             foreach ($text_fields as $f) {
                 update_option('rt_event_manager_visa_' . $f, sanitize_text_field(wp_unslash($_POST['visa_' . $f] ?? '')));
             }
@@ -267,8 +275,6 @@ class RT_Event_Manager_Visa {
         $row(__('Host phone', 'rt-event-manager'), '<input type="text" class="regular-text" name="visa_host_phone" value="' . esc_attr(self::get_option('host_phone')) . '" />');
         $row(__('Host e-mail', 'rt-event-manager'), '<input type="email" class="regular-text" name="visa_host_email" value="' . esc_attr(self::get_option('host_email')) . '" />');
         $row(__('Host nationality / country', 'rt-event-manager'), '<input type="text" class="regular-text" name="visa_host_nationality" value="' . esc_attr(self::get_option('host_nationality', 'Schweiz')) . '" />');
-        $row(__('Event start date', 'rt-event-manager'), '<input type="date" name="visa_stay_from" value="' . esc_attr(self::get_option('stay_from')) . '" />');
-        $row(__('Event end date', 'rt-event-manager'), '<input type="date" name="visa_stay_to" value="' . esc_attr(self::get_option('stay_to')) . '" />');
 
         // Two signatories with name, title and PNG signature uploads.
         for ($i = 1; $i <= 2; $i++) {
@@ -450,8 +456,8 @@ class RT_Event_Manager_Visa {
         // Travel plans.
         $h .= '<h4 class="rtacc-visa-subhead">' . esc_html__('Travel plans', 'rt-event-manager') . '</h4>';
         $h .= '<div class="rtacc-visa-row">';
-        $h .= $field(__('Planned arrival', 'rt-event-manager'), '<input type="date" class="uk-input" name="arrival" value="' . esc_attr(self::get_option('stay_from')) . '" required />');
-        $h .= $field(__('Planned departure', 'rt-event-manager'), '<input type="date" class="uk-input" name="departure" value="' . esc_attr(self::get_option('stay_to')) . '" required />');
+        $h .= $field(__('Planned arrival', 'rt-event-manager'), '<input type="date" class="uk-input" name="arrival" value="' . esc_attr(self::event_start()) . '" required />');
+        $h .= $field(__('Planned departure', 'rt-event-manager'), '<input type="date" class="uk-input" name="departure" value="' . esc_attr(self::event_end()) . '" required />');
         $h .= '</div>';
 
         // Contact (dropped for children / Future members).
@@ -815,16 +821,16 @@ class RT_Event_Manager_Visa {
             '{applicant_address}'     => $applicant_address,
             '{applicant_phone}'       => esc_html($applicant['phone']),
             '{applicant_email}'       => esc_html($applicant['email']),
-            // Event start / end date (from settings). {stay_from}/{stay_to} remain
-            // as legacy aliases for any existing template.
-            '{event_start}'           => esc_html($this->fmt_date(self::get_option('stay_from'))),
-            '{event_end}'             => esc_html($this->fmt_date(self::get_option('stay_to'))),
-            '{stay_from}'             => esc_html($this->fmt_date(self::get_option('stay_from'))),
-            '{stay_to}'               => esc_html($this->fmt_date(self::get_option('stay_to'))),
+            // Event start / end date (from the main settings). {stay_from}/{stay_to}
+            // remain as legacy aliases for any existing template.
+            '{event_start}'           => esc_html($this->fmt_date(self::event_start())),
+            '{event_end}'             => esc_html($this->fmt_date(self::event_end())),
+            '{stay_from}'             => esc_html($this->fmt_date(self::event_start())),
+            '{stay_to}'               => esc_html($this->fmt_date(self::event_end())),
             // Planned travel dates entered on the generation form (fall back to
             // the event window when the applicant left them blank).
-            '{arrival}'               => esc_html($this->fmt_date(!empty($applicant['arrival']) ? $applicant['arrival'] : self::get_option('stay_from'))),
-            '{departure}'             => esc_html($this->fmt_date(!empty($applicant['departure']) ? $applicant['departure'] : self::get_option('stay_to'))),
+            '{arrival}'               => esc_html($this->fmt_date(!empty($applicant['arrival']) ? $applicant['arrival'] : self::event_start())),
+            '{departure}'             => esc_html($this->fmt_date(!empty($applicant['departure']) ? $applicant['departure'] : self::event_end())),
             '{issue_date}'            => esc_html($this->fmt_date(current_time('Y-m-d'))),
             '{guardian_name}'         => esc_html(isset($applicant['guardian_name']) ? $applicant['guardian_name'] : ''),
         );
