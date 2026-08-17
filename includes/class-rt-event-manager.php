@@ -140,6 +140,7 @@ class RT_Event_Manager {
         // so a stale cart (e.g. a second browser window) cannot double-book a tour
         // after another order has already claimed the host.
         add_action('woocommerce_check_cart_items', array($this, 'validate_cart_tours_against_db'));
+        add_action('woocommerce_check_cart_items', array($this, 'validate_future_needs_adult'));
         add_action('woocommerce_product_query', array($this, 'hide_future_from_catalog'));
 
         // Carry the linkage through the single-product "choose options" page for
@@ -1920,6 +1921,51 @@ class RT_Event_Manager {
      * pretour — or an overlapping day tour — this blocks checkout so the same
      * tour cannot be sold twice for the same person.
      */
+    /** Whether the given user already has a (non-terminal) adult event ticket. */
+    public function user_has_event_ticket($user_id) {
+        if (!$user_id) {
+            return false;
+        }
+        foreach (self::get_tickets_for_user($user_id) as $t) {
+            if ('event' === self::get_ticket_kind($t)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A Future member ticket may only be purchased when there is at least one
+     * adult event ticket to attach it to — either in this order or already on
+     * the buyer's account. Blocks checkout otherwise.
+     */
+    public function validate_future_needs_adult() {
+        if (!function_exists('WC') || !WC()->cart) {
+            return;
+        }
+        $has_future = false;
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            if ($pid && self::is_future_product($pid)) {
+                $has_future = true;
+                break;
+            }
+        }
+        if (!$has_future) {
+            return;
+        }
+        if ($this->cart_has_event_ticket()) {
+            return;
+        }
+        if (is_user_logged_in() && $this->user_has_event_ticket(get_current_user_id())) {
+            return;
+        }
+        wc_add_notice(
+            __('Future member tickets require at least one adult event ticket. Please add an adult ticket to your order, or make sure your account already has one.', 'rt-event-manager'),
+            'error'
+        );
+    }
+
     public function validate_cart_tours_against_db() {
         if (!function_exists('WC') || !WC()->cart) {
             return;

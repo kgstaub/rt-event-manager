@@ -332,23 +332,15 @@ class RT_Event_Manager_Account {
 
         if (count($pretours) > 1) {
             // Multiple tours → open a modal to choose which one.
-            $pretour_btn = '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cart-pretour">' . esc_html__('Add a pretour', 'rt-event-manager') . '</button>';
-            $options = '';
-            foreach ($pretours as $p) {
-                $options .= '<div class="rtacc-cart-pretour-option">' . $this->cart_add_link($p, $p->get_name() . ' — ' . wp_strip_all_tags($p->get_price_html()), 'uk-button uk-button-secondary') . '</div>';
-            }
+            $buttons .= '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cart-pretour">' . esc_html__('Add a pretour', 'rt-event-manager') . '</button>';
             $modals .= '<div class="rtacc-modal" id="rtacc-modal-cart-pretour" hidden>'
                 . '<div class="rtacc-modal-backdrop" data-rtacc-close></div>'
                 . '<div class="rtacc-modal-dialog"><h3 class="rtacc-subtitle">' . esc_html__('Choose a pretour', 'rt-event-manager') . '</h3>'
-                . '<div class="rtacc-cart-pretour-list">' . $options . '</div>'
+                . '<div class="rtacc-cart-pretour-list">' . $this->cart_tour_options($pretours) . '</div>'
                 . '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button></p>'
                 . '</div></div>';
-            $buttons .= $this->cart_add_col($this->tour_times_lines($pretours), $pretour_btn);
         } elseif (count($pretours) === 1) {
-            $buttons .= $this->cart_add_col(
-                $this->tour_times_lines($pretours),
-                $this->cart_add_link($pretours[0], __('Add a pretour', 'rt-event-manager'))
-            );
+            $buttons .= $this->cart_add_link($pretours[0], __('Add a pretour', 'rt-event-manager'));
         }
 
         // Purchasable day tour products (there can be several to choose from),
@@ -362,23 +354,15 @@ class RT_Event_Manager_Account {
         }
         $daytours = $this->sort_products_by_start($daytours);
         if (count($daytours) > 1) {
-            $daytour_btn = '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cart-daytour">' . esc_html__('Add a day tour', 'rt-event-manager') . '</button>';
-            $options = '';
-            foreach ($daytours as $p) {
-                $options .= '<div class="rtacc-cart-pretour-option">' . $this->cart_add_link($p, $p->get_name() . ' — ' . wp_strip_all_tags($p->get_price_html()), 'uk-button uk-button-secondary') . '</div>';
-            }
+            $buttons .= '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cart-daytour">' . esc_html__('Add a day tour', 'rt-event-manager') . '</button>';
             $modals .= '<div class="rtacc-modal" id="rtacc-modal-cart-daytour" hidden>'
                 . '<div class="rtacc-modal-backdrop" data-rtacc-close></div>'
                 . '<div class="rtacc-modal-dialog"><h3 class="rtacc-subtitle">' . esc_html__('Choose a day tour', 'rt-event-manager') . '</h3>'
-                . '<div class="rtacc-cart-pretour-list">' . $options . '</div>'
+                . '<div class="rtacc-cart-pretour-list">' . $this->cart_tour_options($daytours) . '</div>'
                 . '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button></p>'
                 . '</div></div>';
-            $buttons .= $this->cart_add_col($this->tour_times_lines($daytours), $daytour_btn);
         } elseif (count($daytours) === 1) {
-            $buttons .= $this->cart_add_col(
-                $this->tour_times_lines($daytours),
-                $this->cart_add_link($daytours[0], __('Add a day tour', 'rt-event-manager'))
-            );
+            $buttons .= $this->cart_add_link($daytours[0], __('Add a day tour', 'rt-event-manager'));
         }
 
         $has_future = false;
@@ -2130,29 +2114,22 @@ class RT_Event_Manager_Account {
      * @return WC_Product[]
      */
     /**
-     * "Name · dd.mm.yyyy, HH:MM – …" lines for tour products that have a start
-     * time, shown above their cart add button. Empty when none have times.
+     * Selectable tour options for a cart chooser modal: each option shows the
+     * tour's start–end time above the add button.
      *
      * @param WC_Product[] $products
      * @return string
      */
-    private function tour_times_lines($products) {
-        $lines = '';
+    private function cart_tour_options($products) {
+        $out = '';
         foreach ($products as $p) {
             $range = $this->tour_time_range($p->get_id());
-            if ('' !== $range) {
-                $lines .= '<div class="rtacc-cart-tour-time uk-text-meta">' . esc_html($p->get_name() . ' · ' . $range) . '</div>';
-            }
+            $time  = ('' !== $range) ? '<div class="rtacc-cart-tour-time uk-text-meta">' . esc_html($range) . '</div>' : '';
+            $out  .= '<div class="rtacc-cart-pretour-option">' . $time
+                . $this->cart_add_link($p, $p->get_name() . ' — ' . wp_strip_all_tags($p->get_price_html()), 'uk-button uk-button-secondary')
+                . '</div>';
         }
-        return $lines;
-    }
-
-    /** Wrap a cart add button with its tour time line(s) stacked above it. */
-    private function cart_add_col($times, $button) {
-        if ('' === $times) {
-            return $button;
-        }
-        return '<div class="rtacc-cart-add-col">' . $times . $button . '</div>';
+        return $out;
     }
 
     private function sort_products_by_start($products) {
