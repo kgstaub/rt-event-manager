@@ -233,12 +233,12 @@
 }
 .rtacc-tour-name { display: block; }
 .rtacc-tour-when { display: block; margin-top: 2px; }
-.rtacc-badge--type { background: #1f6feb; }
-/* Distinct colour per ticket type. */
-.rtacc-badge--type-event { background: #1f6feb; }
-.rtacc-badge--type-pretour { background: #0f8a8a; }
-.rtacc-badge--type-daytour { background: #d9822b; }
-.rtacc-badge--type-minor { background: #7048e8; }
+/* Type badges: light tinted background, dark type-coloured text and border. */
+.rtacc-badge--type { background: transparent; border: 1px solid currentColor; }
+.rtacc-badge--type-event { background: #e7f0ff; color: #1f6feb; border-color: #1f6feb; }
+.rtacc-badge--type-pretour { background: #e0f2f2; color: #0b6d6d; border-color: #0f8a8a; }
+.rtacc-badge--type-daytour { background: #fbeede; color: #a8631a; border-color: #d9822b; }
+.rtacc-badge--type-minor { background: #efeaff; color: #5a34c0; border-color: #7048e8; }
 .rtacc-badge--date { background: #eef1f5; color: #33475b; }
 .rtacc-badge--date i { margin-right: 3px; }
 
