@@ -506,6 +506,7 @@ class RT_Event_Manager {
         // to (the pretour then inherits that attendee's details).
         $host_options  = array(); // global ticket index => fallback label
         $host_products = array(); // global ticket index => product name
+        $event_slots   = array(); // global ticket index => true (adult event slots)
         $slot_idx = 0;
         foreach ($ticket_items as $item) {
             for ($q = 0; $q < $item['quantity']; $q++) {
@@ -517,7 +518,23 @@ class RT_Event_Manager {
                     );
                     $host_products[$slot_idx] = $item['product_name'];
                 }
+                if ('event' === $item['kind']) {
+                    $event_slots[$slot_idx] = true;
+                }
                 $slot_idx++;
+            }
+        }
+
+        // Guardian options for Future member tickets: adult event tickets already
+        // on the buyer's account (static labels) plus adult event tickets in this
+        // cart (dynamic, live holder names — value is the slot index).
+        $guardian_account = array(); // ticket id => holder name
+        if ($current_user->ID) {
+            foreach (self::get_tickets_for_user($current_user->ID) as $at) {
+                if ('event' === self::get_ticket_kind($at)) {
+                    $name = ($at['holder_name'] !== '') ? $at['holder_name'] : sprintf(__('Ticket #%d', 'rt-event-manager'), absint($at['id']));
+                    $guardian_account[absint($at['id'])] = $name;
+                }
             }
         }
 
@@ -622,6 +639,32 @@ class RT_Event_Manager {
                                 'circler' => __('Future Circler', 'rt-event-manager'),
                             ),
                         ), '');
+                    }
+
+                    // Guardian picker: the accompanying adult, chosen from the
+                    // buyer's account event tickets or the adult tickets in this
+                    // cart. Only shown when the minor was not already linked to a
+                    // guardian when it was added from the account.
+                    if (empty($item['has_parent'])) {
+                        $g_opts = array('' => __('— Select the guardian —', 'rt-event-manager'));
+                        foreach ($guardian_account as $gid => $gname) {
+                            $g_opts['acct:' . $gid] = $gname;
+                        }
+                        foreach ($event_slots as $es => $unused) {
+                            if (isset($host_options[$es])) {
+                                $g_opts[$es] = $host_options[$es];
+                            }
+                        }
+                        if (count($g_opts) > 1) {
+                            woocommerce_form_field($field_prefix . '_guardian', array(
+                                'type'        => 'select',
+                                'label'       => __('Guardian', 'rt-event-manager'),
+                                'required'    => true,
+                                'class'       => array('form-row-wide'),
+                                'options'     => $g_opts,
+                                'description' => __('Choose the accompanying adult (parent / guardian) for this child.', 'rt-event-manager'),
+                            ), '');
+                        }
                     }
                 } else {
                     woocommerce_form_field($field_prefix . '_phone', array(
@@ -732,10 +775,12 @@ class RT_Event_Manager {
                 return el ? el.value.trim() : '';
             }
             function refreshPickers() {
-                var links = document.querySelectorAll('#rti-ticket-holders select[name$="_link"]');
+                var links = document.querySelectorAll('#rti-ticket-holders select[name$="_link"], #rti-ticket-holders select[name$="_guardian"]');
                 links.forEach(function (sel) {
                     Array.prototype.forEach.call(sel.options, function (opt) {
-                        if (opt.value === '') { return; }
+                        // Only the cart-slot options (numeric value) track a live
+                        // holder name; blank and account (acct:*) options stay put.
+                        if (!/^\d+$/.test(opt.value)) { return; }
                         var name = holderName(opt.value);
                         if (name !== '') {
                             var product = products[opt.value] ? ' — ' + products[opt.value] : '';
@@ -860,6 +905,13 @@ class RT_Event_Manager {
                             $i + 1
                         ), 'error');
                     }
+                }
+                // When the guardian picker is shown, one must be chosen.
+                if (isset($_POST[$field_prefix . '_guardian']) && '' === trim((string) wp_unslash($_POST[$field_prefix . '_guardian']))) {
+                    wc_add_notice(sprintf(
+                        __('Please choose the guardian for Ticket %d.', 'rt-event-manager'),
+                        $i + 1
+                    ), 'error');
                 }
                 continue;
             }
@@ -1747,12 +1799,54 @@ class RT_Event_Manager {
             }
             $primary_event = !empty($event_ticket_ids) ? $event_ticket_ids[0] : 0;
 
-            // Attach unparented Future members to the buyer's event ticket.
-            if ($primary_event) {
-                foreach ($order_tickets as $ot) {
-                    if ('minor' === self::get_ticket_kind($ot) && !absint($ot['parent_ticket_id'])) {
-                        $this->update_ticket($ot['id'], array('parent_ticket_id' => $primary_event));
+            // Map every checkout slot index to the ticket id just created for it,
+            // used by the guardian and tour-link pickers below.
+            $idx_to_id = array();
+            foreach ($order_tickets as $ot) {
+                $idx_to_id[absint($ot['ticket_index'])] = absint($ot['id']);
+            }
+
+            // Adult event tickets the buyer may pick as a guardian: those in this
+            // order, plus any already on their account.
+            $event_id_set = array_flip($event_ticket_ids);
+            $acct_event   = array();
+            $buyer_id     = absint($order->get_customer_id());
+            if ($buyer_id) {
+                foreach (self::get_tickets_for_user($buyer_id) as $at) {
+                    if ('event' === self::get_ticket_kind($at)) {
+                        $acct_event[absint($at['id'])] = true;
                     }
+                }
+            }
+
+            // Attach each Future member to its chosen guardian (an adult event
+            // ticket in this order or on the account), falling back to the buyer's
+            // first event ticket in this order.
+            foreach ($order_tickets as $ot) {
+                if ('minor' !== self::get_ticket_kind($ot) || absint($ot['parent_ticket_id'])) {
+                    continue;
+                }
+                $slot     = absint($ot['ticket_index']);
+                $guardian = 0;
+                if (isset($_POST['rti_ticket_' . $slot . '_guardian'])) {
+                    $raw = sanitize_text_field(wp_unslash($_POST['rti_ticket_' . $slot . '_guardian']));
+                    if (is_numeric($raw)) {
+                        $cand = isset($idx_to_id[absint($raw)]) ? $idx_to_id[absint($raw)] : 0;
+                        if ($cand && isset($event_id_set[$cand])) {
+                            $guardian = $cand;
+                        }
+                    } elseif (0 === strpos($raw, 'acct:')) {
+                        $cand = absint(substr($raw, 5));
+                        if ($cand && isset($acct_event[$cand])) {
+                            $guardian = $cand;
+                        }
+                    }
+                }
+                if (!$guardian) {
+                    $guardian = $primary_event;
+                }
+                if ($guardian) {
+                    $this->update_ticket($ot['id'], array('parent_ticket_id' => $guardian));
                 }
             }
 
@@ -1760,10 +1854,6 @@ class RT_Event_Manager {
             // (the "This pretour/day tour is for" picker): copy that attendee's
             // details onto the tour and link it to their ticket. The picker value
             // is the host ticket's checkout index (== stored ticket_index).
-            $idx_to_id = array();
-            foreach ($order_tickets as $ot) {
-                $idx_to_id[absint($ot['ticket_index'])] = absint($ot['id']);
-            }
             for ($li = 0; $li < $ticket_count; $li++) {
                 if (!isset($_POST['rti_ticket_' . $li . '_link'])) {
                     continue;
