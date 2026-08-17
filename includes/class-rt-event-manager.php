@@ -1701,13 +1701,13 @@ class RT_Event_Manager {
                     $minor_ticket_ids[] = absint($ot['id']);
                 }
             }
-            // One tour per host, tracked separately per kind (a ticket may host
-            // one pretour AND one day tour).
-            $tour_taken = array('pretour' => array(), 'daytour' => array());
+            // Pretours are one per host; day tours may stack on a host as long as
+            // they do not overlap in time (checked live against DB children, which
+            // update_ticket writes immediately below).
+            $tour_taken = array('pretour' => array());
             foreach ($order_tickets as $ot) {
-                $ok = self::get_ticket_kind($ot);
-                if (in_array($ok, array('pretour', 'daytour'), true) && absint($ot['parent_ticket_id'])) {
-                    $tour_taken[$ok][absint($ot['parent_ticket_id'])] = true;
+                if ('pretour' === self::get_ticket_kind($ot) && absint($ot['parent_ticket_id'])) {
+                    $tour_taken['pretour'][absint($ot['parent_ticket_id'])] = true;
                 }
             }
             $primary_event = !empty($event_ticket_ids) ? $event_ticket_ids[0] : 0;
@@ -1748,8 +1748,12 @@ class RT_Event_Manager {
                     continue;
                 }
                 $host_id = $idx_to_id[$host_index];
-                if (!empty($tour_taken[$tour_kind][$host_id])) {
-                    continue; // one tour of this kind per host
+                if ('pretour' === $tour_kind) {
+                    if (!empty($tour_taken['pretour'][$host_id])) {
+                        continue; // one pretour per host
+                    }
+                } elseif (self::host_daytour_conflict($host_id, absint($tour_row['product_id']))) {
+                    continue; // day tour overlaps one this host already has
                 }
                 $host_row = self::get_ticket_by_id($host_id);
                 if (!$host_row || !in_array(self::get_ticket_kind($host_row), array('event', 'minor'), true)) {
@@ -1767,7 +1771,9 @@ class RT_Event_Manager {
                     'qr_code_url'      => $host_row['qr_code_url'],
                     'status'           => rt_event_manager_determine_ticket_status($order, $host_row['holder_name']),
                 ));
-                $tour_taken[$tour_kind][$host_id] = true;
+                if ('pretour' === $tour_kind) {
+                    $tour_taken['pretour'][$host_id] = true;
+                }
             }
 
             // Re-read so tours just linked above are seen as parented and are not
@@ -1775,7 +1781,8 @@ class RT_Event_Manager {
             $order_tickets = self::get_tickets_for_order($order_id);
 
             // Distribute any still-unparented tours across available hosts (event
-            // tickets first, then Future member tickets), one per host per kind.
+            // tickets first, then Future member tickets). Pretours go one per host;
+            // day tours prefer a host they do not overlap on.
             $hosts = array_merge($event_ticket_ids, $minor_ticket_ids);
             if (!empty($hosts)) {
                 foreach ($order_tickets as $ot) {
@@ -1784,16 +1791,28 @@ class RT_Event_Manager {
                         continue;
                     }
                     $target = 0;
-                    foreach ($hosts as $hid) {
-                        if (empty($tour_taken[$ok][$hid])) {
-                            $target = $hid;
-                            break;
+                    if ('pretour' === $ok) {
+                        foreach ($hosts as $hid) {
+                            if (empty($tour_taken['pretour'][$hid])) {
+                                $target = $hid;
+                                break;
+                            }
+                        }
+                    } else { // daytour: first host it does not overlap on
+                        $product = absint($ot['product_id']);
+                        foreach ($hosts as $hid) {
+                            if (!self::host_daytour_conflict($hid, $product)) {
+                                $target = $hid;
+                                break;
+                            }
                         }
                     }
                     if (!$target) {
                         $target = $hosts[0];
                     }
-                    $tour_taken[$ok][$target] = true;
+                    if ('pretour' === $ok) {
+                        $tour_taken['pretour'][$target] = true;
+                    }
                     $this->update_ticket($ot['id'], array('parent_ticket_id' => $target));
                 }
             }
@@ -1917,8 +1936,11 @@ class RT_Event_Manager {
                 return false;
             }
         } elseif (self::is_daytour_product($product_id)) {
-            if (self::ticket_has_daytour($parent_id) || $this->cart_has_tour_for_parent($parent_id, 'daytour')) {
-                wc_add_notice(__('This ticket already has a day tour. Each ticket can have only one day tour.', 'rt-event-manager'), 'error');
+            // Multiple day tours per person are allowed as long as their time
+            // windows do not overlap (and the same tour is not booked twice).
+            $cart_products = $this->cart_tour_products_for_parent($parent_id, 'daytour');
+            if (self::host_daytour_conflict($parent_id, $product_id, $cart_products)) {
+                wc_add_notice(__('This day tour overlaps another day tour already booked for this person. Day tours for the same person must not overlap in time.', 'rt-event-manager'), 'error');
                 return false;
             }
         }
@@ -1943,7 +1965,9 @@ class RT_Event_Manager {
             ), 'error');
             return false;
         }
-        if ($this->count_cart_unlinked_tours($kind) + 1 > $this->count_cart_pretour_hosts()) {
+        // Pretours are one per host, so an unparented pretour may not outnumber
+        // the hosts. Day tours may stack (non-overlapping) on a host, so no cap.
+        if ('daytour' !== $kind && $this->count_cart_unlinked_tours($kind) + 1 > $this->count_cart_pretour_hosts()) {
             wc_add_notice(sprintf(
                 /* translators: %s: pretour / day tour */
                 __('Each ticket can have only one %s. Please remove one from your cart before adding another.', 'rt-event-manager'),
@@ -1952,6 +1976,30 @@ class RT_Event_Manager {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Product ids of tours of a kind currently in the cart that are linked to a
+     * specific parent ticket.
+     *
+     * @param int    $parent_id
+     * @param string $kind 'pretour' | 'daytour'
+     * @return int[]
+     */
+    private function cart_tour_products_for_parent($parent_id, $kind) {
+        $out       = array();
+        $parent_id = absint($parent_id);
+        if (!$parent_id || !function_exists('WC') || !WC()->cart) {
+            return $out;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+            if ($pid && $parent === $parent_id && self::get_ticket_kind_for_product($pid) === $kind) {
+                $out[] = $pid;
+            }
+        }
+        return $out;
     }
 
     /**
@@ -5230,6 +5278,76 @@ class RT_Event_Manager {
     /** The Day tour tickets linked to a host ticket. */
     public static function get_child_daytours($ticket_id, $exclude_cancelled = true) {
         return self::get_child_tours($ticket_id, 'daytour', $exclude_cancelled);
+    }
+
+    /**
+     * Start / end timestamps for a tour product from its _rti_start/_rti_end
+     * meta. Returns [start, end] as Unix timestamps; 0 when unset. End defaults
+     * to start when missing and is never earlier than start.
+     *
+     * @param int $product_id
+     * @return array{0:int,1:int}
+     */
+    public static function tour_product_range($product_id) {
+        $s = get_post_meta($product_id, '_rti_start', true);
+        $e = get_post_meta($product_id, '_rti_end', true);
+        $s = ('' !== $s) ? (int) strtotime($s) : 0;
+        $e = ('' !== $e) ? (int) strtotime($e) : 0;
+        if (!$e) {
+            $e = $s;
+        }
+        if ($s && $e && $e < $s) {
+            $e = $s;
+        }
+        return array($s, $e);
+    }
+
+    /**
+     * Whether two day-tour products conflict for the same person: the same
+     * product twice, or overlapping time windows. Tours whose end equals the
+     * other's start (back to back) do NOT conflict. When either product has no
+     * times set, distinct products are allowed (only identical ones conflict).
+     *
+     * @param int $a Product id.
+     * @param int $b Product id.
+     * @return bool
+     */
+    public static function daytours_conflict($a, $b) {
+        if (absint($a) === absint($b)) {
+            return true;
+        }
+        list($as, $ae) = self::tour_product_range($a);
+        list($bs, $be) = self::tour_product_range($b);
+        if (!$as || !$bs) {
+            return false; // unknown times: allow distinct products
+        }
+        return ($as < $be) && ($bs < $ae);
+    }
+
+    /**
+     * Whether adding $new_product as a day tour for $host_id would conflict with
+     * the host's existing day tours (optionally plus extra pending product ids,
+     * e.g. items already in the cart).
+     *
+     * @param int   $host_id
+     * @param int   $new_product
+     * @param int[] $extra_products
+     * @return bool
+     */
+    public static function host_daytour_conflict($host_id, $new_product, $extra_products = array()) {
+        $products = array();
+        foreach (self::get_child_daytours($host_id) as $c) {
+            $products[] = absint($c['product_id']);
+        }
+        foreach ($extra_products as $p) {
+            $products[] = absint($p);
+        }
+        foreach ($products as $p) {
+            if (self::daytours_conflict($p, $new_product)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

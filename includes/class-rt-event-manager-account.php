@@ -1026,10 +1026,13 @@ class RT_Event_Manager_Account {
         foreach ($this->get_cart_tour_products($kind) as $pp => $pids) {
             $has_tour[$pp] = true;
         }
+        // Pretours are one per person, so only members without one are offered.
+        // Day tours may stack (non-overlapping), so every member stays eligible;
+        // the overlap is validated when the tour is added.
         $candidates = array();
         foreach ($tickets as $t) {
             $k = $this->effective_kind($t);
-            if (('event' === $k || 'minor' === $k) && !isset($has_tour[absint($t['id'])])) {
+            if (('event' === $k || 'minor' === $k) && ($is_day || !isset($has_tour[absint($t['id'])]))) {
                 $candidates[] = $t;
             }
         }
@@ -2340,8 +2343,14 @@ class RT_Event_Manager_Account {
             if (!in_array($host_kind, array('event', 'minor'), true)) {
                 continue;
             }
-            if (RT_Event_Manager::ticket_has_tour($tid, $kind)) {
-                continue; // already has a tour of this kind (one per host)
+            if ('daytour' === $kind) {
+                // Day tours may stack — the host just must not already have one
+                // that overlaps the transferred tour in time.
+                if (RT_Event_Manager::host_daytour_conflict($tid, $product)) {
+                    continue;
+                }
+            } elseif (RT_Event_Manager::ticket_has_tour($tid, $kind)) {
+                continue; // pretour: one per host
             }
             if ('event' === $host_kind) {
                 if (!$event_host) {
@@ -2930,21 +2939,40 @@ class RT_Event_Manager_Account {
             }
         }
 
+        $tour_kind = $kind; // 'pretour' | 'daytour' (loop reuses $kind for members)
         $added = 0;
         foreach ($members as $mid) {
-            if (!isset($by_id[$mid]) || isset($has_pretour[$mid])) {
-                continue; // not owned, or already has a pretour (one per person)
+            if (!isset($by_id[$mid])) {
+                continue; // not the user's ticket
+            }
+            // Pretours: one per person. Day tours: allowed as long as the chosen
+            // tour does not overlap one this member already has (booked or in cart).
+            if ('daytour' === $tour_kind) {
+                $conflict = false;
+                if (!empty($pretour_products[$mid])) {
+                    foreach ($pretour_products[$mid] as $p) {
+                        if (RT_Event_Manager::daytours_conflict($p, $product_id)) {
+                            $conflict = true;
+                            break;
+                        }
+                    }
+                }
+                if ($conflict) {
+                    continue; // overlaps an existing day tour for this member
+                }
+            } elseif (isset($has_pretour[$mid])) {
+                continue; // already has a pretour (one per person)
             }
             $m    = $by_id[$mid];
-            $kind = RT_Event_Manager::get_ticket_kind($m);
-            if (!in_array($kind, array('event', 'minor'), true)) {
-                continue; // pretours attach to event tickets or Future members
+            $member_kind = RT_Event_Manager::get_ticket_kind($m);
+            if (!in_array($member_kind, array('event', 'minor'), true)) {
+                continue; // tours attach to event tickets or Future members
             }
 
             // A Future member may only join the same tour as their guardian: the
-            // guardian must be getting this pretour in the batch, or already have
+            // guardian must be getting this tour in the batch, or already have
             // one for this product.
-            if ('minor' === $kind) {
+            if ('minor' === $member_kind) {
                 $guardian    = absint($m['parent_ticket_id']);
                 $guardian_ok = in_array($guardian, $members, true)
                     || (isset($pretour_products[$guardian]) && in_array($product_id, $pretour_products[$guardian], true));
