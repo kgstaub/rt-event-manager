@@ -1290,7 +1290,7 @@ class RT_Event_Manager_Account {
         // viewport focuses on 08:00–20:00 and scrolls to reveal the rest.
         $hour_start = 0;
         $hour_end   = 24;
-        $hh         = 40;               // pixel height of one hour row
+        $hh         = 46;               // pixel height of one hour row
         $body_h     = 24 * $hh;         // full-day content height
         $focus_top  = 8 * $hh;          // scroll so 08:00 is at the top
         $view_h     = (20 - 8) * $hh;   // visible viewport height (08:00–20:00)
