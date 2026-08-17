@@ -1308,11 +1308,17 @@ class RT_Event_Manager_Account {
             echo '<div class="rtacc-notice uk-alert-danger" uk-alert><p>' . esc_html__('You need a valid event ticket (or a companion / Future member ticket) without a pretour to accept this pretour. Please register or free up a ticket first.', 'rt-event-manager') . '</p></div>';
         }
 
+        // Transfers close once the edit deadline has passed.
+        $deadline_passed = !RT_Event_Manager::instance()->is_frontend_editing_allowed();
+        if ($deadline_passed) {
+            echo '<div class="rtacc-notice uk-alert-danger" uk-alert><p>' . esc_html__('The deadline has passed — this transfer can no longer be accepted.', 'rt-event-manager') . '</p></div>';
+        }
+
         echo '<form class="rtacc-form rtacc-accept-form">';
         echo '<input type="hidden" name="token" value="' . esc_attr($token) . '" />';
         echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
         echo '<p class="rtacc-actions">';
-        if (!$pretour_no_host) {
+        if (!$pretour_no_host && !$deadline_passed) {
             echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Accept transfer', 'rt-event-manager') . '</button>';
         }
         echo '<button type="button" class="uk-button uk-button-secondary rtacc-decline-btn">' . esc_html__('Decline', 'rt-event-manager') . '</button>';
@@ -1685,12 +1691,14 @@ class RT_Event_Manager_Account {
             : __('Cancel ticket', 'rt-event-manager');
 
         $has_pending_transfer = !empty($t['transfer_token']);
+        $can_transfer         = RT_Event_Manager::instance()->is_frontend_editing_allowed();
 
         $out = '<div class="rtacc-row-actions">';
         if (in_array($kind, array('event', 'pretour'), true)) {
             if ($has_pending_transfer) {
+                // Withdrawing a pending offer stays available even after the deadline.
                 $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" title="' . esc_attr($withdraw_label) . '" aria-label="' . esc_attr($withdraw_label) . '">' . $icon_withdraw . '</button>';
-            } else {
+            } elseif ($can_transfer) {
                 $out .= '<button type="button" class="rtacc-icon-btn rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" title="' . esc_attr($transfer_label) . '" aria-label="' . esc_attr($transfer_label) . '">' . $icon_transfer . '</button>';
             }
         }
@@ -2181,6 +2189,9 @@ class RT_Event_Manager_Account {
         if (!in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'pretour'), true)) {
             wp_send_json_error(__('Only event and pretour tickets can be transferred. Future member tickets must be cancelled instead.', 'rt-event-manager'));
         }
+        if (!RT_Event_Manager::instance()->is_frontend_editing_allowed()) {
+            wp_send_json_error(__('The deadline has passed — tickets can no longer be transferred.', 'rt-event-manager'));
+        }
         if (in_array($t['status'], array('cancelled', 'checked_in'), true)) {
             wp_send_json_error(__('This ticket can no longer be transferred.', 'rt-event-manager'));
         }
@@ -2320,6 +2331,9 @@ class RT_Event_Manager_Account {
         $kind = $event ? RT_Event_Manager::get_ticket_kind($event) : '';
         if (!$event || !in_array($kind, array('event', 'pretour'), true) || 'cancelled' === $event['status']) {
             wp_send_json_error(__('This transfer link is no longer valid.', 'rt-event-manager'));
+        }
+        if (!RT_Event_Manager::instance()->is_frontend_editing_allowed()) {
+            wp_send_json_error(__('The deadline has passed — this transfer can no longer be accepted.', 'rt-event-manager'));
         }
 
         $mgr      = RT_Event_Manager::instance();
