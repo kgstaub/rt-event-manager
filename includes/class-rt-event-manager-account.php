@@ -2211,7 +2211,7 @@ class RT_Event_Manager_Account {
         if (!$s) {
             return '';
         }
-        $date_fmt = get_option('date_format');
+        $date_fmt = 'd.m.Y';
         $time_fmt = get_option('time_format');
         $start = date_i18n($date_fmt . ', ' . $time_fmt, $s);
         if (!$e || $e === $s) {
