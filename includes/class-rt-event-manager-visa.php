@@ -893,7 +893,7 @@ class RT_Event_Manager_Visa {
                 . $title_html . '</div>';
         }
         $signature_block = ('' !== $cells[0] || '' !== $cells[1])
-            ? '<table style="width:100%;margin-top:0;"><tr>'
+            ? '<table style="width:100%;margin-top:0;page-break-inside:avoid;"><tr>'
                 . '<td style="width:50%;padding:0;">' . $cells[0] . '</td>'
                 . '<td style="width:50%;padding:0;">' . $cells[1] . '</td>'
                 . '</tr></table>'
@@ -928,12 +928,12 @@ class RT_Event_Manager_Visa {
             @page { margin: 45mm 15mm 20mm 30mm; }
             body { font-family: 'DejaVu Sans', sans-serif; font-size: 8pt; color: #1a1a1a; line-height: 1.5; }
             .rti-visa-body { position: relative; z-index: 1; }
-            h4 { margin: 16px 0 4px; font-size: 13px; }
+            h4 { margin: 10px 0 3px; font-size: 13px; }
             table td, table th { vertical-align: top; }
             pre { display: inline; margin: 0; padding: 0; font-family: 'Source Code Pro', monospace; font-size: inherit; }
-            p { margin: 0 0 10px; }
-            table.details { width: 100%; border-collapse: collapse; margin: 4px 0 12px; }
-            table.details td { padding: 3px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
+            p { margin: 0 0 7px; }
+            table.details { width: 100%; border-collapse: collapse; margin: 3px 0 8px; }
+            table.details td { padding: 2px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
             table.details td.lbl { width: 170px; color: #555; padding-right: 20px; }
         </style></head><body>
             <?php echo $bg_html; // phpcs:ignore — trusted local attachment path ?>
