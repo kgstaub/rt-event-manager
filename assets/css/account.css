@@ -642,12 +642,11 @@
     position: absolute;
     box-sizing: border-box;
     overflow: hidden;
-    color: #fff;
     font-size: 10px;
     line-height: 1.15;
     padding: 2px 4px;
     border-radius: 3px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
+    border: 1px solid currentColor;
 }
 .rtacc-cal-btime {
     font-weight: 700;
@@ -657,11 +656,11 @@
     font-size: 9px;
     opacity: 0.85;
 }
-/* Block colours match the dashboard type palette (teal / amber / blue). */
-.rtacc-cal-block.rtacc-cal-item--pretour { background: #0f8a8a; }
-.rtacc-cal-block.rtacc-cal-item--daytour { background: #d9822b; }
-.rtacc-cal-block.rtacc-cal-item--event   { background: #1f6feb; }
-.rtacc-cal-block.rtacc-cal-item--agenda  { background: #1f6feb; }
+/* Inverted blocks matching the legend badges: light tint, coloured text/border. */
+.rtacc-cal-block.rtacc-cal-item--pretour { background: #e0f2f2; color: #0b6d6d; }
+.rtacc-cal-block.rtacc-cal-item--daytour { background: #fbeede; color: #a8631a; }
+.rtacc-cal-block.rtacc-cal-item--event   { background: #e7f0ff; color: #1f6feb; }
+.rtacc-cal-block.rtacc-cal-item--agenda  { background: #e7f0ff; color: #1f6feb; }
 
 /* List view (small screens): chronological, grouped by day. */
 .rtacc-cal-list {
