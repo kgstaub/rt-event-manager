@@ -181,6 +181,17 @@ class RT_Event_Manager_Visa {
         return (string) get_option('rt_event_manager_event_end', '');
     }
 
+    /** Default note added when a letter is for an under-6 child. */
+    public static function default_guardian_note() {
+        return 'Das Kind {applicant_name} reist in Begleitung der/des Erziehungsberechtigten {guardian_name}.';
+    }
+
+    /** Admin-editable guardian note template (Visa Settings), with default. */
+    public static function guardian_note_template() {
+        $note = (string) get_option('rt_event_manager_visa_guardian_note', '');
+        return ('' !== trim($note)) ? $note : self::default_guardian_note();
+    }
+
     public static function default_template() {
         return '<p>Sehr geehrte Damen und Herren</p>'
             . '<p>Hiermit bestätigen wir, {host_name}, dass wir die untenstehende Person zum Anlass in der Schweiz erwarten.</p>'
@@ -242,6 +253,7 @@ class RT_Event_Manager_Visa {
                 update_option('rt_event_manager_visa_' . $f, sanitize_text_field(wp_unslash($_POST['visa_' . $f] ?? '')));
             }
             update_option('rt_event_manager_visa_host_address', sanitize_textarea_field(wp_unslash($_POST['visa_host_address'] ?? '')));
+            update_option('rt_event_manager_visa_guardian_note', sanitize_textarea_field(wp_unslash($_POST['visa_guardian_note'] ?? '')));
             update_option('rt_event_manager_visa_template', wp_kses_post(wp_unslash($_POST['visa_template'] ?? '')));
             update_option('rt_event_manager_visa_sig1_img', absint($_POST['visa_sig1_img'] ?? 0));
             update_option('rt_event_manager_visa_sig2_img', absint($_POST['visa_sig2_img'] ?? 0));
@@ -302,6 +314,12 @@ class RT_Event_Manager_Visa {
             . '<button type="button" class="button rt-visa-upload" data-target="visa_bg_img">' . esc_html__('Select background image', 'rt-event-manager') . '</button> '
             . '<button type="button" class="button rt-visa-clear" data-target="visa_bg_img">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
         $row(__('Letter background (A4)', 'rt-event-manager'), $bg_html, __('Full-page A4 background (letterhead) drawn behind the letter text.', 'rt-event-manager'));
+
+        $row(
+            __('Guardian note (under-6 child)', 'rt-event-manager'),
+            '<textarea name="visa_guardian_note" rows="3" class="large-text">' . esc_textarea(self::guardian_note_template()) . '</textarea>',
+            __('Shown via {guardian_note} when a letter is generated for an accompanying child under 6. Placeholders: {applicant_name}, {guardian_name}.', 'rt-event-manager')
+        );
 
         echo '</table>';
 
@@ -852,13 +870,16 @@ class RT_Event_Manager_Visa {
         }
 
         // Guardian note for a child / Future member accompanying their guardian.
+        // The text is admin-editable (Visa Settings) with {applicant_name} and
+        // {guardian_name} placeholders; substitute them before it enters $vars so
+        // the single-pass template replacement does not need to see them again.
         $guardian_note = '';
         if (!empty($applicant['is_child']) && !empty($applicant['guardian_name'])) {
-            $guardian_note = '<p>' . esc_html(sprintf(
-                'Das Kind %1$s reist in Begleitung der/des Erziehungsberechtigten %2$s.',
-                $applicant['name'],
-                $applicant['guardian_name']
-            )) . '</p>';
+            $note = strtr(self::guardian_note_template(), array(
+                '{applicant_name}' => $applicant['name'],
+                '{guardian_name}'  => $applicant['guardian_name'],
+            ));
+            $guardian_note = '<p>' . nl2br(esc_html($note)) . '</p>';
         }
         $vars['{guardian_note}'] = $guardian_note;
 
