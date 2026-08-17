@@ -913,6 +913,7 @@ class RT_Event_Manager_Visa {
             body { font-family: 'DejaVu Sans', sans-serif; font-size: 8pt; color: #1a1a1a; line-height: 1.5; }
             .rti-visa-body { position: relative; z-index: 1; }
             h4 { margin: 16px 0 4px; font-size: 13px; }
+            table td, table th { vertical-align: top; }
             p { margin: 0 0 10px; }
             table.details { width: 100%; border-collapse: collapse; margin: 4px 0 12px; }
             table.details td { padding: 3px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
