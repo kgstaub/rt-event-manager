@@ -870,7 +870,9 @@ class RT_Event_Manager_Visa {
         $template = wpautop($template);
         $body = strtr($template, $vars);
 
-        $sigs = '';
+        // Signature 1 sits at the left margin, signature 2 starts at the page
+        // middle (each column is 50% wide, left-aligned within its column).
+        $cells = array('', '');
         for ($i = 1; $i <= 2; $i++) {
             $name  = self::get_option('sig' . $i . '_name');
             $title = self::get_option('sig' . $i . '_title');
@@ -886,11 +888,16 @@ class RT_Event_Manager_Visa {
                 }
             }
             $title_html = ('' !== $title) ? '<span style="display:block;color:#555;font-size:11px;">' . esc_html($title) . '</span>' : '';
-            $sigs .= '<td style="padding:0 20px;">' . $img_html
+            $cells[$i - 1] = '<div style="width:180px;">' . $img_html
                 . '<span style="border-top:1px solid #333;display:block;padding-top:4px;">' . esc_html($name) . '</span>'
-                . $title_html . '</td>';
+                . $title_html . '</div>';
         }
-        $signature_block = $sigs ? '<table style="margin-top:40px;"><tr>' . $sigs . '</tr></table>' : '';
+        $signature_block = ('' !== $cells[0] || '' !== $cells[1])
+            ? '<table style="width:100%;margin-top:40px;"><tr>'
+                . '<td style="width:50%;padding:0;">' . $cells[0] . '</td>'
+                . '<td style="width:50%;padding:0;">' . $cells[1] . '</td>'
+                . '</tr></table>'
+            : '';
 
         // Optional full-page A4 background (letterhead).
         $bg_html = '';
@@ -907,8 +914,10 @@ class RT_Event_Manager_Visa {
         // Bundled Source Code Pro (OFL) for <pre> spans. Absolute paths sit under
         // ABSPATH, which is inside DomPDF's chroot, so no remote fetch is needed.
         $font_dir  = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/fonts/';
-        $font_face = "@font-face { font-family: 'Source Code Pro'; font-weight: normal; font-style: normal; src: url('" . $font_dir . "SourceCodePro-Regular.ttf') format('truetype'); }"
-            . "@font-face { font-family: 'Source Code Pro'; font-weight: bold; font-style: normal; src: url('" . $font_dir . "SourceCodePro-Bold.ttf') format('truetype'); }";
+        // The bundled TTFs have the centre dot removed from the "0" glyph so the
+        // zero renders plain (DomPDF ignores the OpenType feature that would do this).
+        $font_face = "@font-face { font-family: 'Source Code Pro'; font-weight: normal; font-style: normal; src: url('" . $font_dir . "SourceCodePro-Regular-plain0.ttf') format('truetype'); }"
+            . "@font-face { font-family: 'Source Code Pro'; font-weight: bold; font-style: normal; src: url('" . $font_dir . "SourceCodePro-Bold-plain0.ttf') format('truetype'); }";
 
         ob_start();
         ?>
