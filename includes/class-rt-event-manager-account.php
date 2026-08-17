@@ -1564,6 +1564,9 @@ class RT_Event_Manager_Account {
             // The account owner's own ticket holds their personal details, managed
             // in My Profile — its holder fields are read-only here.
             $row_editable = $can_edit && ($id !== $this->own_event_id);
+            // Dietary restrictions, however, are the holder's own to set — editable
+            // on every ticket the user may edit, including their own.
+            $dietary_editable = $can_edit;
 
             echo '<tr data-ticket-id="' . esc_attr($id) . '">';
             echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '">' . esc_html(RT_Event_Manager::ticket_kind_label($t)) . '</td>';
@@ -1603,10 +1606,10 @@ class RT_Event_Manager_Account {
                 }
             }
 
-            // Dietary (+ conditional allergy details), editable except on the
-            // account owner's own ticket.
+            // Dietary (+ conditional allergy details) — editable on every ticket
+            // the user may edit, including their own.
             $allergy_val = isset($t['allergy_details']) ? $t['allergy_details'] : '';
-            if ($row_editable) {
+            if ($dietary_editable) {
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '"><select class="rtacc-ticket-field rtacc-dietary-select uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][dietary]">';
                 foreach ($dietary_options as $dkey => $dlabel) {
                     echo '<option value="' . esc_attr($dkey) . '" ' . selected($t['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
