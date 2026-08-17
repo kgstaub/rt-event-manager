@@ -2212,7 +2212,7 @@ class RT_Event_Manager_Account {
             return '';
         }
         $date_fmt = 'd.m.Y';
-        $time_fmt = get_option('time_format');
+        $time_fmt = 'H:i';
         $start = date_i18n($date_fmt . ', ' . $time_fmt, $s);
         if (!$e || $e === $s) {
             return $start;

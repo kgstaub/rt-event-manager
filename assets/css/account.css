@@ -222,11 +222,14 @@
 .rtacc-badge--cancelled { background: #8c8f94; }
 .rtacc-badge--refunded { background: #8250df; }
 .rtacc-dashboard-table .rtacc-group-row th {
-    background: #f5f7fa;
-    color: #33475b;
+    background: var(--rtacc-secondary-bg);
+    color: var(--rtacc-primary);
+    font-size: 16px;
     font-weight: 700;
-    padding: 8px 10px;
-    border-top: 2px solid #dfe3e8;
+    letter-spacing: 0.02em;
+    padding: 10px 12px;
+    border-top: 3px solid var(--rtacc-primary);
+    border-bottom: 1px solid var(--rtacc-border);
 }
 .rtacc-tour-name { display: block; }
 .rtacc-tour-when { display: block; margin-top: 2px; }
