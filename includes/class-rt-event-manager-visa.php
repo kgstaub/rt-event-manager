@@ -893,7 +893,7 @@ class RT_Event_Manager_Visa {
                 . $title_html . '</div>';
         }
         $signature_block = ('' !== $cells[0] || '' !== $cells[1])
-            ? '<table style="width:100%;margin-top:40px;"><tr>'
+            ? '<table style="width:100%;margin-top:12px;"><tr>'
                 . '<td style="width:50%;padding:0;">' . $cells[0] . '</td>'
                 . '<td style="width:50%;padding:0;">' . $cells[1] . '</td>'
                 . '</tr></table>'
