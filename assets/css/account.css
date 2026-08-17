@@ -120,7 +120,17 @@
 .rtacc-cart-add-buttons {
     display: flex;
     flex-wrap: wrap;
+    align-items: flex-end;
     gap: 10px;
+}
+.rtacc-cart-add-col {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.rtacc-cart-tour-time {
+    text-align: left;
+    line-height: 1.3;
 }
 .rtacc-cart-pretour-list {
     display: flex;
