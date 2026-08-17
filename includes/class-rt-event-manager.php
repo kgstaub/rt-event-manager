@@ -331,6 +331,11 @@ class RT_Event_Manager {
                 letter-spacing: 0.04em;
                 color: #660b05;
             }
+            .rti-field-hint {
+                margin: -6px 0 12px;
+                font-size: 0.85em;
+                color: #777;
+            }
             .rti-ticket-holder-group {
                 margin-bottom: 20px;
                 padding: 15px;
@@ -602,8 +607,10 @@ class RT_Event_Manager {
                         'required'    => true,
                         'class'       => array('form-row-wide'),
                         'options'     => $link_opts,
-                        'description' => sprintf(__('Choose which attendee is joining this %s — it uses their name and details.', 'rt-event-manager'), $tour_word),
                     ), '');
+                    // Static hint (not the WC field description, which toggles on
+                    // focus and shifts the layout).
+                    echo '<p class="rti-field-hint">' . esc_html(sprintf(__('Choose which attendee is joining this %s — it uses their name and details.', 'rt-event-manager'), $tour_word)) . '</p>';
                 } else {
 
                 $name_value = (!$is_additional && !$is_minor) ? $default_name : '';
@@ -677,8 +684,8 @@ class RT_Event_Manager {
                                 'required'    => true,
                                 'class'       => array('form-row-wide'),
                                 'options'     => $g_opts,
-                                'description' => __('Choose the accompanying adult (parent / guardian) for this child.', 'rt-event-manager'),
                             ), '');
+                            echo '<p class="rti-field-hint">' . esc_html__('Choose the accompanying adult (parent / guardian) for this child.', 'rt-event-manager') . '</p>';
                         }
                     }
                 } else {
