@@ -504,7 +504,8 @@ class RT_Event_Manager {
         // Pre-compute a flat list of every ticket slot so a pretour can offer a
         // picker of the event / Future member tickets in this same order to link
         // to (the pretour then inherits that attendee's details).
-        $host_options = array(); // global ticket index => label
+        $host_options  = array(); // global ticket index => fallback label
+        $host_products = array(); // global ticket index => product name
         $slot_idx = 0;
         foreach ($ticket_items as $item) {
             for ($q = 0; $q < $item['quantity']; $q++) {
@@ -514,6 +515,7 @@ class RT_Event_Manager {
                         $slot_idx + 1,
                         $item['product_name']
                     );
+                    $host_products[$slot_idx] = $item['product_name'];
                 }
                 $slot_idx++;
             }
@@ -706,7 +708,9 @@ class RT_Event_Manager {
         // Hidden field to track total ticket count
         echo '<input type="hidden" name="rti_ticket_count" value="' . esc_attr($ticket_index) . '" />';
 
-        // Toggle each ticket's allergy-details field based on its dietary select.
+        // Toggle each ticket's allergy-details field based on its dietary select,
+        // and keep the "This tour is for" pickers labelled with the live holder
+        // names entered above (falling back to "Ticket N — Product").
         ?>
         <script type="text/javascript">
         (function () {
@@ -720,6 +724,32 @@ class RT_Event_Manager {
                 toggleAllergy(sel);
                 sel.addEventListener('change', function () { toggleAllergy(sel); });
             });
+
+            var products  = <?php echo wp_json_encode($host_products); ?>;
+            var fallbacks = <?php echo wp_json_encode($host_options); ?>;
+            function holderName(idx) {
+                var el = document.getElementById('rti_ticket_' + idx + '_name');
+                return el ? el.value.trim() : '';
+            }
+            function refreshPickers() {
+                var links = document.querySelectorAll('#rti-ticket-holders select[name$="_link"]');
+                links.forEach(function (sel) {
+                    Array.prototype.forEach.call(sel.options, function (opt) {
+                        if (opt.value === '') { return; }
+                        var name = holderName(opt.value);
+                        if (name !== '') {
+                            var product = products[opt.value] ? ' — ' + products[opt.value] : '';
+                            opt.textContent = name + product;
+                        } else if (fallbacks[opt.value]) {
+                            opt.textContent = fallbacks[opt.value];
+                        }
+                    });
+                });
+            }
+            document.addEventListener('input', function (e) {
+                if (e.target && /^rti_ticket_\d+_name$/.test(e.target.id || '')) { refreshPickers(); }
+            });
+            refreshPickers();
         })();
         </script>
         <?php
