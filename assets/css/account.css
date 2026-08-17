@@ -60,6 +60,28 @@
 .rtacc-nav .rtacc-nav-logout > a:hover {
     color: var(--rtacc-primary-hover);
 }
+/* Mobile hamburger (shown only on small screens; opens the off-canvas nav). */
+.rtacc-hamburger {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--rtacc-primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.rtacc-hamburger:hover {
+    background: var(--rtacc-primary-hover);
+}
+.rtacc-nav--offcanvas {
+    flex: none;
+    max-width: none;
+}
 
 /* ---- Content ---- */
 .rtacc-content {
@@ -749,7 +771,14 @@
 
 /* ---- Responsive ---- */
 @media (max-width: 720px) {
-    .rtacc-nav {
+    /* Replace the sidebar with a hamburger that opens the off-canvas nav. */
+    .rtacc > .rtacc-nav {
+        display: none;
+    }
+    .rtacc-hamburger {
+        display: inline-flex;
+    }
+    .rtacc-content {
         flex: 1 1 100%;
         max-width: none;
     }
@@ -764,7 +793,7 @@
 
 /* Keep the sidebar in view while scrolling on larger screens. */
 @media (min-width: 721px) {
-    .rtacc-nav {
+    .rtacc > .rtacc-nav {
         position: sticky;
         top: 20px;
         align-self: flex-start;

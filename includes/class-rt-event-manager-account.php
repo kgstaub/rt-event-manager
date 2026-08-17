@@ -464,6 +464,19 @@ class RT_Event_Manager_Account {
         $tab = $this->current_tab();
 
         echo '<div class="rtacc">';
+
+        // Mobile: a hamburger opens the navigation in a UIkit off-canvas.
+        echo '<button class="rtacc-hamburger" type="button" uk-toggle="target: #rtacc-offcanvas-nav" aria-label="' . esc_attr__('Open menu', 'rt-event-manager') . '">';
+        echo '<i class="fa-solid fa-bars" aria-hidden="true"></i> ' . esc_html__('Menu', 'rt-event-manager');
+        echo '</button>';
+        echo '<div id="rtacc-offcanvas-nav" uk-offcanvas="overlay: true">';
+        echo '<div class="uk-offcanvas-bar">';
+        echo '<button class="uk-offcanvas-close" type="button" uk-close></button>';
+        echo '<nav class="rtacc-nav rtacc-nav--offcanvas" aria-label="' . esc_attr__('Account navigation', 'rt-event-manager') . '">';
+        echo $this->nav_items_html($tab);
+        echo '</nav></div></div>';
+
+        // Desktop sidebar.
         $this->render_nav($tab);
 
         echo '<div class="rtacc-content rtacc-content--' . esc_attr($tab) . '">';
@@ -506,6 +519,13 @@ class RT_Event_Manager_Account {
     }
 
     private function render_nav($current) {
+        echo '<nav class="rtacc-nav" aria-label="' . esc_attr__('Account navigation', 'rt-event-manager') . '">';
+        echo $this->nav_items_html($current);
+        echo '</nav>';
+    }
+
+    /** The navigation <ul> (reused by the desktop sidebar and the off-canvas). */
+    private function nav_items_html($current) {
         $icons = array(
             'dashboard' => 'fa-gauge-high',
             'profile'   => 'fa-user',
@@ -520,7 +540,7 @@ class RT_Event_Manager_Account {
         );
 
         $item = function ($icon, $url, $label, $classes) {
-            printf(
+            return sprintf(
                 '<li class="%s"><a href="%s"><i class="fa-solid %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
                 esc_attr($classes),
                 esc_url($url),
@@ -529,14 +549,14 @@ class RT_Event_Manager_Account {
             );
         };
 
-        echo '<nav class="rtacc-nav" aria-label="' . esc_attr__('Account navigation', 'rt-event-manager') . '">';
-        echo '<ul class="uk-nav uk-nav-default uk-nav-divider">';
+        $out = '<ul class="uk-nav uk-nav-default uk-nav-divider">';
         foreach ($this->get_tabs() as $key => $label) {
             $icon = isset($icons[$key]) ? $icons[$key] : 'fa-circle';
-            $item($icon, $this->tab_url($key), $label, ($key === $current) ? 'uk-active' : '');
+            $out .= $item($icon, $this->tab_url($key), $label, ($key === $current) ? 'uk-active' : '');
         }
-        $item('fa-right-from-bracket', wp_logout_url($this->account_base_url()), __('Log out', 'rt-event-manager'), 'rtacc-nav-logout');
-        echo '</ul></nav>';
+        $out .= $item('fa-right-from-bracket', wp_logout_url($this->account_base_url()), __('Log out', 'rt-event-manager'), 'rtacc-nav-logout');
+        $out .= '</ul>';
+        return $out;
     }
 
     /* ---------------------------------------------------------------------
