@@ -1392,7 +1392,7 @@ class RT_Event_Manager_Account {
 
     private function maybe_cutoff_notice($can_edit) {
         if (!$can_edit) {
-            echo '<div class="rtacc-notice uk-alert-warning" uk-alert>' . esc_html__('The ticket editing deadline has passed. Please contact us if you need to make changes.', 'rt-event-manager') . '</div>';
+            echo '<div class="rtacc-notice rtacc-alert-secondary" uk-alert><p>' . esc_html__('The ticket editing deadline has passed. Please contact us if you need to make changes.', 'rt-event-manager') . '</p></div>';
         }
     }
 

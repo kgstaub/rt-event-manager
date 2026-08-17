@@ -228,7 +228,7 @@ class RT_Event_Manager_Visa {
         }
 
         if (isset($_POST['rt_visa_settings_nonce']) && wp_verify_nonce($_POST['rt_visa_settings_nonce'], 'rt_visa_settings')) {
-            $text_fields = array('host_type', 'host_name', 'host_first_name', 'host_dob', 'host_phone', 'host_email', 'host_nationality', 'stay_from', 'stay_to', 'sig1_name', 'sig2_name');
+            $text_fields = array('host_type', 'host_name', 'host_first_name', 'host_dob', 'host_phone', 'host_email', 'host_nationality', 'stay_from', 'stay_to', 'sig1_name', 'sig1_title', 'sig2_name', 'sig2_title');
             foreach ($text_fields as $f) {
                 update_option('rt_event_manager_visa_' . $f, sanitize_text_field(wp_unslash($_POST['visa_' . $f] ?? '')));
             }
@@ -236,6 +236,7 @@ class RT_Event_Manager_Visa {
             update_option('rt_event_manager_visa_template', wp_kses_post(wp_unslash($_POST['visa_template'] ?? '')));
             update_option('rt_event_manager_visa_sig1_img', absint($_POST['visa_sig1_img'] ?? 0));
             update_option('rt_event_manager_visa_sig2_img', absint($_POST['visa_sig2_img'] ?? 0));
+            update_option('rt_event_manager_visa_bg_img', absint($_POST['visa_bg_img'] ?? 0));
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Visa settings saved.', 'rt-event-manager') . '</p></div>';
         }
 
@@ -269,19 +270,31 @@ class RT_Event_Manager_Visa {
         $row(__('Stay from', 'rt-event-manager'), '<input type="date" name="visa_stay_from" value="' . esc_attr(self::get_option('stay_from')) . '" />');
         $row(__('Stay to', 'rt-event-manager'), '<input type="date" name="visa_stay_to" value="' . esc_attr(self::get_option('stay_to')) . '" />');
 
-        // Two signatories with PNG signature uploads.
+        // Two signatories with name, title and PNG signature uploads.
         for ($i = 1; $i <= 2; $i++) {
-            $name = self::get_option('sig' . $i . '_name');
-            $img  = absint(self::get_option('sig' . $i . '_img'));
-            $src  = $img ? wp_get_attachment_image_url($img, 'medium') : '';
+            $name  = self::get_option('sig' . $i . '_name');
+            $title = self::get_option('sig' . $i . '_title');
+            $img   = absint(self::get_option('sig' . $i . '_img'));
+            $src   = $img ? wp_get_attachment_image_url($img, 'medium') : '';
             $preview = '<div class="rt-visa-sig-preview" style="margin:6px 0;">' . ($src ? '<img src="' . esc_url($src) . '" style="max-height:80px;background:#fff;padding:4px;border:1px solid #ddd;" />' : '') . '</div>';
             $html = '<input type="text" class="regular-text" name="visa_sig' . $i . '_name" value="' . esc_attr($name) . '" placeholder="' . esc_attr__('Signatory name', 'rt-event-manager') . '" /><br>'
+                . '<input type="text" class="regular-text" name="visa_sig' . $i . '_title" value="' . esc_attr($title) . '" placeholder="' . esc_attr__('Title / role (e.g. President)', 'rt-event-manager') . '" style="margin-top:6px;" /><br>'
                 . $preview
                 . '<input type="hidden" name="visa_sig' . $i . '_img" id="visa_sig' . $i . '_img" value="' . esc_attr($img) . '" /> '
                 . '<button type="button" class="button rt-visa-upload" data-target="visa_sig' . $i . '_img">' . esc_html__('Select PNG signature', 'rt-event-manager') . '</button> '
                 . '<button type="button" class="button rt-visa-clear" data-target="visa_sig' . $i . '_img">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
             $row(sprintf(__('Signatory %d', 'rt-event-manager'), $i), $html);
         }
+
+        // Full-page A4 background image (letterhead) for the generated PDF.
+        $bg     = absint(self::get_option('bg_img'));
+        $bg_src = $bg ? wp_get_attachment_image_url($bg, 'medium') : '';
+        $bg_preview = '<div class="rt-visa-sig-preview" style="margin:6px 0;">' . ($bg_src ? '<img src="' . esc_url($bg_src) . '" style="max-height:160px;border:1px solid #ddd;" />' : '') . '</div>';
+        $bg_html = $bg_preview
+            . '<input type="hidden" name="visa_bg_img" id="visa_bg_img" value="' . esc_attr($bg) . '" /> '
+            . '<button type="button" class="button rt-visa-upload" data-target="visa_bg_img">' . esc_html__('Select background image', 'rt-event-manager') . '</button> '
+            . '<button type="button" class="button rt-visa-clear" data-target="visa_bg_img">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
+        $row(__('Letter background (A4)', 'rt-event-manager'), $bg_html, __('Full-page A4 background (letterhead) drawn behind the letter text.', 'rt-event-manager'));
 
         echo '</table>';
 
@@ -839,9 +852,10 @@ class RT_Event_Manager_Visa {
 
         $sigs = '';
         for ($i = 1; $i <= 2; $i++) {
-            $name = self::get_option('sig' . $i . '_name');
-            $img  = absint(self::get_option('sig' . $i . '_img'));
-            if ('' === $name && !$img) {
+            $name  = self::get_option('sig' . $i . '_name');
+            $title = self::get_option('sig' . $i . '_title');
+            $img   = absint(self::get_option('sig' . $i . '_img'));
+            if ('' === $name && '' === $title && !$img) {
                 continue;
             }
             $img_html = '';
@@ -851,17 +865,31 @@ class RT_Event_Manager_Visa {
                     $img_html = '<img src="' . esc_attr($path) . '" style="max-height:60px;" /><br>';
                 }
             }
-            $sigs .= '<td style="padding:0 20px;">' . $img_html . '<span style="border-top:1px solid #333;display:block;padding-top:4px;">' . esc_html($name) . '</span></td>';
+            $title_html = ('' !== $title) ? '<span style="display:block;color:#555;font-size:11px;">' . esc_html($title) . '</span>' : '';
+            $sigs .= '<td style="padding:0 20px;">' . $img_html
+                . '<span style="border-top:1px solid #333;display:block;padding-top:4px;">' . esc_html($name) . '</span>'
+                . $title_html . '</td>';
         }
         $signature_block = $sigs ? '<table style="margin-top:40px;"><tr>' . $sigs . '</tr></table>' : '';
+
+        // Optional full-page A4 background (letterhead).
+        $bg_html = '';
+        $bg_img  = absint(self::get_option('bg_img'));
+        if ($bg_img) {
+            $bg_path = get_attached_file($bg_img);
+            if ($bg_path && file_exists($bg_path)) {
+                $bg_html = '<div style="position:absolute;top:0;left:0;width:210mm;height:297mm;z-index:0;"><img src="' . esc_attr($bg_path) . '" style="width:210mm;height:297mm;" /></div>';
+            }
+        }
 
         ob_start();
         ?>
         <!DOCTYPE html>
         <html><head><meta charset="utf-8" />
         <style>
-            @page { margin: 25mm 20mm; }
+            @page { margin: 0; }
             body { font-family: 'DejaVu Sans', sans-serif; font-size: 12px; color: #1a1a1a; line-height: 1.5; }
+            .rti-visa-body { position: relative; z-index: 1; padding: 25mm 20mm; }
             h1 { font-size: 18px; margin: 0 0 16px; }
             h4 { margin: 16px 0 4px; font-size: 13px; }
             p { margin: 0 0 10px; }
@@ -869,9 +897,12 @@ class RT_Event_Manager_Visa {
             table.details td { padding: 3px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
             table.details td.lbl { width: 170px; color: #555; }
         </style></head><body>
-            <h1><?php echo esc_html__('Einladungsschreiben', 'rt-event-manager'); ?></h1>
-            <?php echo wp_kses_post($body); ?>
-            <?php echo wp_kses_post($signature_block); ?>
+            <?php echo $bg_html; // phpcs:ignore — trusted local attachment path ?>
+            <div class="rti-visa-body">
+                <h1><?php echo esc_html__('Einladungsschreiben', 'rt-event-manager'); ?></h1>
+                <?php echo wp_kses_post($body); ?>
+                <?php echo wp_kses_post($signature_block); ?>
+            </div>
         </body></html>
         <?php
         $html = ob_get_clean();
