@@ -228,12 +228,8 @@
     padding: 8px 10px;
     border-top: 2px solid #dfe3e8;
 }
-.rtacc-tour-when {
-    display: block;
-    font-size: 12px;
-    color: #6a7079;
-    margin-top: 2px;
-}
+.rtacc-tour-name { display: block; }
+.rtacc-tour-when { display: block; margin-top: 2px; }
 .rtacc-badge--type { background: #1f6feb; }
 .rtacc-badge--date { background: #eef1f5; color: #33475b; }
 .rtacc-badge--date i { margin-right: 3px; }

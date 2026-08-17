@@ -1528,8 +1528,8 @@ class RT_Event_Manager_Account {
 
                 $range = $this->tour_time_range($t['product_id']);
                 echo '<tr>';
-                echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($pname)
-                    . ($range !== '' ? '<span class="rtacc-tour-when">' . esc_html($range) . '</span>' : '') . '</td>';
+                echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '"><div class="rtacc-tour-cell"><span class="rtacc-tour-name">' . esc_html($pname) . '</span>'
+                    . ($range !== '' ? '<div class="rtacc-tour-when uk-text-meta">' . esc_html($range) . '</div>' : '') . '</div></td>';
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($t['holder_name'] ?: '—') . '</td>';
                 echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html('' !== $guardian ? $guardian : '—') . '</td>';
                 echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
