@@ -681,11 +681,16 @@
 .rtacc-cal-block.rtacc-cal-item--event   { background: #e7f0ff; color: #1f6feb; }
 .rtacc-cal-block.rtacc-cal-item--agenda  { background: #e7f0ff; color: #1f6feb; }
 
-/* List view (small screens): chronological, grouped by day. */
+/* List view (small screens): chronological, grouped by day. A single grid
+   (items use display:contents) so the dot / time / title columns align across
+   every row regardless of the time-string length. */
 .rtacc-cal-list {
-    display: none;
+    display: none; /* switched to grid on small screens */
+    grid-template-columns: 16px max-content 1fr;
+    align-items: stretch;
 }
 .rtacc-cal-list-day {
+    grid-column: 1 / -1;
     font-weight: 700;
     color: var(--rtacc-primary);
     margin: 16px 0 6px;
@@ -693,33 +698,40 @@
     border-bottom: 1px solid var(--rtacc-border);
 }
 .rtacc-cal-listitem {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 6px 2px;
+    display: contents;
+}
+.rtacc-cal-listdot,
+.rtacc-cal-listwhen,
+.rtacc-cal-listtitle {
+    padding: 7px 0;
     border-bottom: 1px solid #f0f0f0;
 }
 .rtacc-cal-listdot {
-    flex: 0 0 auto;
+    position: relative;
+}
+.rtacc-cal-listdot::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
     width: 10px;
     height: 10px;
     border-radius: 50%;
     background: #999;
-    align-self: center;
 }
-.rtacc-cal-listdot--pretour { background: #0f8a8a; }
-.rtacc-cal-listdot--daytour { background: #d9822b; }
-.rtacc-cal-listdot--event   { background: #1f6feb; }
-.rtacc-cal-listdot--agenda  { background: #1f6feb; }
+.rtacc-cal-listdot--pretour::before { background: #0f8a8a; }
+.rtacc-cal-listdot--daytour::before { background: #d9822b; }
+.rtacc-cal-listdot--event::before   { background: #1f6feb; }
+.rtacc-cal-listdot--agenda::before  { background: #1f6feb; }
 .rtacc-cal-listwhen {
-    flex: 0 0 auto;
+    padding-right: 12px;
     font-size: 12px;
     font-weight: 600;
     color: #555;
     white-space: nowrap;
 }
 .rtacc-cal-listtitle {
-    flex: 1 1 auto;
     min-width: 0;
     font-size: 14px;
 }
@@ -746,7 +758,7 @@
         display: none;
     }
     .rtacc-cal-list {
-        display: block;
+        display: grid;
     }
 }
 
