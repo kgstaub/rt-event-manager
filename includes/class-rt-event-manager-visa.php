@@ -891,7 +891,9 @@ class RT_Event_Manager_Visa {
         if ($bg_img) {
             $bg_path = get_attached_file($bg_img);
             if ($bg_path && file_exists($bg_path)) {
-                $bg_html = '<div style="position:absolute;top:0;left:0;width:210mm;height:297mm;z-index:0;"><img src="' . esc_attr($bg_path) . '" style="width:210mm;height:297mm;" /></div>';
+                // position:fixed repeats on every page; the negative offsets cancel
+                // the @page margins so the letterhead bleeds full A4 edge-to-edge.
+                $bg_html = '<div style="position:fixed;top:-45mm;left:-30mm;width:210mm;height:297mm;z-index:0;"><img src="' . esc_attr($bg_path) . '" style="width:210mm;height:297mm;" /></div>';
             }
         }
 
@@ -900,10 +902,9 @@ class RT_Event_Manager_Visa {
         <!DOCTYPE html>
         <html><head><meta charset="utf-8" />
         <style>
-            @page { margin: 0; }
-            body { font-family: 'DejaVu Sans', sans-serif; font-size: 12px; color: #1a1a1a; line-height: 1.5; }
-            .rti-visa-body { position: relative; z-index: 1; padding: 45mm 15mm 20mm 30mm; }
-            h1 { font-size: 18px; margin: 0 0 16px; }
+            @page { margin: 45mm 15mm 20mm 30mm; }
+            body { font-family: 'DejaVu Sans', sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.5; }
+            .rti-visa-body { position: relative; z-index: 1; }
             h4 { margin: 16px 0 4px; font-size: 13px; }
             p { margin: 0 0 10px; }
             table.details { width: 100%; border-collapse: collapse; margin: 4px 0 12px; }
@@ -912,7 +913,6 @@ class RT_Event_Manager_Visa {
         </style></head><body>
             <?php echo $bg_html; // phpcs:ignore — trusted local attachment path ?>
             <div class="rti-visa-body">
-                <h1><?php echo esc_html__('Einladungsschreiben', 'rt-event-manager'); ?></h1>
                 <?php echo wp_kses_post($body); ?>
                 <?php echo wp_kses_post($signature_block); ?>
             </div>
