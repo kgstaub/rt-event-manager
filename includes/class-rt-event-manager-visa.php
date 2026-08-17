@@ -516,7 +516,8 @@ class RT_Event_Manager_Visa {
                 echo '<tr>';
                 echo '<td data-title="' . esc_attr__('Traveller', 'rt-event-manager') . '">' . esc_html($traveller) . '</td>';
                 echo '<td data-title="' . esc_attr__('Reference', 'rt-event-manager') . '">' . esc_html($l['reference']) . '</td>';
-                echo '<td data-title="' . esc_attr__('Generated', 'rt-event-manager') . '">' . esc_html($l['created_at']) . '</td>';
+                $gen_ts = strtotime($l['created_at']);
+                echo '<td data-title="' . esc_attr__('Generated', 'rt-event-manager') . '">' . esc_html($gen_ts ? date_i18n('d.m.Y, H:i', $gen_ts) : $l['created_at']) . '</td>';
                 echo '<td data-title="' . esc_attr__('Document', 'rt-event-manager') . '"><a class="uk-button uk-button-default uk-button-small" href="' . esc_url($dl) . '" target="_blank" rel="noopener">' . esc_html__('Download PDF', 'rt-event-manager') . '</a></td>';
                 echo '</tr>';
             }
