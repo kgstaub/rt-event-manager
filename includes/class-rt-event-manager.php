@@ -321,6 +321,16 @@ class RT_Event_Manager {
                 padding-bottom: 10px;
                 border-bottom: 2px solid #ccc;
             }
+            .rti-ticket-section {
+                margin-bottom: 40px;
+            }
+            .rti-ticket-section-title {
+                margin: 0 0 15px;
+                font-size: 1.1em;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                color: #660b05;
+            }
             .rti-ticket-holder-group {
                 margin-bottom: 20px;
                 padding: 15px;
@@ -543,11 +553,16 @@ class RT_Event_Manager {
         echo '<div id="rti-ticket-holders">';
         echo '<h3>' . esc_html__('Ticket Holders', 'rt-event-manager') . '</h3>';
 
+        // Buffer each ticket's fields and bucket them by kind so they can be shown
+        // grouped in sections, while the field index stays tied to the cart slot.
+        $sections = array('event' => array(), 'minor' => array(), 'pretour' => array(), 'daytour' => array(), 'other' => array());
+
         foreach ($ticket_items as $item) {
             for ($i = 0; $i < $item['quantity']; $i++) {
                 $ticket_num = $ticket_index + 1;
                 $field_prefix = 'rti_ticket_' . $ticket_index;
 
+                ob_start();
                 echo '<div class="rti-ticket-holder-group">';
                 echo '<h4>' . esc_html(sprintf(
                     __('Ticket %d — %s', 'rt-event-manager'),
@@ -740,8 +755,29 @@ class RT_Event_Manager {
 
                 echo '</div>';
 
+                $bucket = in_array($item['kind'], array('event', 'minor', 'pretour', 'daytour'), true) ? $item['kind'] : 'other';
+                $sections[$bucket][] = ob_get_clean();
+
                 $ticket_index++;
             }
+        }
+
+        // Emit the buffered tickets grouped into labelled sections.
+        $section_labels = array(
+            'event'   => __('Event Tickets', 'rt-event-manager'),
+            'minor'   => __('Future Tablers / Future Circlers', 'rt-event-manager'),
+            'pretour' => __('Pretours', 'rt-event-manager'),
+            'daytour' => __('Day Tours', 'rt-event-manager'),
+            'other'   => __('Other', 'rt-event-manager'),
+        );
+        foreach ($section_labels as $bucket => $label) {
+            if (empty($sections[$bucket])) {
+                continue;
+            }
+            echo '<section class="rti-ticket-section">';
+            echo '<h4 class="rti-ticket-section-title">' . esc_html($label) . '</h4>';
+            echo implode('', $sections[$bucket]); // phpcs:ignore — already-escaped buffered markup
+            echo '</section>';
         }
 
         // Hidden field to track total ticket count
