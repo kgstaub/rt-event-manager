@@ -656,30 +656,36 @@
         window.location.href = url;
     });
 
-    // ---- Add-to-wallet dropdown: toggle, then close on outside click / Esc. ----
-    $(document).on('click', '.rtacc-wallet-menu-btn', function (e) {
+    // ---- Dropdown menus (Ticket, Options): toggle, close on outside click / Esc. ----
+    $(document).on('click', '.rtacc-menu-btn', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        var $menu = $(this).closest('.rtacc-wallet-menu');
+        var $menu = $(this).closest('.rtacc-menu');
         var open  = $menu.hasClass('is-open');
-        $('.rtacc-wallet-menu.is-open').removeClass('is-open')
-            .find('.rtacc-wallet-menu-btn').attr('aria-expanded', 'false');
+        $('.rtacc-menu.is-open').removeClass('is-open')
+            .find('.rtacc-menu-btn').attr('aria-expanded', 'false');
         if (!open) {
-            $menu.addClass('is-open').find('.rtacc-wallet-menu-btn').attr('aria-expanded', 'true');
+            $menu.addClass('is-open').find('.rtacc-menu-btn').attr('aria-expanded', 'true');
         }
     });
 
+    // Choosing an item closes the menu (before its own action handler runs).
+    $(document).on('click', '.rtacc-menu-item', function () {
+        $(this).closest('.rtacc-menu').removeClass('is-open')
+            .find('.rtacc-menu-btn').attr('aria-expanded', 'false');
+    });
+
     $(document).on('click', function (e) {
-        if (!$(e.target).closest('.rtacc-wallet-menu').length) {
-            $('.rtacc-wallet-menu.is-open').removeClass('is-open')
-                .find('.rtacc-wallet-menu-btn').attr('aria-expanded', 'false');
+        if (!$(e.target).closest('.rtacc-menu').length) {
+            $('.rtacc-menu.is-open').removeClass('is-open')
+                .find('.rtacc-menu-btn').attr('aria-expanded', 'false');
         }
     });
 
     $(document).on('keyup', function (e) {
         if (e.key === 'Escape' || e.keyCode === 27) {
-            $('.rtacc-wallet-menu.is-open').removeClass('is-open')
-                .find('.rtacc-wallet-menu-btn').attr('aria-expanded', 'false');
+            $('.rtacc-menu.is-open').removeClass('is-open')
+                .find('.rtacc-menu-btn').attr('aria-expanded', 'false');
         }
     });
 

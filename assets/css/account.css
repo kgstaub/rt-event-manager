@@ -345,13 +345,13 @@
     background: var(--rtacc-primary-hover);
     border-color: var(--rtacc-primary-hover);
 }
-/* Wallet dropdown: one icon button that reveals the official badges. */
-.rtacc-wallet-menu {
+/* Dropdown menus (Ticket, Options): an icon+text button revealing a menu. */
+.rtacc-menu {
     position: relative;
     flex: 0 0 auto;
     display: inline-flex;
 }
-.rtacc-wallet-menu-dropdown {
+.rtacc-menu-dropdown {
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
@@ -360,45 +360,65 @@
     flex-direction: column;
     align-items: stretch;
     width: max-content;
-    gap: 8px;
-    padding: 10px;
+    gap: 4px;
+    padding: 8px;
     background: #fff;
     border: 1px solid var(--rtacc-border);
     border-radius: 8px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
 }
-.rtacc-wallet-menu.is-open .rtacc-wallet-menu-dropdown {
+.rtacc-menu.is-open .rtacc-menu-dropdown {
     display: flex;
 }
-.rtacc-wallet-menu.is-open .rtacc-wallet-menu-btn {
+.rtacc-menu.is-open .rtacc-menu-btn {
     background: var(--rtacc-primary);
     color: #fff;
     border-color: var(--rtacc-primary);
 }
-/* Text menu row (e.g. the PDF download) inside the dropdown. */
-.rtacc-wallet-menu-item {
+/* Menu rows — links (PDF/wallet) and action buttons (transfer/cancel). */
+.rtacc-menu-item {
     display: flex;
     align-items: center;
     gap: 8px;
+    width: 100%;
+    margin: 0;
     padding: 8px 10px;
+    border: 0;
     border-radius: 6px;
+    background: none;
     font-size: 14px;
     line-height: 1.2;
+    text-align: left;
     color: #333;
     text-decoration: none;
     white-space: nowrap;
+    cursor: pointer;
 }
-.rtacc-wallet-menu-item i {
+.rtacc-menu-item i {
     width: 16px;
     text-align: center;
     color: var(--rtacc-primary);
 }
-.rtacc-wallet-menu-item .fa-apple { color: #000; }
-.rtacc-wallet-menu-item .fa-google { color: #4285f4; }
-.rtacc-wallet-menu-item:hover,
-.rtacc-wallet-menu-item:focus-visible {
+.rtacc-menu-item .fa-apple { color: #000; }
+.rtacc-menu-item .fa-google { color: #4285f4; }
+.rtacc-menu-item:hover,
+.rtacc-menu-item:focus-visible {
     background: var(--rtacc-bg-muted, #f3f4f5);
     color: #333;
+}
+/* Destructive row (cancel ticket) stays red. */
+.rtacc-menu-item--danger,
+.rtacc-menu-item--danger i {
+    color: var(--rtacc-primary);
+}
+.rtacc-menu-item--danger:hover,
+.rtacc-menu-item--danger:focus-visible {
+    background: var(--rtacc-primary);
+    color: #fff;
+}
+.rtacc-menu-item--danger:hover i,
+.rtacc-menu-item--danger:focus-visible i {
+    color: #fff;
 }
 .rtacc-transfer-list {
     margin: 8px 0 12px;

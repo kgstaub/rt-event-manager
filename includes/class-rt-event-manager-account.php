@@ -2019,13 +2019,7 @@ class RT_Event_Manager_Account {
 
         $refund_open = RT_Event_Manager::instance()->is_refund_window_open();
 
-        // Icon-only buttons; the label doubles as the hover tooltip (title) and
-        // the accessible name (aria-label).
-        $icon_transfer = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>';
-        $icon_cancel   = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
-        $icon_withdraw = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="5" y1="5" x2="19" y2="19"></line></svg>';
-
-        $transfer_label = __('Request transfer', 'rt-event-manager');
+        $transfer_label = __('Transfer ticket', 'rt-event-manager');
         $withdraw_label = __('Withdraw pending transfer', 'rt-event-manager');
         $cancel_label   = $refund_open
             ? __('Cancel and request refund', 'rt-event-manager')
@@ -2049,7 +2043,7 @@ class RT_Event_Manager_Account {
                 'ticket_id' => $id,
                 'nonce'     => wp_create_nonce('rt_event_manager_ticket_pass_' . $id),
             ), admin_url('admin-ajax.php'));
-            $menu_items[] = '<a class="rtacc-wallet-menu-item" href="' . esc_url($pass_url) . '" target="_blank" rel="noopener" role="menuitem"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i> ' . esc_html($pass_label) . '</a>';
+            $menu_items[] = '<a class="rtacc-menu-item" href="' . esc_url($pass_url) . '" target="_blank" rel="noopener" role="menuitem"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i> ' . esc_html($pass_label) . '</a>';
 
             // Add to Apple Wallet (when the Pass certificate is configured).
             if (class_exists('RT_Event_Manager_Apple_Wallet') && RT_Event_Manager_Apple_Wallet::is_configured()) {
@@ -2059,7 +2053,7 @@ class RT_Event_Manager_Account {
                     'ticket_id' => $id,
                     'nonce'     => wp_create_nonce('rt_event_manager_apple_pass_' . $id),
                 ), admin_url('admin-ajax.php'));
-                $menu_items[] = '<a class="rtacc-wallet-menu-item" href="' . esc_url($wallet_url) . '" role="menuitem"><i class="fa-brands fa-apple" aria-hidden="true"></i> ' . esc_html($wallet_label) . '</a>';
+                $menu_items[] = '<a class="rtacc-menu-item" href="' . esc_url($wallet_url) . '" role="menuitem"><i class="fa-brands fa-apple" aria-hidden="true"></i> ' . esc_html($wallet_label) . '</a>';
             }
             // Add to Google Wallet (when the Issuer account is configured).
             if (class_exists('RT_Event_Manager_Google_Wallet') && RT_Event_Manager_Google_Wallet::is_configured()) {
@@ -2069,27 +2063,35 @@ class RT_Event_Manager_Account {
                     'ticket_id' => $id,
                     'nonce'     => wp_create_nonce('rt_event_manager_google_pass_' . $id),
                 ), admin_url('admin-ajax.php'));
-                $menu_items[] = '<a class="rtacc-wallet-menu-item" href="' . esc_url($gwallet_url) . '" target="_blank" rel="noopener" role="menuitem"><i class="fa-brands fa-google" aria-hidden="true"></i> ' . esc_html($gwallet_label) . '</a>';
+                $menu_items[] = '<a class="rtacc-menu-item" href="' . esc_url($gwallet_url) . '" target="_blank" rel="noopener" role="menuitem"><i class="fa-brands fa-google" aria-hidden="true"></i> ' . esc_html($gwallet_label) . '</a>';
             }
 
-            $menu_label  = __('Ticket', 'rt-event-manager');
-            $icon_ticket = '<i class="fa-solid fa-ticket" aria-hidden="true"></i>';
-            $out .= '<span class="rtacc-wallet-menu">'
-                . '<button type="button" class="rtacc-icon-btn rtacc-wallet-menu-btn" aria-haspopup="true" aria-expanded="false" title="' . esc_attr($menu_label) . '" aria-label="' . esc_attr($menu_label) . '">' . $icon_ticket . '</button>'
-                . '<span class="rtacc-wallet-menu-dropdown" role="menu">' . implode('', $menu_items) . '</span>'
+            $menu_label = __('Ticket', 'rt-event-manager');
+            $out .= '<span class="rtacc-menu">'
+                . '<button type="button" class="rtacc-icon-btn rtacc-menu-btn" aria-haspopup="true" aria-expanded="false" title="' . esc_attr($menu_label) . '" aria-label="' . esc_attr($menu_label) . '"><i class="fa-solid fa-ticket" aria-hidden="true"></i></button>'
+                . '<span class="rtacc-menu-dropdown" role="menu">' . implode('', $menu_items) . '</span>'
                 . '</span>';
         }
 
+        // Options menu (gear): transfer / withdraw / cancel.
+        $opt_items = array();
         if (in_array($kind, array('event', 'pretour', 'daytour'), true)) {
             if ($has_pending_transfer) {
                 // Withdrawing a pending offer stays available even after the deadline.
-                $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" title="' . esc_attr($withdraw_label) . '" aria-label="' . esc_attr($withdraw_label) . '">' . $icon_withdraw . '</button>';
+                $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" role="menuitem"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> ' . esc_html($withdraw_label) . '</button>';
             } elseif ($is_confirmed && $can_transfer) {
-                $out .= '<button type="button" class="rtacc-icon-btn rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" title="' . esc_attr($transfer_label) . '" aria-label="' . esc_attr($transfer_label) . '">' . $icon_transfer . '</button>';
+                $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" role="menuitem"><i class="fa-solid fa-right-left" aria-hidden="true"></i> ' . esc_html($transfer_label) . '</button>';
             }
         }
         if ($is_confirmed) {
-            $out .= '<button type="button" class="rtacc-icon-btn rtacc-icon-btn--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" title="' . esc_attr($cancel_label) . '" aria-label="' . esc_attr($cancel_label) . '">' . $icon_cancel . '</button>';
+            $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-menu-item--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" role="menuitem"><i class="fa-solid fa-circle-xmark" aria-hidden="true"></i> ' . esc_html($cancel_label) . '</button>';
+        }
+        if ($opt_items) {
+            $opts_label = __('Options', 'rt-event-manager');
+            $out .= '<span class="rtacc-menu">'
+                . '<button type="button" class="rtacc-icon-btn rtacc-menu-btn" aria-haspopup="true" aria-expanded="false" title="' . esc_attr($opts_label) . '" aria-label="' . esc_attr($opts_label) . '"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>'
+                . '<span class="rtacc-menu-dropdown" role="menu">' . implode('', $opt_items) . '</span>'
+                . '</span>';
         }
         $out .= '</div>';
 
