@@ -4031,18 +4031,6 @@ class RT_Event_Manager {
             array($this, 'render_refunds_page')
         );
 
-        // Refunds workflow — shown only once at least one refund has been requested.
-        if (self::has_refund_requests()) {
-            add_submenu_page(
-                'rt-event-manager',
-                __('Refunds', 'rt-event-manager'),
-                __('Refunds', 'rt-event-manager'),
-                'edit_shop_orders',
-                'rt-event-manager-refund-requests',
-                array($this, 'render_refund_requests_page')
-            );
-        }
-
         add_submenu_page(
             'rt-event-manager',
             __('Transfers', 'rt-event-manager'),
@@ -4143,56 +4131,6 @@ class RT_Event_Manager {
                 $tid
             )) . '</p></div>';
         }
-    }
-
-    /** Whether any ticket has an associated refund (requested or processed). */
-    public static function has_refund_requests() {
-        global $wpdb;
-        $table = $wpdb->prefix . 'rti_tickets';
-        return (bool) $wpdb->get_var(
-            "SELECT EXISTS(SELECT 1 FROM $table WHERE refund_status IN ('requested', 'confirmed', 'declined'))"
-        );
-    }
-
-    /**
-     * Admin page: refund workflow only — pending requests (Confirm/Decline) and
-     * already-processed refunds. Registered only when a refund exists.
-     */
-    public function render_refund_requests_page() {
-        if (!current_user_can('edit_shop_orders')) {
-            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'rti_tickets';
-
-        $this->process_refund_decision_post();
-
-        $requested = $wpdb->get_results(
-            "SELECT t.*, p.post_title AS product_name
-             FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
-             WHERE t.refund_status = 'requested'
-             ORDER BY t.updated_at DESC, t.id DESC",
-            ARRAY_A
-        );
-        $processed = $wpdb->get_results(
-            "SELECT t.*, p.post_title AS product_name
-             FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
-             WHERE t.refund_status IN ('confirmed', 'declined')
-             ORDER BY t.updated_at DESC, t.id DESC",
-            ARRAY_A
-        );
-
-        echo '<div class="wrap">';
-        echo '<h1>' . esc_html__('Refunds', 'rt-event-manager') . '</h1>';
-        echo '<p class="description">' . esc_html__('Requested refunds awaiting a decision, and refunds already processed. Confirm or decline records the decision here; process the actual payment refund in the WooCommerce order.', 'rt-event-manager') . '</p>';
-
-        echo '<h2>' . esc_html(sprintf(__('Requested (%d)', 'rt-event-manager'), count($requested))) . '</h2>';
-        $this->render_refund_table($requested, true);
-
-        echo '<h2>' . esc_html(sprintf(__('Processed (%d)', 'rt-event-manager'), count($processed))) . '</h2>';
-        $this->render_refund_table($processed, false);
-
-        echo '</div>';
     }
 
     /** Render a cancelled-tickets table; $actionable adds Confirm/Decline. */

@@ -150,6 +150,7 @@ class RT_Event_Manager_Account {
             'profile'   => __('My Profile', 'rt-event-manager'),
             'emergency' => __('Emergency Contact', 'rt-event-manager'),
             'orders'    => __('Order History', 'rt-event-manager'),
+            'refunds'   => __('Refunds', 'rt-event-manager'),
             'tickets'   => __('Event Tickets', 'rt-event-manager'),
             'pretour'   => __('Pretour', 'rt-event-manager'),
             'daytour'   => __('Day Tours', 'rt-event-manager'),
@@ -157,6 +158,11 @@ class RT_Event_Manager_Account {
             'travel'    => __('Travel and Visa', 'rt-event-manager'),
             'shop'      => __('Shop', 'rt-event-manager'),
         );
+
+        // The Refunds tab only appears once the member has a refund on record.
+        if (!$this->user_has_refunds(get_current_user_id())) {
+            unset($tabs['refunds']);
+        }
 
         // Backend show/hide toggles for the optional tabs.
         foreach (array('pretour', 'daytour', 'calendar', 'travel', 'shop') as $key) {
@@ -490,6 +496,9 @@ class RT_Event_Manager_Account {
             case 'orders':
                 $this->render_orders();
                 break;
+            case 'refunds':
+                $this->render_refunds();
+                break;
             case 'tickets':
                 $this->render_tickets();
                 break;
@@ -531,6 +540,7 @@ class RT_Event_Manager_Account {
             'profile'   => 'fa-user',
             'emergency' => 'fa-kit-medical',
             'orders'    => 'fa-receipt',
+            'refunds'   => 'fa-money-bill-transfer',
             'tickets'   => 'fa-ticket',
             'pretour'   => 'fa-route',
             'daytour'   => 'fa-map-location-dot',
@@ -885,6 +895,97 @@ class RT_Event_Manager_Account {
             echo '</p>';
         }
         echo '</section>';
+    }
+
+    /* ---------------------------------------------------------------------
+     * Tab: Refunds
+     * ------------------------------------------------------------------- */
+
+    /** Whether the member has any ticket with a refund on record. */
+    private function user_has_refunds($user_id) {
+        if (!$user_id) {
+            return false;
+        }
+        foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $t) {
+            $rs = isset($t['refund_status']) ? $t['refund_status'] : '';
+            if (in_array($rs, array('requested', 'confirmed', 'declined'), true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Customer-facing refunds: requested (pending) and processed. */
+    private function render_refunds() {
+        $user_id = get_current_user_id();
+
+        $requested = array();
+        $processed = array();
+        foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $t) {
+            $rs = isset($t['refund_status']) ? $t['refund_status'] : '';
+            if ('requested' === $rs) {
+                $requested[] = $t;
+            } elseif (in_array($rs, array('confirmed', 'declined'), true)) {
+                $processed[] = $t;
+            }
+        }
+
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Refunds', 'rt-event-manager') . '</h2>';
+        echo '<p class="rtacc-section-desc">' . esc_html__('The status of refunds for tickets you have cancelled. Payments are processed by the organiser.', 'rt-event-manager') . '</p>';
+
+        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html__('Requested', 'rt-event-manager') . '</h3>';
+        if (empty($requested)) {
+            echo '<p>' . esc_html__('No refund requests are awaiting a decision.', 'rt-event-manager') . '</p>';
+        } else {
+            $this->render_customer_refund_table($requested);
+        }
+        echo '</section>';
+
+        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html__('Processed', 'rt-event-manager') . '</h3>';
+        if (empty($processed)) {
+            echo '<p>' . esc_html__('No processed refunds yet.', 'rt-event-manager') . '</p>';
+        } else {
+            $this->render_customer_refund_table($processed);
+        }
+        echo '</section>';
+    }
+
+    /** Read-only refunds table for the member (Ticket / Amount / Cancelled / Status). */
+    private function render_customer_refund_table($rows) {
+        $labels = array(
+            'requested' => __('Refund requested', 'rt-event-manager'),
+            'confirmed' => __('Refund confirmed', 'rt-event-manager'),
+            'declined'  => __('Refund declined', 'rt-event-manager'),
+        );
+
+        echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
+        echo '<thead><tr>';
+        echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Holder', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Amount paid', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Cancelled', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Refund status', 'rt-event-manager') . '</th>';
+        echo '</tr></thead><tbody>';
+
+        foreach ($rows as $t) {
+            $product = wc_get_product($t['product_id']);
+            $pname   = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
+            $rs      = isset($t['refund_status']) ? $t['refund_status'] : '';
+            $rlabel  = isset($labels[$rs]) ? $labels[$rs] : $rs;
+            $amount  = wc_price(RT_Event_Manager::get_ticket_paid_amount($t), array('currency' => RT_Event_Manager::get_ticket_currency($t)));
+            $when    = !empty($t['updated_at']) ? date_i18n('d.m.Y', strtotime($t['updated_at'])) : '—';
+
+            echo '<tr>';
+            echo '<td data-title="' . esc_attr__('Ticket', 'rt-event-manager') . '">' . esc_html($pname) . '</td>';
+            echo '<td data-title="' . esc_attr__('Holder', 'rt-event-manager') . '">' . esc_html($t['holder_name'] !== '' ? $t['holder_name'] : '—') . '</td>';
+            echo '<td data-title="' . esc_attr__('Amount paid', 'rt-event-manager') . '">' . wp_kses_post($amount) . '</td>';
+            echo '<td data-title="' . esc_attr__('Cancelled', 'rt-event-manager') . '">' . esc_html($when) . '</td>';
+            echo '<td data-title="' . esc_attr__('Refund status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--refund-' . esc_attr($rs) . '">' . esc_html($rlabel) . '</span></td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
     }
 
     /* ---------------------------------------------------------------------
