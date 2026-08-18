@@ -121,6 +121,14 @@ class RT_Event_Manager_Apple_Wallet {
                     echo '<div class="notice notice-error"><p>' . esc_html__('The secondary logo could not be read as an image.', 'rt-event-manager') . '</p></div>';
                 }
             }
+            if (!empty($_FILES['wallet_icon']['tmp_name']) && is_uploaded_file($_FILES['wallet_icon']['tmp_name'])) {
+                $bytes = file_get_contents($_FILES['wallet_icon']['tmp_name']);
+                if (false !== $bytes && false !== @getimagesizefromstring($bytes)) {
+                    update_option('rt_event_manager_wallet_icon', base64_encode($bytes));
+                } else {
+                    echo '<div class="notice notice-error"><p>' . esc_html__('The icon could not be read as an image.', 'rt-event-manager') . '</p></div>';
+                }
+            }
             if (!empty($_FILES['wallet_wwdr']['tmp_name']) && is_uploaded_file($_FILES['wallet_wwdr']['tmp_name'])) {
                 $bytes = file_get_contents($_FILES['wallet_wwdr']['tmp_name']);
                 if (false !== $bytes) {
@@ -203,6 +211,15 @@ class RT_Event_Manager_Apple_Wallet {
         }
         echo '<input type="file" name="wallet_thumb" accept="image/png,image/jpeg" />';
         echo '<p class="description">' . esc_html__('Optional square image shown on the right of the Wallet ticket (Apple “thumbnail”).', 'rt-event-manager') . '</p></td></tr>';
+
+        // Notification / pass icon (icon.png). Shown in notifications and the Wallet list.
+        $icon = self::opt('icon');
+        echo '<tr><th scope="row">' . esc_html__('Notification icon', 'rt-event-manager') . '</th><td>';
+        if ('' !== $icon) {
+            echo '<div style="margin:0 0 8px;"><img src="data:image/png;base64,' . esc_attr($icon) . '" alt="" style="max-height:58px;background:#CC0B24;padding:6px;border-radius:4px;" /></div>';
+        }
+        echo '<input type="file" name="wallet_icon" accept="image/png,image/jpeg" />';
+        echo '<p class="description">' . esc_html__('Square PNG shown in push notifications and the Wallet pass list (Apple “icon”). Left blank falls back to the pass logo.', 'rt-event-manager') . '</p></td></tr>';
 
         // Top-right header title (Apple headerFields).
         $text(__('Top-right label', 'rt-event-manager'), 'wallet_header_label', self::opt('header_label'), __('Small caption above the top-right title (optional).', 'rt-event-manager'));
@@ -523,11 +540,14 @@ class RT_Event_Manager_Apple_Wallet {
             }
             return $this->solid_png($w, $h);
         };
-        $icon = function ($size) use ($logo_src) {
-            if ($logo_src) {
-                $png = $this->resized_png($logo_src, $size, $size);
-                if (null !== $png) {
-                    return $png;
+        $icon_src = base64_decode((string) self::opt('icon'), true);
+        $icon = function ($size) use ($icon_src, $logo_src) {
+            foreach (array($icon_src, $logo_src) as $src) {
+                if ($src) {
+                    $png = $this->resized_png($src, $size, $size);
+                    if (null !== $png) {
+                        return $png;
+                    }
                 }
             }
             return $this->solid_png($size, $size);
