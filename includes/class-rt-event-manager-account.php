@@ -603,7 +603,6 @@ class RT_Event_Manager_Account {
                 echo '<table class="rtacc-table rtacc-tickets rtacc-dashboard-table uk-table uk-table-divider uk-table-middle uk-table-small">';
                 echo '<thead><tr>';
                 echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
-                echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
                 echo '<th>' . esc_html__('Event date', 'rt-event-manager') . '</th>';
                 echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
                 echo '</tr></thead><tbody>';
@@ -611,12 +610,9 @@ class RT_Event_Manager_Account {
                     $status     = isset($t['status']) ? $t['status'] : 'draft';
                     $product    = wc_get_product($t['product_id']);
                     $what       = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
-                    $type_label = RT_Event_Manager::ticket_kind_label($t);
-                    $type_kind  = RT_Event_Manager::get_ticket_kind($t);
                     $event_date = $this->ticket_event_date($t['product_id']);
                     echo '<tr>';
                     echo '<td data-title="' . esc_attr__('Ticket', 'rt-event-manager') . '">' . esc_html($what) . '</td>';
-                    echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--type rtacc-badge--type-' . esc_attr($type_kind) . '">' . esc_html($type_label) . '</span></td>';
                     echo '<td data-title="' . esc_attr__('Event date', 'rt-event-manager') . '">';
                     if ('' !== $event_date) {
                         echo '<span class="rtacc-badge rtacc-badge--date"><i class="fa-regular fa-calendar" aria-hidden="true"></i> ' . esc_html($event_date) . '</span>';
