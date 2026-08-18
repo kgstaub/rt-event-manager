@@ -354,6 +354,8 @@
     z-index: 20;
     display: none;
     flex-direction: column;
+    align-items: stretch;
+    width: max-content;
     gap: 8px;
     padding: 10px;
     background: #fff;
@@ -384,6 +386,7 @@
 .rtacc-wallet-badge img {
     height: 36px;
     width: auto;
+    max-width: none;
     display: block;
 }
 .rtacc-wallet-badge:hover,
