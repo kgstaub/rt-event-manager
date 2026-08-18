@@ -587,7 +587,7 @@ class RT_Event_Manager_Account {
             'pretour'   => 'fa-map',
             'daytour'   => 'fa-compass',
             'calendar'  => 'fa-calendar',
-            'travel'    => 'fa-plane',
+            'travel'    => 'fa-passport',
             'shop'      => 'fa-bag-shopping',
         );
 
