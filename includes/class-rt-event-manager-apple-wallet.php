@@ -572,6 +572,8 @@ class RT_Event_Manager_Apple_Wallet {
         $pname   = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($ticket);
         $holder  = ('' !== $ticket['holder_name']) ? $ticket['holder_name'] : __('Attendee', 'rt-event-manager');
         $number  = absint($ticket['ticket_index']) + 1;
+        $status  = isset($ticket['status']) ? $ticket['status'] : 'draft';
+        $is_void = in_array($status, array('cancelled', 'refunded', 'invalid'), true);
 
         $back = array();
         $add_back = function ($label, $rows) use (&$back) {
@@ -637,6 +639,13 @@ class RT_Event_Manager_Apple_Wallet {
                 'backFields'      => $back,
             ),
         );
+
+        // A cancelled/refunded/invalid pass is voided: iOS greys it out and
+        // removes the barcode so it can no longer be scanned.
+        if ($is_void) {
+            $pass['voided'] = true;
+            unset($pass['barcodes']);
+        }
 
         // Top-right header title (Apple headerFields).
         $header_value = (string) self::opt('header_value');

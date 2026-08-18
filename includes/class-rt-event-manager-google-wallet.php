@@ -276,12 +276,16 @@ class RT_Event_Manager_Google_Wallet {
             'state'            => $state,
             'ticketHolderName' => $holder,
             'ticketNumber'     => '#' . absint($ticket['order_id']) . ' · ' . $number,
-            'barcode'          => array(
-                'type'  => 'QR_CODE',
-                'value' => RT_Event_Manager_Ticket_Pass::checkin_token($ticket),
-            ),
             'hexBackgroundColor' => '#CC0B24',
         );
+
+        // A cancelled/refunded/invalid ticket carries no scannable barcode.
+        if (!in_array($status, array('cancelled', 'refunded', 'invalid'), true)) {
+            $obj['barcode'] = array(
+                'type'  => 'QR_CODE',
+                'value' => RT_Event_Manager_Ticket_Pass::checkin_token($ticket),
+            );
+        }
 
         // Ticket holder (shown on the front of the pass) + type.
         $obj['textModulesData'] = array(

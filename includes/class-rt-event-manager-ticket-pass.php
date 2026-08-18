@@ -130,8 +130,11 @@ class RT_Event_Manager_Ticket_Pass {
         $number    = absint($ticket['ticket_index']) + 1;
         $status    = isset($ticket['status']) ? $ticket['status'] : 'draft';
 
-        // QR code with the signed check-in token.
-        $qr_img = $this->qr_data_uri(self::checkin_token($ticket), 360);
+        // A cancelled/refunded/invalid ticket must not present a scannable code.
+        $is_void = in_array($status, array('cancelled', 'refunded', 'invalid'), true);
+
+        // QR code with the signed check-in token (suppressed for void tickets).
+        $qr_img = $is_void ? '' : $this->qr_data_uri(self::checkin_token($ticket), 360);
 
         // Attached tours (event / minor host tickets carry these).
         $pretours = RT_Event_Manager::get_child_pretours($ticket_id);
@@ -196,6 +199,7 @@ class RT_Event_Manager_Ticket_Pass {
             .qr { text-align: center; width: 190px; }
             .qr img { width: 170px; height: 170px; }
             .qr .hint { font-size: 8pt; color: #777; margin-top: 4px; }
+            .qr .void { display: inline-block; width: 170px; padding: 40px 8px; box-sizing: border-box; border: 2px dashed #b32d2e; border-radius: 8px; color: #b32d2e; font-weight: bold; font-size: 10pt; }
             table.details { width: 100%; border-collapse: collapse; margin: 0; }
             table.details td { padding: 4px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
             table.details td.lbl { width: 130px; color: #555; }
@@ -220,8 +224,12 @@ class RT_Event_Manager_Ticket_Pass {
                         </table>
                     </td>
                     <td class="qr">
-                        <?php if ($qr_img) : ?><img src="<?php echo esc_attr($qr_img); ?>" alt="QR" /><?php endif; ?>
-                        <div class="hint"><?php esc_html_e('Present this code at check-in', 'rt-event-manager'); ?></div>
+                        <?php if ($qr_img) : ?>
+                            <img src="<?php echo esc_attr($qr_img); ?>" alt="QR" />
+                            <div class="hint"><?php esc_html_e('Present this code at check-in', 'rt-event-manager'); ?></div>
+                        <?php else : ?>
+                            <div class="void"><?php echo esc_html($status_label); ?><br><?php esc_html_e('Not valid for entry', 'rt-event-manager'); ?></div>
+                        <?php endif; ?>
                     </td>
                 </tr></table>
             </div>
