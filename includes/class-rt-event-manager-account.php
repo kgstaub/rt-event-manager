@@ -589,15 +589,18 @@ class RT_Event_Manager_Account {
             'shop'      => 'fa-bag-shopping',
         );
 
-        // FontAwesome 7 "Graphite" style when a Pro kit is loaded; fall back to
-        // Regular otherwise.
-        $fa_style = ('' !== self::fa_kit_url()) ? 'fa-graphite' : 'fa-regular';
-        $item = function ($icon, $url, $label, $classes) use ($fa_style) {
+        // FontAwesome 7 "Graphite" is an expressive style with limited icon
+        // coverage, so use it only for icons that exist in it and fall back to
+        // Regular for the rest (and everywhere when no Pro kit is loaded).
+        $has_kit    = ('' !== self::fa_kit_url());
+        $graphite   = array('fa-user', 'fa-ticket', 'fa-bag-shopping');
+        $item = function ($icon, $url, $label, $classes) use ($has_kit, $graphite) {
+            $style = ($has_kit && in_array($icon, $graphite, true)) ? 'fa-graphite' : 'fa-regular';
             return sprintf(
                 '<li class="%s"><a href="%s"><i class="%s %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
                 esc_attr($classes),
                 esc_url($url),
-                esc_attr($fa_style),
+                esc_attr($style),
                 esc_attr($icon),
                 esc_html($label)
             );
