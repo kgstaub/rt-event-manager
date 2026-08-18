@@ -105,12 +105,22 @@ class RT_Event_Manager_Apple_Wallet {
         return isset($map[$s]) ? $map[$s] : $s;
     }
 
-    /** "<Family> <Club>" line for a ticket; family defaults to "Guest" if unset. */
+    /** "<Family> <Club>" line for a ticket; family abbreviated, "Guest" if unset. */
     public static function org_line($ticket) {
-        $family = (!empty($ticket['rti_family']) && absint($ticket['rti_family']))
-            ? RT_Event_Manager::get_family_label($ticket['rti_family'])
-            : __('Guest', 'rt-event-manager');
-        $club = isset($ticket['rti_club']) ? trim((string) $ticket['rti_club']) : '';
+        // Family id → short code. NB family ids are 0-based (Round Table = 0),
+        // so test for an empty string, not a falsy value.
+        $abbr = array(
+            0 => 'RT',   // Round Table
+            1 => 'C41',  // Club 41
+            2 => 'LC',   // Ladies Circle
+            3 => 'AC',   // Agora Club
+            4 => 'TC',   // Tangent Club
+            9 => __('Guest', 'rt-event-manager'), // Guest/Partner
+        );
+        $has_family = isset($ticket['rti_family']) && '' !== (string) $ticket['rti_family'];
+        $fid        = $has_family ? (int) $ticket['rti_family'] : null;
+        $family     = (null !== $fid && isset($abbr[$fid])) ? $abbr[$fid] : __('Guest', 'rt-event-manager');
+        $club       = isset($ticket['rti_club']) ? trim((string) $ticket['rti_club']) : '';
         return trim($family . ' ' . $club);
     }
 
@@ -573,7 +583,6 @@ class RT_Event_Manager_Apple_Wallet {
         if ('' !== $org) {
             $aux[] = array('key' => 'org', 'label' => __('CLUB', 'rt-event-manager'), 'value' => $org);
         }
-        $aux[] = array('key' => 'ticket', 'label' => __('TICKET', 'rt-event-manager'), 'value' => '#' . absint($ticket['order_id']) . ' · ' . $number);
         $aux[] = array('key' => 'status', 'label' => __('STATUS', 'rt-event-manager'), 'value' => self::status_label($ticket));
 
         $pass = array(
@@ -598,7 +607,7 @@ class RT_Event_Manager_Apple_Wallet {
                 'primaryFields'   => array(array('key' => 'event', 'label' => __('EVENT', 'rt-event-manager'), 'value' => self::opt('event_name', 'RTI Half-Year Meeting 2027'))),
                 'secondaryFields' => array(
                     array('key' => 'name', 'label' => __('ATTENDEE', 'rt-event-manager'), 'value' => $holder),
-                    array('key' => 'type', 'label' => __('TYPE', 'rt-event-manager'), 'value' => RT_Event_Manager::ticket_kind_label($ticket)),
+                    array('key' => 'ticket', 'label' => __('TICKET', 'rt-event-manager'), 'value' => '#' . absint($ticket['order_id']) . ' · ' . $number),
                 ),
                 'auxiliaryFields' => $aux,
                 'backFields'      => $back,

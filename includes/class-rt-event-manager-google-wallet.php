@@ -198,7 +198,7 @@ class RT_Event_Manager_Google_Wallet {
                                     array('fieldPath' => "object.textModulesData['attendee']"),
                                 ))),
                                 'endItem'   => array('firstValue' => array('fields' => array(
-                                    array('fieldPath' => "object.textModulesData['type']"),
+                                    array('fieldPath' => "object.textModulesData['ticket']"),
                                 ))),
                             ),
                         ),
@@ -283,9 +283,9 @@ class RT_Event_Manager_Google_Wallet {
                 'body'   => $holder,
             ),
             array(
-                'id'     => 'type',
-                'header' => __('Type', 'rt-event-manager'),
-                'body'   => RT_Event_Manager::ticket_kind_label($ticket),
+                'id'     => 'ticket',
+                'header' => __('Ticket', 'rt-event-manager'),
+                'body'   => '#' . absint($ticket['order_id']) . ' · ' . $number,
             ),
             array(
                 'id'     => 'status',
