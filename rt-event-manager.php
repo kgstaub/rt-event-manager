@@ -20,7 +20,7 @@ defined('ABSPATH') || exit;
 
 // Define plugin constants
 define('RT_EVENT_MANAGER_VERSION', '1.6.0');
-define('RT_EVENT_MANAGER_DB_VERSION', '2.3.0');
+define('RT_EVENT_MANAGER_DB_VERSION', '2.4.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -326,6 +326,7 @@ function rt_event_manager_install_db() {
             transfer_email varchar(255) NOT NULL DEFAULT '',
             transfer_requested_at datetime NULL DEFAULT NULL,
             refund_status varchar(20) NOT NULL DEFAULT '',
+            refund_note varchar(500) NOT NULL DEFAULT '',
             transferred_from_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
             transferred_at datetime NULL DEFAULT NULL,
             checked_in_at datetime NULL DEFAULT NULL,
@@ -407,6 +408,8 @@ function rt_event_manager_install_db() {
             'transfer_requested_at' => "ADD COLUMN `transfer_requested_at` datetime NULL DEFAULT NULL AFTER `transfer_email`",
             // Refund tracking for cancelled tickets (added in 2.1.0).
             'refund_status'         => "ADD COLUMN `refund_status` varchar(20) NOT NULL DEFAULT '' AFTER `transfer_requested_at`",
+            // Reason recorded when an organiser declines a refund (added in 2.4.0).
+            'refund_note'           => "ADD COLUMN `refund_note` varchar(500) NOT NULL DEFAULT '' AFTER `refund_status`",
             // Completed-transfer record (added in 2.2.0).
             'transferred_from_user_id' => "ADD COLUMN `transferred_from_user_id` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `refund_status`",
             'transferred_at'        => "ADD COLUMN `transferred_at` datetime NULL DEFAULT NULL AFTER `transferred_from_user_id`",

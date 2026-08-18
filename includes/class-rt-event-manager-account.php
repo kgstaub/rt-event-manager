@@ -983,7 +983,12 @@ class RT_Event_Manager_Account {
             echo '<td data-title="' . esc_attr__('Holder', 'rt-event-manager') . '">' . esc_html($t['holder_name'] !== '' ? $t['holder_name'] : '—') . '</td>';
             echo '<td data-title="' . esc_attr__('Amount paid', 'rt-event-manager') . '">' . wp_kses_post($amount) . '</td>';
             echo '<td data-title="' . esc_attr__('Cancelled', 'rt-event-manager') . '">' . esc_html($when) . '</td>';
-            echo '<td data-title="' . esc_attr__('Refund status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--refund-' . esc_attr($rs) . '">' . esc_html($rlabel) . '</span></td>';
+            $rnote = isset($t['refund_note']) ? (string) $t['refund_note'] : '';
+            echo '<td data-title="' . esc_attr__('Refund status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--refund-' . esc_attr($rs) . '">' . esc_html($rlabel) . '</span>';
+            if ('declined' === $rs && '' !== $rnote) {
+                echo '<div class="rtacc-refund-note uk-text-meta">' . esc_html($rnote) . '</div>';
+            }
+            echo '</td>';
             echo '</tr>';
         }
         echo '</tbody></table>';

@@ -2887,6 +2887,7 @@ class RT_Event_Manager {
             'transfer_email'        => '%s',
             'transfer_requested_at' => '%s',
             'refund_status'         => '%s',
+            'refund_note'           => '%s',
             'transferred_from_user_id' => '%d',
             'transferred_at'        => '%s',
             'checked_in_at'         => '%s',
@@ -4122,8 +4123,12 @@ class RT_Event_Manager {
         $tid      = absint($_POST['rti_ticket_id']);
         $decision = sanitize_key(wp_unslash($_POST['rti_refund_action']));
         if ($tid && in_array($decision, array('confirm', 'decline'), true)) {
-            $new = ('confirm' === $decision) ? 'confirmed' : 'declined';
-            $this->update_ticket($tid, array('refund_status' => $new));
+            $new  = ('confirm' === $decision) ? 'confirmed' : 'declined';
+            // Keep the decline reason (single line); clear it when confirming.
+            $note = ('decline' === $decision)
+                ? sanitize_text_field(wp_unslash($_POST['rti_refund_note'] ?? ''))
+                : '';
+            $this->update_ticket($tid, array('refund_status' => $new, 'refund_note' => $note));
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf(
                 'confirm' === $decision
                     ? __('Refund marked as confirmed for ticket #%d.', 'rt-event-manager')
@@ -4174,11 +4179,17 @@ class RT_Event_Manager {
             echo '<td>' . esc_html($pname . ' (' . self::ticket_kind_label($r) . ')') . '</td>';
             echo '<td>' . wp_kses_post($amount) . '</td>';
             echo '<td>' . esc_html($r['updated_at']) . '</td>';
-            echo '<td>' . esc_html($rlabel) . '</td>';
+            $rnote = isset($r['refund_note']) ? (string) $r['refund_note'] : '';
+            echo '<td>' . esc_html($rlabel);
+            if ('declined' === $r['refund_status'] && '' !== $rnote) {
+                echo '<br><span class="description">' . esc_html($rnote) . '</span>';
+            }
+            echo '</td>';
             if ($actionable) {
-                echo '<td><form method="post" style="display:inline">';
+                echo '<td><form method="post">';
                 wp_nonce_field('rti_refund_action');
                 echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
+                echo '<input type="text" name="rti_refund_note" class="regular-text" style="width:100%;margin-bottom:6px;" placeholder="' . esc_attr__('Reason (shown to the member if declined)', 'rt-event-manager') . '" />';
                 echo '<button type="submit" class="button button-primary" name="rti_refund_action" value="confirm">' . esc_html__('Confirm refund', 'rt-event-manager') . '</button> ';
                 echo '<button type="submit" class="button" name="rti_refund_action" value="decline">' . esc_html__('Decline', 'rt-event-manager') . '</button>';
                 echo '</form></td>';
