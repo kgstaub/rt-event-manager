@@ -64,7 +64,7 @@
 .rtacc-nav .uk-nav > li:not(.rtacc-nav-logout) > a,
 .rtacc-offcanvas .uk-nav > li:not(.rtacc-nav-logout) > a {
     color: #333 !important;
-    font-weight: 400;
+    font-weight: 400 !important;
 }
 .rtacc-nav .rtacc-nav-icon,
 .rtacc-offcanvas .rtacc-nav-icon {
@@ -84,10 +84,10 @@
     padding: 0;
     border: 0;
 }
-/* Logout item stands out in the brand colour. */
+/* Logout item stands out in the brand colour (not bolder). */
 .rtacc-nav .rtacc-nav-logout > a {
     color: var(--rtacc-primary);
-    font-weight: 600;
+    font-weight: 400;
 }
 .rtacc-nav .rtacc-nav-logout > a:hover {
     color: var(--rtacc-primary-hover);
