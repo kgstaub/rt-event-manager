@@ -43,8 +43,8 @@
 
 /* ---- Navigation: skin from UIkit uk-nav; only width + logout accent here ---- */
 .rtacc-nav {
-    flex: 0 0 231px;
-    max-width: 231px;
+    flex: 0 0 254px;
+    max-width: 254px;
 }
 /* Fixed-width icon column so labels line up. */
 .rtacc-nav-icon {
