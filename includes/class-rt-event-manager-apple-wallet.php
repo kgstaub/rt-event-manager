@@ -99,6 +99,14 @@ class RT_Event_Manager_Apple_Wallet {
                     update_option('rt_event_manager_wallet_key_enc', RT_Event_Manager_Visa::encrypt($bytes));
                 }
             }
+            if (!empty($_FILES['wallet_logo']['tmp_name']) && is_uploaded_file($_FILES['wallet_logo']['tmp_name'])) {
+                $bytes = file_get_contents($_FILES['wallet_logo']['tmp_name']);
+                if (false !== $bytes && false !== @getimagesizefromstring($bytes)) {
+                    update_option('rt_event_manager_wallet_logo', base64_encode($bytes));
+                } else {
+                    echo '<div class="notice notice-error"><p>' . esc_html__('The logo could not be read as an image.', 'rt-event-manager') . '</p></div>';
+                }
+            }
             if (!empty($_FILES['wallet_wwdr']['tmp_name']) && is_uploaded_file($_FILES['wallet_wwdr']['tmp_name'])) {
                 $bytes = file_get_contents($_FILES['wallet_wwdr']['tmp_name']);
                 if (false !== $bytes) {
@@ -163,6 +171,15 @@ class RT_Event_Manager_Apple_Wallet {
         echo '<tr><th scope="row">' . esc_html__('Apple WWDR certificate', 'rt-event-manager') . '</th><td>';
         echo '<input type="file" name="wallet_wwdr" accept=".cer,.pem,.crt" />';
         echo '<p class="description">' . ($has_wwdr ? esc_html__('A WWDR certificate is stored. Upload a new one to replace it.', 'rt-event-manager') : esc_html__('Upload the Apple WWDR intermediate certificate (.cer).', 'rt-event-manager')) . '</p></td></tr>';
+
+        // Pass logo (shown on the wallet ticket face).
+        $logo = self::opt('logo');
+        echo '<tr><th scope="row">' . esc_html__('Pass logo', 'rt-event-manager') . '</th><td>';
+        if ('' !== $logo) {
+            echo '<div style="margin:0 0 8px;"><img src="data:image/png;base64,' . esc_attr($logo) . '" alt="" style="max-height:50px;background:#CC0B24;padding:6px;border-radius:4px;" /></div>';
+        }
+        echo '<input type="file" name="wallet_logo" accept="image/png,image/jpeg" />';
+        echo '<p class="description">' . esc_html__('PNG with transparency recommended. Shown top-left on the Wallet ticket; also used for the pass icon. Left blank uses a plain brand-colour block.', 'rt-event-manager') . '</p></td></tr>';
 
         echo '</table>';
         echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html__('Save Apple Wallet settings', 'rt-event-manager') . '</button></p>';
@@ -385,19 +402,40 @@ class RT_Event_Manager_Apple_Wallet {
             ),
         );
 
+        $logo_src = base64_decode((string) self::opt('logo'), true);
+        $logo = function ($w, $h) use ($logo_src) {
+            if ($logo_src) {
+                $png = $this->resized_png($logo_src, $w, $h);
+                if (null !== $png) {
+                    return $png;
+                }
+            }
+            return $this->solid_png($w, $h);
+        };
+        $icon = function ($size) use ($logo_src) {
+            if ($logo_src) {
+                $png = $this->resized_png($logo_src, $size, $size);
+                if (null !== $png) {
+                    return $png;
+                }
+            }
+            return $this->solid_png($size, $size);
+        };
+
         return array(
             'pass.json'      => wp_json_encode($pass),
-            'icon.png'       => $this->icon_png(29),
-            'icon@2x.png'    => $this->icon_png(58),
-            'icon@3x.png'    => $this->icon_png(87),
-            'logo.png'       => $this->icon_png(50),
-            'logo@2x.png'    => $this->icon_png(100),
+            'icon.png'       => $icon(29),
+            'icon@2x.png'    => $icon(58),
+            'icon@3x.png'    => $icon(87),
+            'logo.png'       => $logo(160, 50),
+            'logo@2x.png'    => $logo(320, 100),
+            'logo@3x.png'    => $logo(480, 150),
         );
     }
 
-    /** A solid brand-colour PNG icon of the given size. */
-    private function icon_png($size) {
-        $im = imagecreatetruecolor($size, $size);
+    /** A solid brand-colour PNG of the given size. */
+    private function solid_png($w, $h) {
+        $im = imagecreatetruecolor($w, $h);
         $c  = imagecolorallocate($im, 204, 11, 36);
         imagefill($im, 0, 0, $c);
         ob_start();
@@ -405,5 +443,37 @@ class RT_Event_Manager_Apple_Wallet {
         $data = ob_get_clean();
         imagedestroy($im);
         return $data;
+    }
+
+    /**
+     * Resize source image bytes to fit within w×h (aspect preserved, transparent
+     * padding), returning PNG bytes or null on failure.
+     */
+    private function resized_png($src_bytes, $w, $h) {
+        $src = @imagecreatefromstring($src_bytes);
+        if (!$src) {
+            return null;
+        }
+        $sw = imagesx($src);
+        $sh = imagesy($src);
+        if ($sw < 1 || $sh < 1) {
+            imagedestroy($src);
+            return null;
+        }
+        $ratio = min($w / $sw, $h / $sh);
+        $tw    = max(1, (int) round($sw * $ratio));
+        $th    = max(1, (int) round($sh * $ratio));
+        $dst   = imagecreatetruecolor($w, $h);
+        imagealphablending($dst, false);
+        imagesavealpha($dst, true);
+        $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+        imagefilledrectangle($dst, 0, 0, $w, $h, $transparent);
+        imagecopyresampled($dst, $src, (int) (($w - $tw) / 2), (int) (($h - $th) / 2), 0, 0, $tw, $th, $sw, $sh);
+        ob_start();
+        imagepng($dst);
+        $out = ob_get_clean();
+        imagedestroy($src);
+        imagedestroy($dst);
+        return $out;
     }
 }
