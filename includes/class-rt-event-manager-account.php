@@ -682,8 +682,14 @@ class RT_Event_Manager_Account {
             }
 
             foreach ($groups as $holder => $rows) {
-                // Order each holder's tickets by their event/tour start date.
+                // Main event/Future-member tickets first, then tours; each group
+                // ordered by its event/tour start date.
                 usort($rows, function ($a, $b) {
+                    $pa = in_array(RT_Event_Manager::get_ticket_kind($a), array('event', 'minor'), true) ? 0 : 1;
+                    $pb = in_array(RT_Event_Manager::get_ticket_kind($b), array('event', 'minor'), true) ? 0 : 1;
+                    if ($pa !== $pb) {
+                        return $pa <=> $pb;
+                    }
                     return $this->event_start_ts($a['product_id']) <=> $this->event_start_ts($b['product_id']);
                 });
                 $open = ($own_holder !== '' && $holder === $own_holder) ? ' open' : '';
