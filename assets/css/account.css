@@ -297,7 +297,7 @@
 /* Per-row Transfer / Cancel actions (icon buttons with title tooltips). */
 .rtacc-row-actions {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
 }
@@ -340,6 +340,26 @@
 .rtacc-icon-btn--danger:focus-visible {
     background: var(--rtacc-primary-hover);
     border-color: var(--rtacc-primary-hover);
+}
+/* Official "Add to Apple/Google Wallet" badges — rendered as-is, unaltered. */
+.rtacc-wallet-badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: none;
+    line-height: 0;
+    transition: opacity 0.15s ease;
+}
+.rtacc-wallet-badge img {
+    height: 32px;
+    width: auto;
+    display: block;
+}
+.rtacc-wallet-badge:hover,
+.rtacc-wallet-badge:focus-visible {
+    opacity: 0.85;
 }
 .rtacc-transfer-list {
     margin: 8px 0 12px;

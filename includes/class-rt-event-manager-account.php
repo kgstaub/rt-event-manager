@@ -2057,8 +2057,7 @@ class RT_Event_Manager_Account {
                     'ticket_id' => $id,
                     'nonce'     => wp_create_nonce('rt_event_manager_apple_pass_' . $id),
                 ), admin_url('admin-ajax.php'));
-                $icon_wallet = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path></svg>';
-                $out .= '<a class="rtacc-icon-btn rtacc-wallet-btn" href="' . esc_url($wallet_url) . '" title="' . esc_attr($wallet_label) . '" aria-label="' . esc_attr($wallet_label) . '">' . $icon_wallet . '</a>';
+                $out .= '<a class="rtacc-wallet-badge rtacc-wallet-badge--apple" href="' . esc_url($wallet_url) . '" title="' . esc_attr($wallet_label) . '" aria-label="' . esc_attr($wallet_label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-apple-wallet.svg') . '" alt="' . esc_attr($wallet_label) . '" /></a>';
             }
 
             // Add to Google Wallet (when the Issuer account is configured).
@@ -2069,8 +2068,7 @@ class RT_Event_Manager_Account {
                     'ticket_id' => $id,
                     'nonce'     => wp_create_nonce('rt_event_manager_google_pass_' . $id),
                 ), admin_url('admin-ajax.php'));
-                $icon_gwallet = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="5" width="20" height="14" rx="2"></rect><circle cx="12" cy="12" r="3"></circle></svg>';
-                $out .= '<a class="rtacc-icon-btn rtacc-gwallet-btn" href="' . esc_url($gwallet_url) . '" target="_blank" rel="noopener" title="' . esc_attr($gwallet_label) . '" aria-label="' . esc_attr($gwallet_label) . '">' . $icon_gwallet . '</a>';
+                $out .= '<a class="rtacc-wallet-badge rtacc-wallet-badge--google" href="' . esc_url($gwallet_url) . '" target="_blank" rel="noopener" title="' . esc_attr($gwallet_label) . '" aria-label="' . esc_attr($gwallet_label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-google-wallet.svg') . '" alt="' . esc_attr($gwallet_label) . '" /></a>';
             }
         }
 
