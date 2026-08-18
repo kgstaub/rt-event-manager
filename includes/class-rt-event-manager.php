@@ -3903,6 +3903,10 @@ class RT_Event_Manager {
                 'status'        => 'refunded',
                 'refund_status' => 'confirmed',
             ));
+            // Refunding revokes the invitation — delete any visa letter(s).
+            if (class_exists('RT_Event_Manager_Visa')) {
+                RT_Event_Manager_Visa::delete_letters_for_ticket(absint($t['id']));
+            }
         }
     }
 

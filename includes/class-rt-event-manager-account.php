@@ -2858,6 +2858,10 @@ class RT_Event_Manager_Account {
             'transfer_token' => '',
             'transfer_email' => '',
         ));
+        // Cancelling revokes any invitation — delete the ticket's visa letter(s).
+        if (class_exists('RT_Event_Manager_Visa')) {
+            RT_Event_Manager_Visa::delete_letters_for_ticket($ticket_id);
+        }
         // A pretour or day tour cannot outlive its host — cascade the cancellation.
         if (in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true)) {
             $children = array_merge(
@@ -2869,6 +2873,9 @@ class RT_Event_Manager_Account {
                     'status'        => 'cancelled',
                     'refund_status' => $refund_status,
                 ));
+                if (class_exists('RT_Event_Manager_Visa')) {
+                    RT_Event_Manager_Visa::delete_letters_for_ticket(absint($child['id']));
+                }
                 $cancelled[] = $child;
             }
         }

@@ -48,6 +48,23 @@ class RT_Event_Manager_Visa {
         return $wpdb->prefix . 'rti_visa_letters';
     }
 
+    /**
+     * Permanently delete all visa letters (encrypted applicant PII + PDF) for a
+     * ticket. Used when a ticket is cancelled so its invitation is revoked.
+     *
+     * @param int $ticket_id
+     * @return int Number of letters deleted.
+     */
+    public static function delete_letters_for_ticket($ticket_id) {
+        $ticket_id = absint($ticket_id);
+        if (!$ticket_id) {
+            return 0;
+        }
+        global $wpdb;
+        $table = self::table();
+        return (int) $wpdb->delete($table, array('ticket_id' => $ticket_id), array('%d'));
+    }
+
     public function maybe_install_table() {
         global $wpdb;
         $table = self::table();
