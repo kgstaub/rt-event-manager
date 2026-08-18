@@ -84,6 +84,7 @@ class RT_Event_Manager_Checkin {
                 'invalidCode'  => __('Unrecognised code — this is not a valid ticket QR.', 'rt-event-manager'),
                 'notFound'     => __('Ticket not found.', 'rt-event-manager'),
                 'networkError' => __('Network error. Please try again.', 'rt-event-manager'),
+                'checkIn'      => __('Check in', 'rt-event-manager'),
                 'checkedIn'    => __('Checked in', 'rt-event-manager'),
                 'alreadyIn'    => __('Already checked in', 'rt-event-manager'),
             ),

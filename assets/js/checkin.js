@@ -164,7 +164,7 @@
 
         var action = (terminal || checkedIn) ? '' :
             '<button type="button" class="rtem-btn rtem-btn-checkin" id="rtem-do">' +
-            esc((I18N.checkedIn || 'Check in')) + ' →</button>';
+            esc((I18N.checkIn || 'Check in')) + ' →</button>';
 
         result.innerHTML =
             '<div class="rtem-card rtem-card-' + esc(t.status) + '">' +
@@ -197,7 +197,7 @@
                         flash(did > 1 ? (did + ' ' + esc('checked in')) : (I18N.checkedIn || 'Checked in'), 'ok');
                     } else {
                         doBtn.disabled = false;
-                        doBtn.textContent = (I18N.checkedIn || 'Check in') + ' →';
+                        doBtn.textContent = (I18N.checkIn || 'Check in') + ' →';
                         showError((res && res.data && res.data.message) || I18N.networkError);
                     }
                 }).catch(function () {
