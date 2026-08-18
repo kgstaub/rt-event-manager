@@ -573,9 +573,9 @@ class RT_Event_Manager_Account {
         // Visual grouping (a blank gap is shown between non-empty groups).
         $groups = array(
             array('dashboard'),
-            array('profile', 'refunds', 'emergency'),
+            array('profile', 'emergency'),
             array('calendar', 'tickets', 'pretour', 'daytour', 'travel'),
-            array('shop', 'orders'),
+            array('shop', 'orders', 'refunds'),
         );
         $tabs = $this->get_tabs();
 

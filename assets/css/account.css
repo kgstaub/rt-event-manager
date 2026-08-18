@@ -60,6 +60,22 @@
     border: 0 !important;
     box-shadow: none !important;
 }
+/* Menu labels use the normal text colour; icons stay brand red. */
+.rtacc-nav .uk-nav > li:not(.rtacc-nav-logout) > a,
+.rtacc-offcanvas .uk-nav > li:not(.rtacc-nav-logout) > a {
+    color: #333 !important;
+    font-weight: 400;
+}
+.rtacc-nav .rtacc-nav-icon,
+.rtacc-offcanvas .rtacc-nav-icon {
+    color: var(--rtacc-primary) !important;
+}
+/* Active item: brand colour + bolder (icon already red). */
+.rtacc-nav .uk-nav > li.uk-active > a,
+.rtacc-offcanvas .uk-nav > li.uk-active > a {
+    color: var(--rtacc-primary) !important;
+    font-weight: 700;
+}
 /* Blank gap between navigation groups (no line). */
 .rtacc-nav-sep {
     list-style: none;
