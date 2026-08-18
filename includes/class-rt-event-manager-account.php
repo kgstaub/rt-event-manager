@@ -2271,7 +2271,7 @@ class RT_Event_Manager_Account {
                 // Withdrawing a pending offer stays available even after the deadline.
                 $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" role="menuitem"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> ' . esc_html($withdraw_label) . '</button>';
             } elseif ($is_confirmed && $can_transfer) {
-                $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" role="menuitem"><i class="fa-solid fa-right-left" aria-hidden="true"></i> ' . esc_html($transfer_label) . '</button>';
+                $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" role="menuitem"><i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i> ' . esc_html($transfer_label) . '</button>';
             }
         }
         if ($is_confirmed) {
