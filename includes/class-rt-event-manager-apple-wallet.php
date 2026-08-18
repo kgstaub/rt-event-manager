@@ -74,6 +74,8 @@ class RT_Event_Manager_Apple_Wallet {
             update_option('rt_event_manager_wallet_pass_type_id', sanitize_text_field(wp_unslash($_POST['wallet_pass_type_id'] ?? '')));
             update_option('rt_event_manager_wallet_org_name', sanitize_text_field(wp_unslash($_POST['wallet_org_name'] ?? '')));
             update_option('rt_event_manager_wallet_event_name', sanitize_text_field(wp_unslash($_POST['wallet_event_name'] ?? '')));
+            update_option('rt_event_manager_wallet_header_label', sanitize_text_field(wp_unslash($_POST['wallet_header_label'] ?? '')));
+            update_option('rt_event_manager_wallet_header_value', sanitize_text_field(wp_unslash($_POST['wallet_header_value'] ?? '')));
 
             // Password: only overwrite when a new value is entered.
             $pass = (string) wp_unslash($_POST['wallet_p12_pass'] ?? '');
@@ -105,6 +107,14 @@ class RT_Event_Manager_Apple_Wallet {
                     update_option('rt_event_manager_wallet_logo', base64_encode($bytes));
                 } else {
                     echo '<div class="notice notice-error"><p>' . esc_html__('The logo could not be read as an image.', 'rt-event-manager') . '</p></div>';
+                }
+            }
+            if (!empty($_FILES['wallet_thumb']['tmp_name']) && is_uploaded_file($_FILES['wallet_thumb']['tmp_name'])) {
+                $bytes = file_get_contents($_FILES['wallet_thumb']['tmp_name']);
+                if (false !== $bytes && false !== @getimagesizefromstring($bytes)) {
+                    update_option('rt_event_manager_wallet_thumb', base64_encode($bytes));
+                } else {
+                    echo '<div class="notice notice-error"><p>' . esc_html__('The secondary logo could not be read as an image.', 'rt-event-manager') . '</p></div>';
                 }
             }
             if (!empty($_FILES['wallet_wwdr']['tmp_name']) && is_uploaded_file($_FILES['wallet_wwdr']['tmp_name'])) {
@@ -180,6 +190,19 @@ class RT_Event_Manager_Apple_Wallet {
         }
         echo '<input type="file" name="wallet_logo" accept="image/png,image/jpeg" />';
         echo '<p class="description">' . esc_html__('PNG with transparency recommended. Shown top-left on the Wallet ticket; also used for the pass icon. Left blank uses a plain brand-colour block.', 'rt-event-manager') . '</p></td></tr>';
+
+        // Secondary logo (Apple "thumbnail", shown on the right of the ticket).
+        $thumb = self::opt('thumb');
+        echo '<tr><th scope="row">' . esc_html__('Secondary logo', 'rt-event-manager') . '</th><td>';
+        if ('' !== $thumb) {
+            echo '<div style="margin:0 0 8px;"><img src="data:image/png;base64,' . esc_attr($thumb) . '" alt="" style="max-height:70px;background:#CC0B24;padding:6px;border-radius:4px;" /></div>';
+        }
+        echo '<input type="file" name="wallet_thumb" accept="image/png,image/jpeg" />';
+        echo '<p class="description">' . esc_html__('Optional square image shown on the right of the Wallet ticket (Apple “thumbnail”).', 'rt-event-manager') . '</p></td></tr>';
+
+        // Top-right header title (Apple headerFields).
+        $text(__('Top-right label', 'rt-event-manager'), 'wallet_header_label', self::opt('header_label'), __('Small caption above the top-right title (optional).', 'rt-event-manager'));
+        $text(__('Top-right title', 'rt-event-manager'), 'wallet_header_value', self::opt('header_value'), __('Shown in the top-right corner of the pass (e.g. the year or a short code).', 'rt-event-manager'));
 
         echo '</table>';
         echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html__('Save Apple Wallet settings', 'rt-event-manager') . '</button></p>';
@@ -390,6 +413,7 @@ class RT_Event_Manager_Apple_Wallet {
                 'messageEncoding' => 'iso-8859-1',
             )),
             'eventTicket'        => array(
+                'headerFields'    => array(),
                 'primaryFields'   => array(array('key' => 'event', 'label' => __('EVENT', 'rt-event-manager'), 'value' => self::opt('event_name', 'RTI Half-Year Meeting 2027'))),
                 'secondaryFields' => array(
                     array('key' => 'name', 'label' => __('ATTENDEE', 'rt-event-manager'), 'value' => $holder),
@@ -401,6 +425,16 @@ class RT_Event_Manager_Apple_Wallet {
                 'backFields'      => $back,
             ),
         );
+
+        // Top-right header title (Apple headerFields).
+        $header_value = (string) self::opt('header_value');
+        if ('' !== $header_value) {
+            $pass['eventTicket']['headerFields'][] = array(
+                'key'   => 'header',
+                'label' => (string) self::opt('header_label'),
+                'value' => $header_value,
+            );
+        }
 
         $logo_src = base64_decode((string) self::opt('logo'), true);
         $logo = function ($w, $h) use ($logo_src) {
@@ -422,7 +456,7 @@ class RT_Event_Manager_Apple_Wallet {
             return $this->solid_png($size, $size);
         };
 
-        return array(
+        $files = array(
             'pass.json'      => wp_json_encode($pass),
             'icon.png'       => $icon(29),
             'icon@2x.png'    => $icon(58),
@@ -431,6 +465,19 @@ class RT_Event_Manager_Apple_Wallet {
             'logo@2x.png'    => $logo(320, 100),
             'logo@3x.png'    => $logo(480, 150),
         );
+
+        // Secondary logo → Apple "thumbnail" (right side of the ticket).
+        $thumb_src = base64_decode((string) self::opt('thumb'), true);
+        if ($thumb_src) {
+            foreach (array('thumbnail.png' => 90, 'thumbnail@2x.png' => 180, 'thumbnail@3x.png' => 270) as $tname => $tsize) {
+                $png = $this->resized_png($thumb_src, $tsize, $tsize);
+                if (null !== $png) {
+                    $files[$tname] = $png;
+                }
+            }
+        }
+
+        return $files;
     }
 
     /** A solid brand-colour PNG of the given size. */
