@@ -1770,22 +1770,19 @@ class RT_Event_Manager_Account {
      * @return int 0 when the user has no event ticket of their own.
      */
     private function own_event_ticket_id($tickets) {
-        // Pick the most recent (highest-id) non-cancelled event ticket, so a
-        // fresh registration supersedes an older one the member still holds.
-        $best = 0;
+        // The account owner's own ticket is their earliest non-cancelled event
+        // ticket (their self-registration); companion event tickets bought later
+        // — even in separate orders — belong under "Travelling with me".
         foreach ($tickets as $t) {
             $status = isset($t['status']) ? $t['status'] : '';
             if (in_array($status, array('cancelled', 'refunded'), true)) {
                 continue;
             }
             if ('event' === $this->effective_kind($t) && !absint($t['parent_ticket_id'])) {
-                $id = absint($t['id']);
-                if ($id > $best) {
-                    $best = $id;
-                }
+                return absint($t['id']);
             }
         }
-        return $best;
+        return 0;
     }
 
     /**
