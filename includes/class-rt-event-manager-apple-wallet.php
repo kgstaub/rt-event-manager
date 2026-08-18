@@ -113,14 +113,6 @@ class RT_Event_Manager_Apple_Wallet {
                     echo '<div class="notice notice-error"><p>' . esc_html__('The logo could not be read as an image.', 'rt-event-manager') . '</p></div>';
                 }
             }
-            if (!empty($_FILES['wallet_thumb']['tmp_name']) && is_uploaded_file($_FILES['wallet_thumb']['tmp_name'])) {
-                $bytes = file_get_contents($_FILES['wallet_thumb']['tmp_name']);
-                if (false !== $bytes && false !== @getimagesizefromstring($bytes)) {
-                    update_option('rt_event_manager_wallet_thumb', base64_encode($bytes));
-                } else {
-                    echo '<div class="notice notice-error"><p>' . esc_html__('The secondary logo could not be read as an image.', 'rt-event-manager') . '</p></div>';
-                }
-            }
             if (!empty($_FILES['wallet_icon']['tmp_name']) && is_uploaded_file($_FILES['wallet_icon']['tmp_name'])) {
                 $bytes = file_get_contents($_FILES['wallet_icon']['tmp_name']);
                 if (false !== $bytes && false !== @getimagesizefromstring($bytes)) {
@@ -202,15 +194,6 @@ class RT_Event_Manager_Apple_Wallet {
         }
         echo '<input type="file" name="wallet_logo" accept="image/png,image/jpeg" />';
         echo '<p class="description">' . esc_html__('PNG with transparency recommended. Shown top-left on the Wallet ticket; also used for the pass icon. Left blank uses a plain brand-colour block.', 'rt-event-manager') . '</p></td></tr>';
-
-        // Secondary logo (Apple "thumbnail", shown on the right of the ticket).
-        $thumb = self::opt('thumb');
-        echo '<tr><th scope="row">' . esc_html__('Secondary logo', 'rt-event-manager') . '</th><td>';
-        if ('' !== $thumb) {
-            echo '<div style="margin:0 0 8px;"><img src="data:image/png;base64,' . esc_attr($thumb) . '" alt="" style="max-height:70px;background:#CC0B24;padding:6px;border-radius:4px;" /></div>';
-        }
-        echo '<input type="file" name="wallet_thumb" accept="image/png,image/jpeg" />';
-        echo '<p class="description">' . esc_html__('Optional square image shown on the right of the Wallet ticket (Apple “thumbnail”).', 'rt-event-manager') . '</p></td></tr>';
 
         // Notification / pass icon (icon.png). Shown in notifications and the Wallet list.
         $icon = self::opt('icon');
@@ -562,17 +545,6 @@ class RT_Event_Manager_Apple_Wallet {
             'logo@2x.png'    => $logo(320, 100),
             'logo@3x.png'    => $logo(480, 150),
         );
-
-        // Secondary logo → Apple "thumbnail" (right side of the ticket).
-        $thumb_src = base64_decode((string) self::opt('thumb'), true);
-        if ($thumb_src) {
-            foreach (array('thumbnail.png' => 90, 'thumbnail@2x.png' => 180, 'thumbnail@3x.png' => 270) as $tname => $tsize) {
-                $png = $this->resized_png($thumb_src, $tsize, $tsize);
-                if (null !== $png) {
-                    $files[$tname] = $png;
-                }
-            }
-        }
 
         return $files;
     }
