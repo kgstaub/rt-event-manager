@@ -906,7 +906,8 @@ class RT_Event_Manager_Account {
         if (!$user_id) {
             return false;
         }
-        foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $t) {
+        // Refunds live on cancelled/refunded (terminal) tickets, so include them.
+        foreach (RT_Event_Manager::get_tickets_for_user($user_id, true) as $t) {
             $rs = isset($t['refund_status']) ? $t['refund_status'] : '';
             if (in_array($rs, array('requested', 'confirmed', 'declined'), true)) {
                 return true;
@@ -921,7 +922,7 @@ class RT_Event_Manager_Account {
 
         $requested = array();
         $processed = array();
-        foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $t) {
+        foreach (RT_Event_Manager::get_tickets_for_user($user_id, true) as $t) {
             $rs = isset($t['refund_status']) ? $t['refund_status'] : '';
             if ('requested' === $rs) {
                 $requested[] = $t;
@@ -1940,7 +1941,6 @@ class RT_Event_Manager_Account {
 
         echo '<table class="rtacc-table rtacc-tickets uk-table uk-table-divider uk-table-middle uk-table-small">';
         echo '<thead><tr>';
-        echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
         if ($show_product) {
             echo '<th>' . esc_html__('Tour', 'rt-event-manager') . '</th>';
         }
@@ -1978,7 +1978,6 @@ class RT_Event_Manager_Account {
             $dietary_editable = $can_edit && !$is_locked;
 
             echo '<tr data-ticket-id="' . esc_attr($id) . '">';
-            echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '">' . esc_html(RT_Event_Manager::ticket_kind_label($t)) . '</td>';
 
             if ($show_product) {
                 $product = wc_get_product($t['product_id']);

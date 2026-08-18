@@ -304,7 +304,7 @@
 /* Per-row Transfer / Cancel actions (icon buttons with title tooltips). */
 .rtacc-row-actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 6px;
 }
