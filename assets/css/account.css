@@ -76,11 +76,19 @@
     display: block;
     padding: 8px 12px;
 }
-/* Active item: brand colour + bolder (icon already red). */
+/* Active item: brand colour + bolder on a light gray button. */
 .rtacc-nav .uk-nav > li.uk-active > a,
 .rtacc-offcanvas .uk-nav > li.uk-active > a {
     color: var(--rtacc-primary) !important;
     font-weight: 700;
+    background: #f3f4f5;
+    border-radius: 6px;
+}
+/* Hover shows the same light gray button (Log out keeps its red hover). */
+.rtacc-nav .uk-nav > li:not(.rtacc-nav-logout) > a:hover,
+.rtacc-offcanvas .uk-nav > li:not(.rtacc-nav-logout) > a:hover {
+    background: #f3f4f5;
+    border-radius: 6px;
 }
 /* Blank gap between navigation groups (no line). */
 .rtacc-nav-sep {
