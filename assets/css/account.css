@@ -945,8 +945,7 @@
     }
 }
 
-/* Stack ticket/order tables into label + value cards on tablets & phones. */
-@media (max-width: 900px) {
+/* Ticket/order tables always render as stacked label + value cards. */
     .rtacc-tickets,
     .rtacc-tickets tbody,
     .rtacc-orders,
@@ -1017,4 +1016,3 @@
         display: block;
         border: none;
     }
-}
