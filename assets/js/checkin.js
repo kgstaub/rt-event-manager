@@ -201,11 +201,17 @@
             companionsHtml +
             action +
             '<button type="button" class="rtem-btn rtem-btn-profile" id="rtem-profile-btn">' + esc(I18N.viewProfile || 'View profile') + '</button>' +
+            ((t.kind === 'minor' && t.guardian_id) ?
+                '<button type="button" class="rtem-btn rtem-btn-profile" id="rtem-guardian-btn">' + esc(I18N.guardianProfile || 'Guardian profile') + '</button>' : '') +
             resetBtn +
             '<button type="button" class="rtem-btn rtem-btn-next" id="rtem-next">' + esc('Scan next') + '</button>' +
             '</div>';
 
         document.getElementById('rtem-profile-btn').addEventListener('click', function () { openProfile(t.id); });
+        var guardianBtn = document.getElementById('rtem-guardian-btn');
+        if (guardianBtn) {
+            guardianBtn.addEventListener('click', function () { openProfile(t.guardian_id); });
+        }
         var resetEl = document.getElementById('rtem-reset');
         if (resetEl) {
             resetEl.addEventListener('click', function () {
