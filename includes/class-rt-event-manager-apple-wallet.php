@@ -44,10 +44,12 @@ class RT_Event_Manager_Apple_Wallet {
 
     /** Whether Apple Wallet passes can be issued (all credentials present). */
     public static function is_configured() {
+        $has_signcert = ('' !== self::opt('p12_enc'))
+            || ('' !== self::opt('cert_enc') && '' !== self::opt('key_enc'));
         return '' !== self::opt('team_id')
             && '' !== self::opt('pass_type_id')
             && '' !== self::opt('org_name')
-            && '' !== self::opt('p12_enc')
+            && $has_signcert
             && '' !== self::opt('wwdr_enc');
     }
 
@@ -83,6 +85,18 @@ class RT_Event_Manager_Apple_Wallet {
                 $bytes = file_get_contents($_FILES['wallet_p12']['tmp_name']);
                 if (false !== $bytes) {
                     update_option('rt_event_manager_wallet_p12_enc', RT_Event_Manager_Visa::encrypt($bytes));
+                }
+            }
+            if (!empty($_FILES['wallet_cert']['tmp_name']) && is_uploaded_file($_FILES['wallet_cert']['tmp_name'])) {
+                $bytes = file_get_contents($_FILES['wallet_cert']['tmp_name']);
+                if (false !== $bytes) {
+                    update_option('rt_event_manager_wallet_cert_enc', RT_Event_Manager_Visa::encrypt($bytes));
+                }
+            }
+            if (!empty($_FILES['wallet_key']['tmp_name']) && is_uploaded_file($_FILES['wallet_key']['tmp_name'])) {
+                $bytes = file_get_contents($_FILES['wallet_key']['tmp_name']);
+                if (false !== $bytes) {
+                    update_option('rt_event_manager_wallet_key_enc', RT_Event_Manager_Visa::encrypt($bytes));
                 }
             }
             if (!empty($_FILES['wallet_wwdr']['tmp_name']) && is_uploaded_file($_FILES['wallet_wwdr']['tmp_name'])) {
@@ -125,11 +139,24 @@ class RT_Event_Manager_Apple_Wallet {
         $text(__('Organization name', 'rt-event-manager'), 'wallet_org_name', self::opt('org_name'));
         $text(__('Event name (shown on pass)', 'rt-event-manager'), 'wallet_event_name', self::opt('event_name', 'RTI Half-Year Meeting 2027'));
 
+        $has_cert = '' !== self::opt('cert_enc');
+        $has_key  = '' !== self::opt('key_enc');
+
+        echo '<tr><td colspan="2"><p class="description"><strong>' . esc_html__('Signing certificate — provide EITHER a PEM certificate + key (recommended) OR a .p12.', 'rt-event-manager') . '</strong> ' . esc_html__('macOS Keychain .p12 files often fail on OpenSSL 3 servers, so PEM is the reliable option.', 'rt-event-manager') . '</p></td></tr>';
+
+        echo '<tr><th scope="row">' . esc_html__('Certificate (PEM)', 'rt-event-manager') . '</th><td>';
+        echo '<input type="file" name="wallet_cert" accept=".pem,.crt,.cer" />';
+        echo '<p class="description">' . ($has_cert ? esc_html__('A PEM certificate is stored. Upload a new one to replace it.', 'rt-event-manager') : esc_html__('pass.pem — your Pass Type ID certificate in PEM.', 'rt-event-manager')) . '</p></td></tr>';
+
+        echo '<tr><th scope="row">' . esc_html__('Private key (PEM)', 'rt-event-manager') . '</th><td>';
+        echo '<input type="file" name="wallet_key" accept=".pem,.key" />';
+        echo '<p class="description">' . ($has_key ? esc_html__('A PEM key is stored. Upload a new one to replace it.', 'rt-event-manager') : esc_html__('pass.key — the matching private key (unencrypted, or set its passphrase below).', 'rt-event-manager')) . '</p></td></tr>';
+
         echo '<tr><th scope="row">' . esc_html__('Pass certificate (.p12)', 'rt-event-manager') . '</th><td>';
         echo '<input type="file" name="wallet_p12" accept=".p12,.pfx" />';
-        echo '<p class="description">' . ($has_p12 ? esc_html__('A certificate is stored. Upload a new one to replace it.', 'rt-event-manager') : esc_html__('Upload your Pass Type ID .p12 export.', 'rt-event-manager')) . '</p></td></tr>';
+        echo '<p class="description">' . ($has_p12 ? esc_html__('A .p12 is stored. Upload a new one to replace it.', 'rt-event-manager') : esc_html__('Alternative to PEM. Upload your Pass Type ID .p12 export.', 'rt-event-manager')) . '</p></td></tr>';
 
-        echo '<tr><th scope="row">' . esc_html__('.p12 password', 'rt-event-manager') . '</th><td>';
+        echo '<tr><th scope="row">' . esc_html__('.p12 / key password', 'rt-event-manager') . '</th><td>';
         echo '<input type="password" class="regular-text" name="wallet_p12_pass" autocomplete="new-password" placeholder="' . ($has_pass ? '••••••••' : '') . '" />';
         echo '<p class="description">' . esc_html__('Leave blank to keep the stored password.', 'rt-event-manager') . '</p></td></tr>';
 
@@ -182,19 +209,38 @@ class RT_Event_Manager_Apple_Wallet {
         if (!self::is_configured()) {
             return new WP_Error('not_configured', __('Apple Wallet is not fully configured.', 'rt-event-manager'));
         }
-        $p12  = RT_Event_Manager_Visa::decrypt(self::opt('p12_enc'));
         $pass = RT_Event_Manager_Visa::decrypt(self::opt('p12_pass_enc'));
         $wwdr = RT_Event_Manager_Visa::decrypt(self::opt('wwdr_enc'));
-        if ('' === $p12 || '' === $wwdr) {
-            return new WP_Error('bad_certs', __('Could not read the stored certificates.', 'rt-event-manager'));
+        if ('' === $wwdr) {
+            return new WP_Error('bad_certs', __('Could not read the stored WWDR certificate.', 'rt-event-manager'));
         }
 
-        $certs = array();
-        if (!openssl_pkcs12_read($p12, $certs, $pass)) {
-            return new WP_Error('p12', __('Could not open the .p12 — check the password and file.', 'rt-event-manager'));
-        }
-        if (empty($certs['cert']) || empty($certs['pkey'])) {
-            return new WP_Error('p12_contents', __('The .p12 is missing the certificate or private key.', 'rt-event-manager'));
+        // Prefer an explicit PEM certificate + key (avoids the OpenSSL 3 vs
+        // macOS-Keychain .p12 legacy-cipher incompatibility). Fall back to .p12.
+        $cert_pem = RT_Event_Manager_Visa::decrypt(self::opt('cert_enc'));
+        $key_pem  = RT_Event_Manager_Visa::decrypt(self::opt('key_enc'));
+        $cert = '';
+        $pkey = '';
+        $pkey_pass = null;
+        if ('' !== $cert_pem && '' !== $key_pem) {
+            $cert = $cert_pem;
+            $pkey = $key_pem;
+            // A PEM key may be passphrase-protected; reuse the password field.
+            $pkey_pass = ('' !== $pass) ? $pass : null;
+        } else {
+            $p12 = RT_Event_Manager_Visa::decrypt(self::opt('p12_enc'));
+            if ('' === $p12) {
+                return new WP_Error('bad_certs', __('No signing certificate is stored.', 'rt-event-manager'));
+            }
+            $certs = array();
+            if (!openssl_pkcs12_read($p12, $certs, $pass)) {
+                return new WP_Error('p12', __('Could not open the .p12. If it was exported from macOS Keychain and your server runs OpenSSL 3, its legacy encryption cannot be read — upload a PEM certificate + key instead (see the note below), or re-export the .p12 with modern encryption.', 'rt-event-manager'));
+            }
+            if (empty($certs['cert']) || empty($certs['pkey'])) {
+                return new WP_Error('p12_contents', __('The .p12 is missing the certificate or private key.', 'rt-event-manager'));
+            }
+            $cert = $certs['cert'];
+            $pkey = $certs['pkey'];
         }
 
         // WWDR to PEM (accept DER or PEM input).
@@ -208,7 +254,7 @@ class RT_Event_Manager_Apple_Wallet {
             return new WP_Error('wwdr', __('Could not read the WWDR certificate.', 'rt-event-manager'));
         }
 
-        return array('cert' => $certs['cert'], 'pkey' => $certs['pkey'], 'wwdr' => $wwdr_pem);
+        return array('cert' => $cert, 'pkey' => $pkey, 'pkey_pass' => $pkey_pass, 'wwdr' => $wwdr_pem);
     }
 
     /** Build a signed .pkpass for a ticket. Returns bytes or WP_Error. */
@@ -242,7 +288,7 @@ class RT_Event_Manager_Apple_Wallet {
             $manifest_path,
             $sig_smime,
             $material['cert'],
-            array($material['pkey'], null),
+            array($material['pkey'], $material['pkey_pass']),
             array(),
             PKCS7_BINARY | PKCS7_DETACHED,
             $wwdr_path
