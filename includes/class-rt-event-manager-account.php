@@ -580,7 +580,7 @@ class RT_Event_Manager_Account {
         $icons = array(
             'dashboard' => 'fa-house',
             'profile'   => 'fa-user',
-            'emergency' => 'fa-suitcase-medical',
+            'emergency' => 'fa-kit-medical',
             'orders'    => 'fa-list',
             'refunds'   => 'fa-money-bill',
             'tickets'   => 'fa-ticket',
