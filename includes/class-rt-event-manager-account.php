@@ -2059,7 +2059,7 @@ class RT_Event_Manager_Account {
                     'ticket_id' => $id,
                     'nonce'     => wp_create_nonce('rt_event_manager_apple_pass_' . $id),
                 ), admin_url('admin-ajax.php'));
-                $menu_items[] = '<a class="rtacc-wallet-badge rtacc-wallet-badge--apple" href="' . esc_url($wallet_url) . '" title="' . esc_attr($wallet_label) . '" aria-label="' . esc_attr($wallet_label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-apple-wallet.svg') . '" alt="' . esc_attr($wallet_label) . '" /></a>';
+                $menu_items[] = '<a class="rtacc-wallet-menu-item" href="' . esc_url($wallet_url) . '" role="menuitem"><i class="fa-brands fa-apple" aria-hidden="true"></i> ' . esc_html($wallet_label) . '</a>';
             }
             // Add to Google Wallet (when the Issuer account is configured).
             if (class_exists('RT_Event_Manager_Google_Wallet') && RT_Event_Manager_Google_Wallet::is_configured()) {
@@ -2069,7 +2069,7 @@ class RT_Event_Manager_Account {
                     'ticket_id' => $id,
                     'nonce'     => wp_create_nonce('rt_event_manager_google_pass_' . $id),
                 ), admin_url('admin-ajax.php'));
-                $menu_items[] = '<a class="rtacc-wallet-badge rtacc-wallet-badge--google" href="' . esc_url($gwallet_url) . '" target="_blank" rel="noopener" title="' . esc_attr($gwallet_label) . '" aria-label="' . esc_attr($gwallet_label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-google-wallet.svg') . '" alt="' . esc_attr($gwallet_label) . '" /></a>';
+                $menu_items[] = '<a class="rtacc-wallet-menu-item" href="' . esc_url($gwallet_url) . '" target="_blank" rel="noopener" role="menuitem"><i class="fa-brands fa-google" aria-hidden="true"></i> ' . esc_html($gwallet_label) . '</a>';
             }
 
             $menu_label  = __('Ticket', 'rt-event-manager');
