@@ -129,14 +129,14 @@ class RT_Event_Manager_Apple_Wallet {
         return trim($family . ' ' . $club);
     }
 
-    /** Short "Pretour · Day tour" indicator for the tours a ticket includes. */
+    /** Short "PRE · DAY" indicator for the tours a ticket includes. */
     public static function tours_line($has_pretour, $has_daytour) {
         $parts = array();
         if ($has_pretour) {
-            $parts[] = __('Pretour', 'rt-event-manager');
+            $parts[] = __('PRE', 'rt-event-manager');
         }
         if ($has_daytour) {
-            $parts[] = __('Day tour', 'rt-event-manager');
+            $parts[] = __('DAY', 'rt-event-manager');
         }
         return implode(' · ', $parts);
     }
