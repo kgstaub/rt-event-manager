@@ -52,13 +52,21 @@
     margin-right: 10px;
     text-align: center;
 }
-/* Separator between navigation groups. */
+/* Navigation items have no dividing lines — groups are set apart by gaps. */
+.rtacc-nav .uk-nav > li,
+.rtacc-nav .uk-nav > li > a,
+.rtacc-offcanvas .uk-nav > li,
+.rtacc-offcanvas .uk-nav > li > a {
+    border: 0 !important;
+    box-shadow: none !important;
+}
+/* Blank gap between navigation groups (no line). */
 .rtacc-nav-sep {
     list-style: none;
-    height: 0;
-    margin: 8px 12px;
+    height: 14px;
+    margin: 0;
     padding: 0;
-    border-top: 1px solid var(--rtacc-border);
+    border: 0;
 }
 /* Logout item stands out in the brand colour. */
 .rtacc-nav .rtacc-nav-logout > a {

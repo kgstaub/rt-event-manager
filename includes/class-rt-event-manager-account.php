@@ -570,15 +570,16 @@ class RT_Event_Manager_Account {
             );
         };
 
-        // Visual grouping (separators shown between non-empty groups).
+        // Visual grouping (a blank gap is shown between non-empty groups).
         $groups = array(
-            array('dashboard', 'profile', 'orders', 'refunds', 'emergency'),
+            array('dashboard'),
+            array('profile', 'refunds', 'emergency'),
             array('calendar', 'tickets', 'pretour', 'daytour', 'travel'),
-            array('shop'),
+            array('shop', 'orders'),
         );
         $tabs = $this->get_tabs();
 
-        $out = '<ul class="uk-nav uk-nav-default uk-nav-divider">';
+        $out = '<ul class="uk-nav uk-nav-default">';
         $rendered_any = false;
         foreach ($groups as $group) {
             $group_html = '';
@@ -597,6 +598,10 @@ class RT_Event_Manager_Account {
             }
             $out .= $group_html;
             $rendered_any = true;
+        }
+        // Log out sits on its own, separated from the last group by a gap.
+        if ($rendered_any) {
+            $out .= '<li class="rtacc-nav-sep" aria-hidden="true"></li>';
         }
         $out .= $item('fa-right-from-bracket', wp_logout_url($this->account_base_url()), __('Log out', 'rt-event-manager'), 'rtacc-nav-logout');
         $out .= '</ul>';
