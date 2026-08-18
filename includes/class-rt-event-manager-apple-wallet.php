@@ -32,6 +32,43 @@ class RT_Event_Manager_Apple_Wallet {
     private function __construct() {
         add_action('admin_menu', array($this, 'add_admin_menu'), 21);
         add_action('wp_ajax_rt_event_manager_apple_pass', array($this, 'ajax_download'));
+        // Pass Update Web Service (device registration + pass fetch).
+        add_action('init', array($this, 'maybe_install_registrations_table'));
+        add_action('rest_api_init', array($this, 'register_web_service_routes'));
+    }
+
+    /** REST base Apple appends /v1/... to for the pass update web service. */
+    public static function web_service_url() {
+        return rest_url('rtem-wallet');
+    }
+
+    /** Per-pass authentication token Apple sends back as "ApplePass <token>". */
+    public static function auth_token($serial) {
+        return substr(hash_hmac('sha256', 'apple-pass|' . $serial, wp_salt('auth')), 0, 32);
+    }
+
+    private static function registrations_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'rti_pass_registrations';
+    }
+
+    public function maybe_install_registrations_table() {
+        global $wpdb;
+        $table   = self::registrations_table();
+        $collate = $wpdb->get_charset_collate();
+        $wpdb->query(
+            "CREATE TABLE IF NOT EXISTS $table (
+                id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                device_lib_id varchar(255) NOT NULL DEFAULT '',
+                push_token varchar(255) NOT NULL DEFAULT '',
+                pass_type_id varchar(255) NOT NULL DEFAULT '',
+                serial_number varchar(64) NOT NULL DEFAULT '',
+                updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY  (id),
+                UNIQUE KEY device_serial (device_lib_id, serial_number),
+                KEY serial_number (serial_number)
+            ) $collate;"
+        );
     }
 
     /* ---------------------------------------------------------------------
@@ -429,6 +466,8 @@ class RT_Event_Manager_Apple_Wallet {
             'teamIdentifier'     => self::opt('team_id'),
             'organizationName'   => self::opt('org_name'),
             'description'        => $pname,
+            'webServiceURL'      => self::web_service_url(),
+            'authenticationToken' => self::auth_token(absint($ticket['order_id']) . '-' . $number),
             'foregroundColor'    => 'rgb(255,255,255)',
             'backgroundColor'    => 'rgb(204,11,36)',
             'labelColor'         => 'rgb(255,240,196)',
@@ -591,5 +630,215 @@ class RT_Event_Manager_Apple_Wallet {
         imagedestroy($src);
         imagedestroy($dst);
         return $out;
+    }
+
+    /* ---------------------------------------------------------------------
+     * Pass Update Web Service — device registration + pass fetch + APNs push.
+     * https://developer.apple.com/documentation/walletpasses
+     * ------------------------------------------------------------------- */
+
+    public function register_web_service_routes() {
+        $ns = 'rtem-wallet';
+        // Register / unregister a device for a pass.
+        register_rest_route($ns, '/v1/devices/(?P<device>[^/]+)/registrations/(?P<ptid>[^/]+)/(?P<serial>[^/]+)', array(
+            array('methods' => 'POST',   'callback' => array($this, 'ws_register'),   'permission_callback' => '__return_true'),
+            array('methods' => 'DELETE', 'callback' => array($this, 'ws_unregister'), 'permission_callback' => '__return_true'),
+        ));
+        // Serials of passes registered to a device that changed since a tag.
+        register_rest_route($ns, '/v1/devices/(?P<device>[^/]+)/registrations/(?P<ptid>[^/]+)', array(
+            'methods' => 'GET', 'callback' => array($this, 'ws_serials'), 'permission_callback' => '__return_true',
+        ));
+        // Fetch the latest pass.
+        register_rest_route($ns, '/v1/passes/(?P<ptid>[^/]+)/(?P<serial>[^/]+)', array(
+            'methods' => 'GET', 'callback' => array($this, 'ws_get_pass'), 'permission_callback' => '__return_true',
+        ));
+        // Device logs (accept and ignore).
+        register_rest_route($ns, '/v1/log', array(
+            'methods' => 'POST', 'callback' => '__return_empty_array', 'permission_callback' => '__return_true',
+        ));
+    }
+
+    /** Validate the "Authorization: ApplePass <token>" header for a serial. */
+    private function ws_authed($request, $serial) {
+        $header = (string) $request->get_header('authorization');
+        if (0 === stripos($header, 'ApplePass ')) {
+            $token = trim(substr($header, strlen('ApplePass ')));
+            return hash_equals(self::auth_token($serial), $token);
+        }
+        return false;
+    }
+
+    public function ws_register($request) {
+        $serial = sanitize_text_field($request['serial']);
+        if (!$this->ws_authed($request, $serial)) {
+            return new WP_REST_Response(null, 401);
+        }
+        $body  = json_decode($request->get_body(), true);
+        $token = is_array($body) && !empty($body['pushToken']) ? sanitize_text_field($body['pushToken']) : '';
+        if ('' === $token) {
+            return new WP_REST_Response(null, 400);
+        }
+        global $wpdb;
+        $table  = self::registrations_table();
+        $device = sanitize_text_field($request['device']);
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $table WHERE device_lib_id = %s AND serial_number = %s",
+            $device, $serial
+        ));
+        $wpdb->replace($table, array(
+            'device_lib_id' => $device,
+            'push_token'    => $token,
+            'pass_type_id'  => sanitize_text_field($request['ptid']),
+            'serial_number' => $serial,
+            'updated_at'    => current_time('mysql'),
+        ), array('%s', '%s', '%s', '%s', '%s'));
+        return new WP_REST_Response(null, $exists ? 200 : 201);
+    }
+
+    public function ws_unregister($request) {
+        $serial = sanitize_text_field($request['serial']);
+        if (!$this->ws_authed($request, $serial)) {
+            return new WP_REST_Response(null, 401);
+        }
+        global $wpdb;
+        $wpdb->delete(self::registrations_table(), array(
+            'device_lib_id' => sanitize_text_field($request['device']),
+            'serial_number' => $serial,
+        ), array('%s', '%s'));
+        return new WP_REST_Response(null, 200);
+    }
+
+    public function ws_serials($request) {
+        global $wpdb;
+        $table  = self::registrations_table();
+        $device = sanitize_text_field($request['device']);
+        $serials = $wpdb->get_col($wpdb->prepare(
+            "SELECT serial_number FROM $table WHERE device_lib_id = %s AND pass_type_id = %s",
+            $device, sanitize_text_field($request['ptid'])
+        ));
+        // Filter by the ticket's own updated_at against the passesUpdatedSince tag.
+        $since = $request->get_param('passesUpdatedSince');
+        $out   = array();
+        $last  = 0;
+        foreach ($serials as $serial) {
+            $mtime = $this->serial_modified_ts($serial);
+            if ($mtime > $last) {
+                $last = $mtime;
+            }
+            if (!$since || $mtime > (int) $since) {
+                $out[] = $serial;
+            }
+        }
+        if (empty($out)) {
+            return new WP_REST_Response(null, 204);
+        }
+        return new WP_REST_Response(array(
+            'serialNumbers' => $out,
+            'lastUpdated'   => (string) ($last ?: time()),
+        ), 200);
+    }
+
+    public function ws_get_pass($request) {
+        $serial = sanitize_text_field($request['serial']);
+        if (!$this->ws_authed($request, $serial)) {
+            return new WP_REST_Response(null, 401);
+        }
+        $ticket = $this->ticket_from_serial($serial);
+        if (!$ticket) {
+            return new WP_REST_Response(null, 404);
+        }
+        $pkpass = $this->build_pkpass($ticket);
+        if (is_wp_error($pkpass)) {
+            return new WP_REST_Response(null, 500);
+        }
+        nocache_headers();
+        header('Content-Type: application/vnd.apple.pkpass');
+        header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $this->serial_modified_ts($serial)) . ' GMT');
+        header('Content-Length: ' . strlen($pkpass));
+        echo $pkpass; // phpcs:ignore
+        exit;
+    }
+
+    /** Resolve "order-number" serial back to the ticket row. */
+    private function ticket_from_serial($serial) {
+        if (!preg_match('/^(\d+)-(\d+)$/', (string) $serial, $m)) {
+            return null;
+        }
+        return RT_Event_Manager::get_ticket_by_order_and_number((int) $m[1], (int) $m[2]);
+    }
+
+    /** Unix timestamp the pass content last changed (the ticket's updated_at). */
+    private function serial_modified_ts($serial) {
+        $ticket = $this->ticket_from_serial($serial);
+        if ($ticket && !empty($ticket['updated_at'])) {
+            $ts = strtotime($ticket['updated_at']);
+            if ($ts) {
+                return $ts;
+            }
+        }
+        return time();
+    }
+
+    /**
+     * Notify Apple Wallet that a ticket changed: send a background APNs push to
+     * every device registered for the pass; the device then re-fetches it.
+     */
+    public function notify($ticket) {
+        if (!self::is_configured() || !is_array($ticket)) {
+            return;
+        }
+        $serial = absint($ticket['order_id']) . '-' . (absint($ticket['ticket_index']) + 1);
+        global $wpdb;
+        $tokens = $wpdb->get_col($wpdb->prepare(
+            'SELECT push_token FROM ' . self::registrations_table() . ' WHERE serial_number = %s',
+            $serial
+        ));
+        if (empty($tokens)) {
+            return;
+        }
+        $this->apns_push(array_unique(array_filter($tokens)));
+    }
+
+    /** Send an empty background push to each APNs device token (HTTP/2 + cert). */
+    private function apns_push($tokens) {
+        $material = $this->load_signing_material();
+        if (is_wp_error($material)) {
+            return;
+        }
+        $tmp = trailingslashit(get_temp_dir()) . 'rtem-apns-' . wp_generate_password(8, false);
+        if (!wp_mkdir_p($tmp)) {
+            return;
+        }
+        $cert_path = $tmp . '/cert.pem';
+        $key_path  = $tmp . '/key.pem';
+        file_put_contents($cert_path, $material['cert']);
+        file_put_contents($key_path, $material['pkey']);
+
+        $topic = self::opt('pass_type_id');
+        foreach ($tokens as $token) {
+            $ch = curl_init('https://api.push.apple.com/3/device/' . rawurlencode($token));
+            curl_setopt_array($ch, array(
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => '{}',
+                CURLOPT_HTTPHEADER     => array('apns-topic: ' . $topic, 'apns-push-type: background', 'content-type: application/json'),
+                CURLOPT_SSLCERT        => $cert_path,
+                CURLOPT_SSLKEY         => $key_path,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTP_VERSION   => defined('CURL_HTTP_VERSION_2_0') ? CURL_HTTP_VERSION_2_0 : 2,
+                CURLOPT_TIMEOUT        => 10,
+            ));
+            if (!empty($material['pkey_pass'])) {
+                curl_setopt($ch, CURLOPT_SSLKEYPASSWD, $material['pkey_pass']);
+            }
+            curl_exec($ch);
+            curl_close($ch);
+        }
+
+        foreach (array($cert_path, $key_path) as $f) {
+            if (file_exists($f)) {
+                @unlink($f);
+            }
+        }
+        @rmdir($tmp);
     }
 }

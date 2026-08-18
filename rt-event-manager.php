@@ -513,6 +513,27 @@ function rt_event_manager_determine_ticket_status($order, $holder_name) {
 }
 
 /**
+ * Notify the wallet services that a ticket changed so saved passes update.
+ * Safe to call with a ticket array or id; no-ops when nothing is configured.
+ *
+ * @param array|int $ticket
+ */
+function rt_event_manager_notify_wallets($ticket) {
+    if (!is_array($ticket)) {
+        $ticket = RT_Event_Manager::get_ticket_by_id(absint($ticket));
+    }
+    if (!$ticket) {
+        return;
+    }
+    if (class_exists('RT_Event_Manager_Apple_Wallet') && RT_Event_Manager_Apple_Wallet::is_configured()) {
+        RT_Event_Manager_Apple_Wallet::instance()->notify($ticket);
+    }
+    if (class_exists('RT_Event_Manager_Google_Wallet') && RT_Event_Manager_Google_Wallet::is_configured()) {
+        RT_Event_Manager_Google_Wallet::instance()->notify($ticket);
+    }
+}
+
+/**
  * Activation hook
  */
 function rt_event_manager_activate() {

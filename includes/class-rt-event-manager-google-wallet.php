@@ -361,4 +361,73 @@ class RT_Event_Manager_Google_Wallet {
         wp_redirect($link);
         exit;
     }
+
+    /* ---------------------------------------------------------------------
+     * Live updates — PATCH the EventTicketObject via the Wallet REST API.
+     * ------------------------------------------------------------------- */
+
+    /** Exchange the service-account key for an OAuth access token. Returns '' on failure. */
+    private function access_token() {
+        $key = RT_Event_Manager_Visa::decrypt(self::opt('sa_key_enc'));
+        if ('' === $key) {
+            return '';
+        }
+        $now    = (int) current_time('timestamp', true);
+        $claims = array(
+            'iss'   => self::opt('sa_email'),
+            'scope' => 'https://www.googleapis.com/auth/wallet_object.issuer',
+            'aud'   => 'https://oauth2.googleapis.com/token',
+            'iat'   => $now,
+            'exp'   => $now + 3600,
+        );
+        $header  = array('alg' => 'RS256', 'typ' => 'JWT');
+        $signing = self::b64url(wp_json_encode($header)) . '.' . self::b64url(wp_json_encode($claims));
+        $sig     = '';
+        if (!openssl_sign($signing, $sig, $key, OPENSSL_ALGO_SHA256)) {
+            return '';
+        }
+        $assertion = $signing . '.' . self::b64url($sig);
+
+        $res = wp_remote_post('https://oauth2.googleapis.com/token', array(
+            'timeout' => 15,
+            'body'    => array(
+                'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                'assertion'  => $assertion,
+            ),
+        ));
+        if (is_wp_error($res)) {
+            return '';
+        }
+        $data = json_decode(wp_remote_retrieve_body($res), true);
+        return (is_array($data) && !empty($data['access_token'])) ? $data['access_token'] : '';
+    }
+
+    /**
+     * Push an updated EventTicketObject to Google Wallet. The change propagates
+     * to saved passes automatically — no device registration needed.
+     */
+    public function notify($ticket) {
+        if (!self::is_configured() || !is_array($ticket)) {
+            return;
+        }
+        $token = $this->access_token();
+        if ('' === $token) {
+            return;
+        }
+        $object    = $this->ticket_object($ticket);
+        $object_id = $object['id'];
+
+        wp_remote_request(
+            'https://walletobjects.googleapis.com/walletobjects/v1/eventTicketObject/' . rawurlencode($object_id),
+            array(
+                'method'  => 'PATCH',
+                'timeout' => 15,
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $token,
+                    'Content-Type'  => 'application/json',
+                ),
+                'body'    => wp_json_encode($object),
+            )
+        );
+    }
 }

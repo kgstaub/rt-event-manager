@@ -2880,6 +2880,13 @@ class RT_Event_Manager_Account {
             }
         }
 
+        // Refresh saved wallet passes so the cancellation is reflected.
+        if (function_exists('rt_event_manager_notify_wallets')) {
+            foreach ($cancelled as $c) {
+                rt_event_manager_notify_wallets(absint($c['id']));
+            }
+        }
+
         $this->send_cancel_email($t, $cancelled, $refund_open, $user_id);
 
         wp_send_json_success(array(

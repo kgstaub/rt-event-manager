@@ -377,6 +377,10 @@ JS;
                 'checked_in_by' => get_current_user_id(),
             ));
             $results[] = array('holder' => $holder, 'outcome' => 'checked_in', 'status' => 'checked_in');
+            // Refresh the attendee's saved wallet pass to show the checked-in state.
+            if (function_exists('rt_event_manager_notify_wallets')) {
+                rt_event_manager_notify_wallets($id);
+            }
         }
 
         $ticket = RT_Event_Manager::get_ticket_by_id($ticket_id);
