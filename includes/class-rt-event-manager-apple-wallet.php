@@ -580,6 +580,10 @@ class RT_Event_Manager_Apple_Wallet {
         // auxiliary field aligns under the leftmost secondary field).
         $org = self::org_line($ticket);
         $aux = array();
+        // Minors are identified by their Future Circler / Future Tabler category.
+        if ('minor' === $kind) {
+            $aux[] = array('key' => 'category', 'label' => __('CATEGORY', 'rt-event-manager'), 'value' => RT_Event_Manager::ticket_kind_label($ticket));
+        }
         if ('' !== $org) {
             $aux[] = array('key' => 'org', 'label' => __('CLUB', 'rt-event-manager'), 'value' => $org);
         }

@@ -294,6 +294,15 @@ class RT_Event_Manager_Google_Wallet {
             ),
         );
 
+        // Minors are identified by their Future Circler / Future Tabler category.
+        if ('minor' === RT_Event_Manager::get_ticket_kind($ticket)) {
+            $obj['textModulesData'][] = array(
+                'id'     => 'category',
+                'header' => __('Category', 'rt-event-manager'),
+                'body'   => RT_Event_Manager::ticket_kind_label($ticket),
+            );
+        }
+
         // Family + club line (shown under the attendee on the card front).
         $org = RT_Event_Manager_Apple_Wallet::org_line($ticket);
         if ('' !== $org) {
