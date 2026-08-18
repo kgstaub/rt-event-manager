@@ -301,6 +301,10 @@
     align-items: center;
     gap: 6px;
 }
+.rtacc-locked {
+    color: #8c8f94;
+    font-size: 14px;
+}
 .rtacc-icon-btn {
     flex: 0 0 auto;
     display: inline-flex;

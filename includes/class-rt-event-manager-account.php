@@ -2009,6 +2009,18 @@ class RT_Event_Manager_Account {
             return '';
         }
 
+        // Once the host event/Future member ticket is checked in, its pretours and
+        // day tours are locked too (they travel with the attendee).
+        if (in_array($kind, array('pretour', 'daytour'), true)) {
+            $host_id = isset($t['parent_ticket_id']) ? absint($t['parent_ticket_id']) : 0;
+            if ($host_id) {
+                $host = RT_Event_Manager::get_ticket_by_id($host_id);
+                if ($host && 'checked_in' === $host['status']) {
+                    return '<span class="rtacc-locked" title="' . esc_attr__('Locked — the attendee has checked in.', 'rt-event-manager') . '"><i class="fa-solid fa-lock" aria-hidden="true"></i></span>';
+                }
+            }
+        }
+
         $refund_open = RT_Event_Manager::instance()->is_refund_window_open();
 
         // Icon-only buttons; the label doubles as the hover tooltip (title) and
@@ -2604,6 +2616,25 @@ class RT_Event_Manager_Account {
      * @param int   $user_id
      * @return bool
      */
+    /**
+     * Whether a pretour / day tour's host (parent) ticket has already checked in
+     * — in which case the tour's actions are locked (it travels with the host).
+     *
+     * @param array $t Ticket row.
+     * @return bool
+     */
+    private function host_is_checked_in($t) {
+        if (!in_array(RT_Event_Manager::get_ticket_kind($t), array('pretour', 'daytour'), true)) {
+            return false;
+        }
+        $host_id = isset($t['parent_ticket_id']) ? absint($t['parent_ticket_id']) : 0;
+        if (!$host_id) {
+            return false;
+        }
+        $host = RT_Event_Manager::get_ticket_by_id($host_id);
+        return $host && 'checked_in' === $host['status'];
+    }
+
     public function user_owns_ticket($t, $user_id) {
         $owner = absint(isset($t['owner_user_id']) ? $t['owner_user_id'] : 0);
         if ($owner) {
@@ -2638,6 +2669,9 @@ class RT_Event_Manager_Account {
         }
         if ('valid' !== $t['status']) {
             wp_send_json_error(__('Only confirmed tickets can be transferred.', 'rt-event-manager'));
+        }
+        if ($this->host_is_checked_in($t)) {
+            wp_send_json_error(__('This tour is locked — the attendee has already checked in.', 'rt-event-manager'));
         }
         if (!empty($t['transfer_token'])) {
             wp_send_json_error(__('A transfer is already pending for this ticket. Please wait for it to be accepted or declined, or ask an organiser to withdraw it, before starting another.', 'rt-event-manager'));
@@ -2676,6 +2710,9 @@ class RT_Event_Manager_Account {
         }
         if ('valid' !== $t['status']) {
             wp_send_json_error(__('Only confirmed tickets can be cancelled.', 'rt-event-manager'));
+        }
+        if ($this->host_is_checked_in($t)) {
+            wp_send_json_error(__('This tour is locked — the attendee has already checked in.', 'rt-event-manager'));
         }
 
         $mgr         = RT_Event_Manager::instance();
