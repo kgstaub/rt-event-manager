@@ -337,14 +337,19 @@ class RT_Event_Manager {
                 color: #777;
             }
             .rti-ticket-holder-group {
-                margin-bottom: 20px;
-                padding: 15px;
-                background: #f9f9f9;
-                border: 1px solid #e5e5e5;
-                border-radius: 4px;
+                margin: 0 0 32px;
+                padding: 0;
+                background: none;
+                border: 0;
+            }
+            /* A table-style gray divider + extra space between consecutive tickets. */
+            .rti-ticket-holder-group + .rti-ticket-holder-group {
+                margin-top: 32px;
+                padding-top: 32px;
+                border-top: 1px solid #ddd !important;
             }
             .rti-ticket-holder-group h4 {
-                margin: 0 0 10px 0;
+                margin: 0 0 15px 0;
                 font-weight: 600;
             }
             /* Frontend ticket table (order view) */
