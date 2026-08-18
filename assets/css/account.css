@@ -977,6 +977,11 @@
     .rtacc-tickets tr.rtacc-trow-minor td + td {
         border-top-color: var(--rtacc-primary);
     }
+    /* Editable fields in the event-ticket sections use a white background. */
+    .rtacc-tickets .rtacc-ticket-field {
+        background: #fff !important;
+        border: 1px solid var(--rtacc-border);
+    }
     .rtacc-tickets td,
     .rtacc-orders td {
         display: flex;
