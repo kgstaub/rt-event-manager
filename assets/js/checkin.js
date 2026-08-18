@@ -148,6 +148,20 @@
             banner = '<div class="rtem-banner rtem-banner-danger">' + esc(statusLabel(t.status)) + '</div>';
         }
 
+        // Companions (guardian ⇄ minors) offered for a combined check-in.
+        var companionsHtml = '';
+        var pendingCompanions = (t.companions || []).filter(function (c) { return c.status !== 'checked_in'; });
+        if (!terminal && !checkedIn && pendingCompanions.length) {
+            companionsHtml = '<div class="rtem-companions"><p class="rtem-companions-title">' +
+                esc('Check in together') + '</p>';
+            pendingCompanions.forEach(function (c) {
+                companionsHtml += '<label class="rtem-companion"><input type="checkbox" class="rtem-companion-cb" value="' +
+                    esc(c.id) + '" checked> <span>' + esc(c.holder) + '</span> <span class="rtem-companion-rel">' +
+                    esc(c.relation) + '</span></label>';
+            });
+            companionsHtml += '</div>';
+        }
+
         var action = (terminal || checkedIn) ? '' :
             '<button type="button" class="rtem-btn rtem-btn-checkin" id="rtem-do">' +
             esc((I18N.checkedIn || 'Check in')) + ' →</button>';
@@ -163,6 +177,7 @@
             row('Order / no.', '#' + esc(t.order_id) + ' · ' + esc(t.number)) +
             extra +
             '</table>' +
+            companionsHtml +
             action +
             '<button type="button" class="rtem-btn rtem-btn-next" id="rtem-next">' + esc('Scan next') + '</button>' +
             '</div>';
@@ -172,10 +187,14 @@
             doBtn.addEventListener('click', function () {
                 doBtn.disabled = true;
                 doBtn.textContent = '…';
-                post('rt_event_manager_checkin_do', { ticket_id: t.id }).then(function (res) {
+                var payload = { ticket_id: t.id };
+                var also = Array.prototype.slice.call(result.querySelectorAll('.rtem-companion-cb:checked')).map(function (cb) { return cb.value; });
+                also.forEach(function (id, i) { payload['also[' + i + ']'] = id; });
+                post('rt_event_manager_checkin_do', payload).then(function (res) {
                     if (res && res.success) {
                         renderTicket(res.data.ticket);
-                        flash(res.data.already ? (I18N.alreadyIn || 'Already checked in') : (I18N.checkedIn || 'Checked in'), res.data.already ? 'warn' : 'ok');
+                        var did = (res.data.results || []).filter(function (r) { return r.outcome === 'checked_in'; }).length;
+                        flash(did > 1 ? (did + ' ' + esc('checked in')) : (I18N.checkedIn || 'Checked in'), 'ok');
                     } else {
                         doBtn.disabled = false;
                         doBtn.textContent = (I18N.checkedIn || 'Check in') + ' →';

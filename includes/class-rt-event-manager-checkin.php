@@ -285,25 +285,47 @@ JS;
             wp_send_json_error(array('message' => __('Ticket not found.', 'rt-event-manager')));
         }
 
-        $status = isset($ticket['status']) ? $ticket['status'] : '';
-        if (in_array($status, array('cancelled', 'refunded'), true)) {
-            /* translators: %s: ticket status */
-            wp_send_json_error(array('message' => sprintf(__('This ticket is %s and cannot be checked in.', 'rt-event-manager'), $status)));
+        // The primary ticket plus any related tickets (guardian ⇄ minors) the
+        // operator opted to check in at the same time.
+        $ids = array($ticket_id);
+        if (isset($_POST['also']) && is_array($_POST['also'])) {
+            foreach ($_POST['also'] as $aid) {
+                $aid = absint($aid);
+                if ($aid && !in_array($aid, $ids, true)) {
+                    $ids[] = $aid;
+                }
+            }
         }
 
-        if ('checked_in' === $status) {
-            $ticket['_already'] = true;
-            wp_send_json_success(array('already' => true, 'ticket' => $this->ticket_payload($ticket)));
+        $results = array();
+        foreach ($ids as $id) {
+            $t = RT_Event_Manager::get_ticket_by_id($id);
+            if (!$t) {
+                continue;
+            }
+            $st     = isset($t['status']) ? $t['status'] : '';
+            $holder = ('' !== $t['holder_name']) ? $t['holder_name'] : ('#' . $id);
+            if (in_array($st, array('cancelled', 'refunded'), true)) {
+                $results[] = array('holder' => $holder, 'outcome' => 'refused', 'status' => $st);
+                continue;
+            }
+            if ('checked_in' === $st) {
+                $results[] = array('holder' => $holder, 'outcome' => 'already', 'status' => $st);
+                continue;
+            }
+            RT_Event_Manager::instance()->update_ticket($id, array(
+                'status'        => 'checked_in',
+                'checked_in_at' => current_time('mysql'),
+                'checked_in_by' => get_current_user_id(),
+            ));
+            $results[] = array('holder' => $holder, 'outcome' => 'checked_in', 'status' => 'checked_in');
         }
-
-        RT_Event_Manager::instance()->update_ticket($ticket_id, array(
-            'status'        => 'checked_in',
-            'checked_in_at' => current_time('mysql'),
-            'checked_in_by' => get_current_user_id(),
-        ));
 
         $ticket = RT_Event_Manager::get_ticket_by_id($ticket_id);
-        wp_send_json_success(array('already' => false, 'ticket' => $this->ticket_payload($ticket)));
+        wp_send_json_success(array(
+            'ticket'  => $this->ticket_payload($ticket),
+            'results' => $results,
+        ));
     }
 
     /** Shape a ticket for the check-in UI. */
@@ -321,11 +343,23 @@ JS;
             return $out;
         };
 
-        $guardian = '';
+        // Related tickets to offer for a combined check-in: a Future member's
+        // guardian, or a guardian's Future members.
+        $guardian   = '';
+        $companions = array();
         if ('minor' === $kind && absint($ticket['parent_ticket_id'])) {
             $prow = RT_Event_Manager::get_ticket_by_id(absint($ticket['parent_ticket_id']));
             if ($prow) {
                 $guardian = ('' !== $prow['holder_name']) ? $prow['holder_name'] : ('#' . absint($ticket['parent_ticket_id']));
+                if (!in_array($prow['status'], array('cancelled', 'refunded'), true)) {
+                    $companions[] = $this->companion_payload($prow, __('Guardian', 'rt-event-manager'));
+                }
+            }
+        } elseif ('event' === $kind) {
+            foreach (RT_Event_Manager::get_child_tours(absint($ticket['id']), 'minor') as $m) {
+                if (!in_array($m['status'], array('cancelled', 'refunded'), true)) {
+                    $companions[] = $this->companion_payload($m, __('Future member', 'rt-event-manager'));
+                }
             }
         }
 
@@ -355,6 +389,17 @@ JS;
             'dietary'    => isset($ticket['dietary']) ? $ticket['dietary'] : '',
             'checked_at' => $checked_at,
             'checked_by' => $checked_by,
+            'companions' => $companions,
+        );
+    }
+
+    /** Compact payload for a related ticket offered in a combined check-in. */
+    private function companion_payload($ticket, $relation) {
+        return array(
+            'id'       => absint($ticket['id']),
+            'holder'   => ('' !== $ticket['holder_name']) ? $ticket['holder_name'] : sprintf(__('Ticket #%d', 'rt-event-manager'), absint($ticket['id'])),
+            'relation' => $relation,
+            'status'   => isset($ticket['status']) ? $ticket['status'] : 'draft',
         );
     }
 }
