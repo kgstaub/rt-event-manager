@@ -1770,18 +1770,22 @@ class RT_Event_Manager_Account {
      * @return int 0 when the user has no event ticket of their own.
      */
     private function own_event_ticket_id($tickets) {
+        // Pick the most recent (highest-id) non-cancelled event ticket, so a
+        // fresh registration supersedes an older one the member still holds.
+        $best = 0;
         foreach ($tickets as $t) {
-            // Skip cancelled/refunded tickets so a fresh registration becomes the
-            // user's own ticket again after a previous one was cancelled.
             $status = isset($t['status']) ? $t['status'] : '';
             if (in_array($status, array('cancelled', 'refunded'), true)) {
                 continue;
             }
             if ('event' === $this->effective_kind($t) && !absint($t['parent_ticket_id'])) {
-                return absint($t['id']);
+                $id = absint($t['id']);
+                if ($id > $best) {
+                    $best = $id;
+                }
             }
         }
-        return 0;
+        return $best;
     }
 
     /**
