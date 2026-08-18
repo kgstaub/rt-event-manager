@@ -76,11 +76,11 @@
     display: block;
     padding: 8px 12px;
 }
-/* Active item: brand colour + bolder on a light gray button. */
+/* Active item: brand colour on a light gray button, not bolder. */
 .rtacc-nav .uk-nav > li.uk-active > a,
 .rtacc-offcanvas .uk-nav > li.uk-active > a {
     color: var(--rtacc-primary) !important;
-    font-weight: 700;
+    font-weight: 300 !important;
     background: #f3f4f5;
     border-radius: 6px;
 }
