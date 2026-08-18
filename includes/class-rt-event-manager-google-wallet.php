@@ -119,7 +119,10 @@ class RT_Event_Manager_Google_Wallet {
             } else {
                 $this->notify($ticket);
                 $last = get_option('rt_event_manager_google_last', array());
-                echo '<div class="notice notice-info"><p><strong>' . esc_html__('Sync result:', 'rt-event-manager') . '</strong> <code>' . esc_html($last['summary'] ?? '') . '</code></p></div>';
+                echo '<div class="notice notice-info"><p><strong>' . esc_html__('Sync result:', 'rt-event-manager') . '</strong> <code>' . esc_html($last['summary'] ?? '') . '</code></p>';
+                // Read back what Google actually stores for this object.
+                $stored = $this->fetch_object_state($ticket);
+                echo '<p><strong>' . esc_html__('Google now stores:', 'rt-event-manager') . '</strong> <code>' . esc_html($stored) . '</code></p></div>';
             }
         }
 
@@ -527,6 +530,37 @@ class RT_Event_Manager_Google_Wallet {
         $this->record_result('object PATCH ' . $object_id, $res);
 
         $this->add_message($token, $object_id, $ticket);
+    }
+
+    /** Read the object back from Google and summarise its stored state + status. */
+    private function fetch_object_state($ticket) {
+        $token = $this->access_token();
+        if ('' === $token) {
+            return 'no access token';
+        }
+        $object_id = self::opt('issuer_id') . '.rtem-' . absint($ticket['order_id']) . '-' . (absint($ticket['ticket_index']) + 1);
+        $res = wp_remote_get(
+            'https://walletobjects.googleapis.com/walletobjects/v1/eventTicketObject/' . rawurlencode($object_id),
+            array('timeout' => 15, 'headers' => array('Authorization' => 'Bearer ' . $token))
+        );
+        if (is_wp_error($res)) {
+            return $res->get_error_message();
+        }
+        $code = (int) wp_remote_retrieve_response_code($res);
+        if (200 !== $code) {
+            return 'HTTP ' . $code . ' — object not found/readable for id ' . $object_id;
+        }
+        $data   = json_decode(wp_remote_retrieve_body($res), true);
+        $state  = is_array($data) && isset($data['state']) ? $data['state'] : '?';
+        $status = '?';
+        if (is_array($data) && !empty($data['textModulesData'])) {
+            foreach ($data['textModulesData'] as $m) {
+                if (isset($m['id']) && 'status' === $m['id']) {
+                    $status = isset($m['body']) ? $m['body'] : '?';
+                }
+            }
+        }
+        return 'state=' . $state . ', status=' . $status;
     }
 
     /** Store the most recent Wallet API outcome for settings-page diagnostics. */
