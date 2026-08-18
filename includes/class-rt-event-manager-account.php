@@ -584,9 +584,9 @@ class RT_Event_Manager_Account {
             'shop'      => 'fa-bag-shopping',
         );
 
-        // Use the light style when a FontAwesome Pro kit is loaded; the free
-        // set has no light, so fall back to solid there.
-        $fa_style = ('' !== self::fa_kit_url()) ? 'fa-light' : 'fa-solid';
+        // FontAwesome 7 "Graphite" style when a Pro kit is loaded; fall back to
+        // Regular otherwise.
+        $fa_style = ('' !== self::fa_kit_url()) ? 'fa-graphite' : 'fa-regular';
         $item = function ($icon, $url, $label, $classes) use ($fa_style) {
             return sprintf(
                 '<li class="%s"><a href="%s"><i class="%s %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
