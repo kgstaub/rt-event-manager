@@ -189,6 +189,21 @@ class RT_Event_Manager_Apple_Wallet {
             }
         }
 
+        // Test push: send an update to every device registered for a serial.
+        if (isset($_POST['rt_wallet_test_nonce']) && wp_verify_nonce($_POST['rt_wallet_test_nonce'], 'rt_wallet_test')) {
+            $order  = absint($_POST['test_order'] ?? 0);
+            $number = absint($_POST['test_number'] ?? 0);
+            $ticket = ($order && $number) ? RT_Event_Manager::get_ticket_by_order_and_number($order, $number) : null;
+            if (!$ticket) {
+                echo '<div class="notice notice-error"><p>' . esc_html__('No ticket found for that order and number.', 'rt-event-manager') . '</p></div>';
+            } else {
+                $this->notify($ticket);
+                $last = get_option('rt_event_manager_wallet_apns_last', array());
+                $msg  = !empty($last['summary']) ? $last['summary'] : __('No devices are registered for this pass yet (open the pass on a device first).', 'rt-event-manager');
+                echo '<div class="notice notice-info"><p><strong>' . esc_html__('Test push result:', 'rt-event-manager') . '</strong> ' . esc_html($msg) . '</p></div>';
+            }
+        }
+
         $has_p12  = '' !== self::opt('p12_enc');
         $has_wwdr = '' !== self::opt('wwdr_enc');
         $has_pass = '' !== self::opt('p12_pass_enc');
@@ -282,7 +297,44 @@ class RT_Event_Manager_Apple_Wallet {
 
         echo '</table>';
         echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html__('Save Apple Wallet settings', 'rt-event-manager') . '</button></p>';
-        echo '</form></div>';
+        echo '</form>';
+
+        $this->render_push_diagnostics();
+
+        echo '</div>';
+    }
+
+    /** Diagnostics panel for pass updates: registrations, last APNs result, test push. */
+    private function render_push_diagnostics() {
+        global $wpdb;
+        $table = self::registrations_table();
+        $count = 0;
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table))) {
+            $count = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table");
+        }
+        $last = get_option('rt_event_manager_wallet_apns_last', array());
+
+        echo '<hr /><h2>' . esc_html__('Pass updates (push)', 'rt-event-manager') . '</h2>';
+        echo '<p class="description">' . esc_html__('Devices register automatically when an attendee adds a pass that includes the update web service. A push is sent whenever a ticket changes.', 'rt-event-manager') . '</p>';
+        echo '<table class="form-table">';
+        echo '<tr><th scope="row">' . esc_html__('Web service URL', 'rt-event-manager') . '</th><td><code>' . esc_html(self::web_service_url()) . '</code>';
+        if (0 !== strpos(self::web_service_url(), 'https://')) {
+            echo '<p class="description" style="color:#b32d2e;">' . esc_html__('Apple requires HTTPS — device registration will fail over plain HTTP.', 'rt-event-manager') . '</p>';
+        }
+        echo '</td></tr>';
+        echo '<tr><th scope="row">' . esc_html__('Registered devices', 'rt-event-manager') . '</th><td>' . esc_html($count) . '</td></tr>';
+        if (!empty($last['summary'])) {
+            echo '<tr><th scope="row">' . esc_html__('Last push result', 'rt-event-manager') . '</th><td><code>' . esc_html($last['summary']) . '</code><br><span class="description">' . esc_html($last['when'] ?? '') . '</span></td></tr>';
+        }
+        echo '</table>';
+
+        echo '<form method="post" style="margin-top:8px;">';
+        wp_nonce_field('rt_wallet_test', 'rt_wallet_test_nonce');
+        echo '<input type="number" name="test_order" placeholder="' . esc_attr__('Order #', 'rt-event-manager') . '" style="width:120px;" /> ';
+        echo '<input type="number" name="test_number" placeholder="' . esc_attr__('Ticket #', 'rt-event-manager') . '" style="width:100px;" /> ';
+        echo '<button type="submit" class="button">' . esc_html__('Send test update', 'rt-event-manager') . '</button>';
+        echo '<p class="description">' . esc_html__('Sends a push to every device registered for that pass and reports the APNs response above.', 'rt-event-manager') . '</p>';
+        echo '</form>';
     }
 
     /* ---------------------------------------------------------------------
@@ -676,6 +728,23 @@ class RT_Event_Manager_Apple_Wallet {
     /** Validate the "Authorization: ApplePass <token>" header for a serial. */
     private function ws_authed($request, $serial) {
         $header = (string) $request->get_header('authorization');
+        // Some servers strip Authorization before it reaches PHP/WP — fall back
+        // to the raw $_SERVER variants and apache_request_headers().
+        if ('' === $header) {
+            if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
+                $header = (string) $_SERVER['HTTP_AUTHORIZATION'];
+            } elseif (!empty($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+                $header = (string) $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+            } elseif (function_exists('apache_request_headers')) {
+                $h = apache_request_headers();
+                foreach ($h as $k => $v) {
+                    if (0 === strcasecmp($k, 'Authorization')) {
+                        $header = (string) $v;
+                        break;
+                    }
+                }
+            }
+        }
         if (0 === stripos($header, 'ApplePass ')) {
             $token = trim(substr($header, strlen('ApplePass ')));
             return hash_equals(self::auth_token($serial), $token);
@@ -814,24 +883,31 @@ class RT_Event_Manager_Apple_Wallet {
         $this->apns_push(array_unique(array_filter($tokens)));
     }
 
-    /** Send an empty background push to each APNs device token (HTTP/2 + cert). */
+    /**
+     * Send an empty background push to each APNs device token (HTTP/2 + cert).
+     * Returns an array of per-token result strings and records the last outcome
+     * for the settings-page diagnostics.
+     */
     private function apns_push($tokens) {
         $material = $this->load_signing_material();
         if (is_wp_error($material)) {
-            return;
+            $this->record_apns_result('Certificate error: ' . $material->get_error_message());
+            return array('error' => $material->get_error_message());
         }
         $tmp = trailingslashit(get_temp_dir()) . 'rtem-apns-' . wp_generate_password(8, false);
         if (!wp_mkdir_p($tmp)) {
-            return;
+            return array('error' => 'temp dir');
         }
         $cert_path = $tmp . '/cert.pem';
         $key_path  = $tmp . '/key.pem';
         file_put_contents($cert_path, $material['cert']);
         file_put_contents($key_path, $material['pkey']);
 
-        $topic = self::opt('pass_type_id');
+        $topic   = self::opt('pass_type_id');
+        $results = array();
         foreach ($tokens as $token) {
-            $ch = curl_init('https://api.push.apple.com/3/device/' . rawurlencode($token));
+            $resp_headers = array();
+            $ch = curl_init('https://api.push.apple.com/3/device/' . $token);
             curl_setopt_array($ch, array(
                 CURLOPT_POST           => true,
                 CURLOPT_POSTFIELDS     => '{}',
@@ -839,14 +915,26 @@ class RT_Event_Manager_Apple_Wallet {
                 CURLOPT_SSLCERT        => $cert_path,
                 CURLOPT_SSLKEY         => $key_path,
                 CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HEADER         => false,
                 CURLOPT_HTTP_VERSION   => defined('CURL_HTTP_VERSION_2_0') ? CURL_HTTP_VERSION_2_0 : 2,
                 CURLOPT_TIMEOUT        => 10,
             ));
             if (!empty($material['pkey_pass'])) {
                 curl_setopt($ch, CURLOPT_SSLKEYPASSWD, $material['pkey_pass']);
             }
-            curl_exec($ch);
+            $body   = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err    = curl_error($ch);
             curl_close($ch);
+
+            $short = substr($token, 0, 8) . '…';
+            if ($err) {
+                $results[] = $short . ': cURL error — ' . $err;
+            } elseif (200 === (int) $status) {
+                $results[] = $short . ': OK';
+            } else {
+                $results[] = $short . ': HTTP ' . $status . ' ' . trim((string) $body);
+            }
         }
 
         foreach (array($cert_path, $key_path) as $f) {
@@ -855,5 +943,19 @@ class RT_Event_Manager_Apple_Wallet {
             }
         }
         @rmdir($tmp);
+
+        $this->record_apns_result(implode(' | ', $results));
+        return $results;
+    }
+
+    /** Store the most recent APNs outcome for the settings-page diagnostics. */
+    private function record_apns_result($summary) {
+        update_option('rt_event_manager_wallet_apns_last', array(
+            'when'    => current_time('mysql'),
+            'summary' => (string) $summary,
+        ), false);
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[RT Wallet APNs] ' . $summary);
+        }
     }
 }
