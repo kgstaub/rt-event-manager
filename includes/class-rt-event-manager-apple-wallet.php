@@ -105,6 +105,15 @@ class RT_Event_Manager_Apple_Wallet {
         return isset($map[$s]) ? $map[$s] : $s;
     }
 
+    /** "<Family> <Club>" line for a ticket (either part may be empty). */
+    public static function org_line($ticket) {
+        $family = (!empty($ticket['rti_family']) && absint($ticket['rti_family']))
+            ? RT_Event_Manager::get_family_label($ticket['rti_family'])
+            : '';
+        $club = isset($ticket['rti_club']) ? trim((string) $ticket['rti_club']) : '';
+        return trim($family . ' ' . $club);
+    }
+
     /** Whether Apple Wallet passes can be issued (all credentials present). */
     public static function is_configured() {
         $has_signcert = ('' !== self::opt('p12_enc'))
@@ -557,6 +566,16 @@ class RT_Event_Manager_Apple_Wallet {
             }
         }
 
+        // Family + club line, shown directly under the attendee (leftmost
+        // auxiliary field aligns under the leftmost secondary field).
+        $org = self::org_line($ticket);
+        $aux = array();
+        if ('' !== $org) {
+            $aux[] = array('key' => 'org', 'label' => __('CLUB', 'rt-event-manager'), 'value' => $org);
+        }
+        $aux[] = array('key' => 'ticket', 'label' => __('TICKET', 'rt-event-manager'), 'value' => '#' . absint($ticket['order_id']) . ' · ' . $number);
+        $aux[] = array('key' => 'status', 'label' => __('STATUS', 'rt-event-manager'), 'value' => self::status_label($ticket));
+
         $pass = array(
             'formatVersion'      => 1,
             'passTypeIdentifier' => self::opt('pass_type_id'),
@@ -581,10 +600,7 @@ class RT_Event_Manager_Apple_Wallet {
                     array('key' => 'name', 'label' => __('ATTENDEE', 'rt-event-manager'), 'value' => $holder),
                     array('key' => 'type', 'label' => __('TYPE', 'rt-event-manager'), 'value' => RT_Event_Manager::ticket_kind_label($ticket)),
                 ),
-                'auxiliaryFields' => array(
-                    array('key' => 'ticket', 'label' => __('TICKET', 'rt-event-manager'), 'value' => '#' . absint($ticket['order_id']) . ' · ' . $number),
-                    array('key' => 'status', 'label' => __('STATUS', 'rt-event-manager'), 'value' => self::status_label($ticket)),
-                ),
+                'auxiliaryFields' => $aux,
                 'backFields'      => $back,
             ),
         );

@@ -202,6 +202,14 @@ class RT_Event_Manager_Google_Wallet {
                                 ))),
                             ),
                         ),
+                        // Second row under the attendee: family + club.
+                        array(
+                            'oneItem' => array(
+                                'item' => array('firstValue' => array('fields' => array(
+                                    array('fieldPath' => "object.textModulesData['org']"),
+                                ))),
+                            ),
+                        ),
                     ),
                 ),
             ),
@@ -285,6 +293,16 @@ class RT_Event_Manager_Google_Wallet {
                 'body'   => RT_Event_Manager_Apple_Wallet::status_label($ticket),
             ),
         );
+
+        // Family + club line (shown under the attendee on the card front).
+        $org = RT_Event_Manager_Apple_Wallet::org_line($ticket);
+        if ('' !== $org) {
+            $obj['textModulesData'][] = array(
+                'id'     => 'org',
+                'header' => __('Club', 'rt-event-manager'),
+                'body'   => $org,
+            );
+        }
 
         // Attached tours + guardian (mirrors the Apple pass back fields).
         $add = function ($label, $rows) use (&$obj) {
