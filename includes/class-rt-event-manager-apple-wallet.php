@@ -604,11 +604,22 @@ class RT_Event_Manager_Apple_Wallet {
         if ('' !== $org) {
             $aux[] = array('key' => 'org', 'label' => __('CLUB', 'rt-event-manager'), 'value' => $org);
         }
-        $aux[] = array('key' => 'status', 'label' => __('STATUS', 'rt-event-manager'), 'value' => self::status_label($ticket));
+        // changeMessage makes iOS raise a notification when the value changes.
+        $aux[] = array(
+            'key'           => 'status',
+            'label'         => __('STATUS', 'rt-event-manager'),
+            'value'         => self::status_label($ticket),
+            'changeMessage' => __('Ticket status: %@', 'rt-event-manager'),
+        );
         // Included-tours indicator, shown in the field row above the QR.
         $tours = self::tours_line(!empty($pretours), !empty($daytours));
         if ('' !== $tours) {
-            $aux[] = array('key' => 'tours', 'label' => __('INCLUDES', 'rt-event-manager'), 'value' => $tours);
+            $aux[] = array(
+                'key'           => 'tours',
+                'label'         => __('INCLUDES', 'rt-event-manager'),
+                'value'         => $tours,
+                'changeMessage' => __('Your tours: %@', 'rt-event-manager'),
+            );
         }
 
         $pass = array(

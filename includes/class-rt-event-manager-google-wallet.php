@@ -498,6 +498,38 @@ class RT_Event_Manager_Google_Wallet {
                 'body'    => wp_json_encode($object),
             )
         );
+
+        $this->add_message($token, $object_id, $ticket);
+    }
+
+    /**
+     * Push a notification message to the saved pass. The message id is keyed to
+     * the ticket status so a status change raises a fresh notification, while
+     * repeated pushes of the same status don't nag the holder.
+     */
+    private function add_message($token, $object_id, $ticket) {
+        $status = isset($ticket['status']) ? $ticket['status'] : 'draft';
+        $body   = sprintf(
+            /* translators: %s: ticket status, e.g. Confirmed. */
+            __('Your ticket is now: %s', 'rt-event-manager'),
+            RT_Event_Manager_Apple_Wallet::status_label($ticket)
+        );
+        $message = array(
+            'id'     => 'status-' . sanitize_key($status),
+            'header' => self::wopt('event_name', 'RTI Half-Year Meeting 2027'),
+            'body'   => $body,
+        );
+        wp_remote_post(
+            'https://walletobjects.googleapis.com/walletobjects/v1/eventTicketObject/' . rawurlencode($object_id) . '/addMessage',
+            array(
+                'timeout' => 15,
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $token,
+                    'Content-Type'  => 'application/json',
+                ),
+                'body'    => wp_json_encode(array('message' => $message)),
+            )
+        );
     }
 
     /** PATCH the shared EventTicketClass so template/branding changes propagate. */
