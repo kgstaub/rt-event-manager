@@ -1152,34 +1152,28 @@ class RT_Event_Manager_Account {
 
         $this->maybe_cutoff_notice($can_edit);
 
-        // Tour tickets are read-only (Tour + Holder + Guardian + Status). Their
-        // details are managed on the Event Tickets tab.
+        // Day tours are ordered by their tour's start time within each section.
         if ($is_day) {
-            // Day tours: one list grouped and sorted by the tour's start time, so
-            // all attendees on the same tour sit together in chronological order.
-            $all = array_merge($mine, $companions);
-            usort($all, function ($a, $b) {
+            $by_start = function ($a, $b) {
                 list($as) = RT_Event_Manager::tour_product_range($a['product_id']);
                 list($bs) = RT_Event_Manager::tour_product_range($b['product_id']);
                 if ($as !== $bs) {
                     return $as <=> $bs;
                 }
-                // Same start time → keep same tour together, then by holder.
-                $ap = absint($a['product_id']); $bp = absint($b['product_id']);
-                if ($ap !== $bp) {
-                    return $ap <=> $bp;
-                }
                 return strcasecmp((string) $a['holder_name'], (string) $b['holder_name']);
-            });
-            $this->render_editable_sections($form_id, array(
-                array('label' => __('Day tours', 'rt-event-manager'), 'tickets' => $all, 'empty' => $empty_mine, 'pretour_view' => true),
-            ), $by_id, $can_edit, true);
-        } else {
-            $this->render_editable_sections($form_id, array(
-                array('label' => $mine_lbl, 'tickets' => $mine, 'empty' => $empty_mine, 'pretour_view' => true),
-                array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => $empty_comp, 'pretour_view' => true),
-            ), $by_id, $can_edit, true);
+            };
+            usort($mine, $by_start);
+            usort($companions, $by_start);
         }
+
+        // Tour tickets are read-only (Tour + Holder + Guardian + Status). Their
+        // details are managed on the Event Tickets tab. Own tours and those of
+        // accompanying travellers are shown in separate sections (pretours & day
+        // tours alike).
+        $this->render_editable_sections($form_id, array(
+            array('label' => $mine_lbl, 'tickets' => $mine, 'empty' => $empty_mine, 'pretour_view' => true),
+            array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => $empty_comp, 'pretour_view' => true),
+        ), $by_id, $can_edit, true);
 
         $this->render_tour_modal($candidates, $kind, $modal_key, $add_lbl);
         $this->render_transfer_cancel_modals();
