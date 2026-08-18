@@ -38,6 +38,8 @@ class RT_Event_Manager_Checkin {
         add_action('template_redirect', array($this, 'serve_pwa'), 1);
         add_action('wp_ajax_rt_event_manager_checkin_lookup', array($this, 'ajax_lookup'));
         add_action('wp_ajax_rt_event_manager_checkin_do', array($this, 'ajax_do'));
+        add_action('wp_ajax_rt_event_manager_checkin_profile', array($this, 'ajax_profile'));
+        add_action('wp_ajax_rt_event_manager_checkin_reset', array($this, 'ajax_reset'));
     }
 
     /** Whether the given user may run check-in. */
@@ -78,6 +80,7 @@ class RT_Event_Manager_Checkin {
             'ajaxUrl'     => admin_url('admin-ajax.php'),
             'lookupNonce' => wp_create_nonce('rt_event_manager_checkin'),
             'swUrl'       => home_url('/?rtem_checkin=sw'),
+            'canReset'    => current_user_can(self::reset_cap()),
             'i18n'        => array(
                 'cameraError'  => __('Could not access the camera. Check permissions, or use manual entry.', 'rt-event-manager'),
                 'scanning'     => __('Point the camera at the ticket QR code…', 'rt-event-manager'),
@@ -89,6 +92,14 @@ class RT_Event_Manager_Checkin {
                 'alreadyIn'    => __('Already checked in', 'rt-event-manager'),
                 'checkedInBy'  => __('Checked in by', 'rt-event-manager'),
                 'at'           => __('at', 'rt-event-manager'),
+                'viewProfile'  => __('View profile', 'rt-event-manager'),
+                'resetCheckin' => __('Reset check-in', 'rt-event-manager'),
+                'confirmReset' => __('Reset the check-in for this ticket?', 'rt-event-manager'),
+                'profile'      => __('Member profile', 'rt-event-manager'),
+                'phone'        => __('Phone', 'rt-event-manager'),
+                'emergency'    => __('Emergency contacts', 'rt-event-manager'),
+                'bookings'     => __('Booked tickets & tours', 'rt-event-manager'),
+                'close'        => __('Close', 'rt-event-manager'),
             ),
         ));
     }
@@ -232,6 +243,11 @@ JS;
             </form>
 
             <div class="rtem-result" id="rtem-result" hidden></div>
+
+            <div class="rtem-modal" id="rtem-profile" hidden>
+                <div class="rtem-modal-backdrop" data-rtem-close></div>
+                <div class="rtem-modal-dialog" id="rtem-profile-body"></div>
+            </div>
         </div>
         <?php
         return ob_get_clean();
@@ -329,6 +345,129 @@ JS;
             'ticket'  => $this->ticket_payload($ticket),
             'results' => $results,
         ));
+    }
+
+    /** Capability required to reset (undo) a check-in — admins by default. */
+    public static function reset_cap() {
+        return apply_filters('rt_event_manager_checkin_reset_cap', 'manage_options');
+    }
+
+    /** Admin-only: undo a check-in and return the ticket to its normal status. */
+    public function ajax_reset() {
+        check_ajax_referer('rt_event_manager_checkin', 'nonce');
+        if (!current_user_can(self::reset_cap())) {
+            wp_send_json_error(array('message' => __('Only administrators can reset a check-in.', 'rt-event-manager')));
+        }
+        $ticket_id = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
+        $ticket    = $ticket_id ? RT_Event_Manager::get_ticket_by_id($ticket_id) : null;
+        if (!$ticket) {
+            wp_send_json_error(array('message' => __('Ticket not found.', 'rt-event-manager')));
+        }
+        if ('checked_in' !== $ticket['status']) {
+            wp_send_json_error(array('message' => __('This ticket is not checked in.', 'rt-event-manager')));
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'rti_tickets';
+        $wpdb->query($wpdb->prepare(
+            "UPDATE $table SET status = 'valid', checked_in_at = NULL, checked_in_by = 0 WHERE id = %d",
+            $ticket_id
+        ));
+        // Normalise the status against the order (paid → valid, unpaid → draft).
+        if (method_exists(RT_Event_Manager::instance(), 'recalculate_order_ticket_statuses')) {
+            RT_Event_Manager::instance()->recalculate_order_ticket_statuses(absint($ticket['order_id']));
+        }
+
+        $ticket = RT_Event_Manager::get_ticket_by_id($ticket_id);
+        wp_send_json_success(array('ticket' => $this->ticket_payload($ticket)));
+    }
+
+    /** Staff: the full member profile behind a ticket. */
+    public function ajax_profile() {
+        $this->guard();
+        $ticket_id = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
+        $ticket    = $ticket_id ? RT_Event_Manager::get_ticket_by_id($ticket_id) : null;
+        if (!$ticket) {
+            wp_send_json_error(array('message' => __('Ticket not found.', 'rt-event-manager')));
+        }
+        $owner = absint($ticket['owner_user_id']);
+        if (!$owner) {
+            $order = wc_get_order(absint($ticket['order_id']));
+            $owner = $order ? absint($order->get_customer_id()) : 0;
+        }
+        if (!$owner) {
+            wp_send_json_error(array('message' => __('No member account is linked to this ticket.', 'rt-event-manager')));
+        }
+        wp_send_json_success($this->profile_payload($owner));
+    }
+
+    /** Assemble a member profile for the staff view. */
+    private function profile_payload($owner_id) {
+        $user  = get_userdata($owner_id);
+        $name  = $user ? trim($user->first_name . ' ' . $user->last_name) : '';
+        if ('' === $name && $user) {
+            $name = $user->display_name;
+        }
+
+        $dietary_opts = RT_Event_Manager::get_dietary_options(true);
+        $rel_labels   = array(
+            'spouse'   => __('Spouse / Partner', 'rt-event-manager'),
+            'sibling'  => __('Sibling', 'rt-event-manager'),
+            'parent'   => __('Parent', 'rt-event-manager'),
+            'employer' => __('Employer', 'rt-event-manager'),
+            'other'    => __('Other', 'rt-event-manager'),
+        );
+
+        // Emergency contacts (up to two).
+        $emergency = array();
+        foreach (array(1, 2) as $n) {
+            $c = array();
+            foreach (array('name', 'relationship', 'email', 'phone') as $k) {
+                $c[$k] = (string) get_user_meta($owner_id, 'rti_emergency' . $n . '_' . $k, true);
+            }
+            if ('' !== trim($c['name'] . $c['email'] . $c['phone'])) {
+                $c['relationship'] = isset($rel_labels[$c['relationship']]) ? $rel_labels[$c['relationship']] : $c['relationship'];
+                $emergency[] = $c;
+            }
+        }
+
+        // All booked tickets / tours for this member (including terminal, so
+        // cancellations are visible to staff).
+        $rows    = RT_Event_Manager::get_tickets_for_user($owner_id, true);
+        $tickets = array();
+        $phone   = '';
+        foreach ($rows as $r) {
+            $kind = RT_Event_Manager::get_ticket_kind($r);
+            $p    = wc_get_product($r['product_id']);
+            $diet = isset($r['dietary']) ? $r['dietary'] : '';
+            $diet_label = isset($dietary_opts[$diet]) ? $dietary_opts[$diet] : '';
+            if ('allergies' === $diet && !empty($r['allergy_details'])) {
+                $diet_label .= ' (' . $r['allergy_details'] . ')';
+            }
+            $tickets[] = array(
+                'holder'  => ('' !== $r['holder_name']) ? $r['holder_name'] : __('Unassigned', 'rt-event-manager'),
+                'product' => $p ? $p->get_name() : RT_Event_Manager::ticket_kind_label($r),
+                'type'    => RT_Event_Manager::ticket_kind_label($r),
+                'kind'    => $kind,
+                'status'  => isset($r['status']) ? $r['status'] : 'draft',
+                'dietary' => ('none' === $diet || '' === $diet) ? '' : $diet_label,
+            );
+            if ('' === $phone && 'event' === $kind && !empty($r['phone'])) {
+                $phone = $r['phone'];
+            }
+        }
+        if ('' === $phone) {
+            $phone = (string) get_user_meta($owner_id, 'billing_phone', true);
+        }
+
+        return array(
+            'name'      => $name,
+            'photo'     => get_avatar_url($owner_id, array('size' => 160)),
+            'phone'     => $phone,
+            'club'      => (string) get_user_meta($owner_id, 'rti_club', true),
+            'emergency' => $emergency,
+            'tickets'   => $tickets,
+        );
     }
 
     /** Shape a ticket for the check-in UI. */

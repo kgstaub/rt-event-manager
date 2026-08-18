@@ -169,6 +169,9 @@
             '<button type="button" class="rtem-btn rtem-btn-checkin" id="rtem-do">' +
             esc((I18N.checkIn || 'Check in')) + ' →</button>';
 
+        var resetBtn = (checkedIn && CFG.canReset) ?
+            '<button type="button" class="rtem-btn rtem-btn-reset" id="rtem-reset">' + esc(I18N.resetCheckin || 'Reset check-in') + '</button>' : '';
+
         result.innerHTML =
             '<div class="rtem-card rtem-card-' + esc(t.status) + '">' +
             banner +
@@ -182,8 +185,23 @@
             '</table>' +
             companionsHtml +
             action +
+            '<button type="button" class="rtem-btn rtem-btn-profile" id="rtem-profile-btn">' + esc(I18N.viewProfile || 'View profile') + '</button>' +
+            resetBtn +
             '<button type="button" class="rtem-btn rtem-btn-next" id="rtem-next">' + esc('Scan next') + '</button>' +
             '</div>';
+
+        document.getElementById('rtem-profile-btn').addEventListener('click', function () { openProfile(t.id); });
+        var resetEl = document.getElementById('rtem-reset');
+        if (resetEl) {
+            resetEl.addEventListener('click', function () {
+                if (!window.confirm(I18N.confirmReset || 'Reset the check-in?')) { return; }
+                resetEl.disabled = true;
+                post('rt_event_manager_checkin_reset', { ticket_id: t.id }).then(function (res) {
+                    if (res && res.success) { renderTicket(res.data.ticket); flash('✓', 'ok'); }
+                    else { resetEl.disabled = false; showError((res && res.data && res.data.message) || I18N.networkError); }
+                }).catch(function () { resetEl.disabled = false; showError(I18N.networkError); });
+            });
+        }
 
         var doBtn = document.getElementById('rtem-do');
         if (doBtn) {
@@ -241,6 +259,71 @@
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
         });
+    }
+
+    // ---- Member profile modal ----
+    var modal = document.getElementById('rtem-profile');
+    var modalBody = document.getElementById('rtem-profile-body');
+    function closeProfile() { if (modal) { modal.hidden = true; } }
+    if (modal) {
+        modal.addEventListener('click', function (e) {
+            if (e.target.hasAttribute('data-rtem-close') || e.target.id === 'rtem-profile-close') { closeProfile(); }
+        });
+    }
+
+    function openProfile(ticketId) {
+        if (!modal) { return; }
+        modalBody.innerHTML = '<p class="rtem-hint">…</p>';
+        modal.hidden = false;
+        post('rt_event_manager_checkin_profile', { ticket_id: ticketId }).then(function (res) {
+            if (res && res.success) { renderProfile(res.data); }
+            else { modalBody.innerHTML = '<p class="rtem-banner rtem-banner-danger">' + esc((res && res.data && res.data.message) || I18N.networkError) + '</p><button type="button" class="rtem-btn" data-rtem-close>' + esc(I18N.close || 'Close') + '</button>'; }
+        }).catch(function () {
+            modalBody.innerHTML = '<p class="rtem-banner rtem-banner-danger">' + esc(I18N.networkError) + '</p><button type="button" class="rtem-btn" data-rtem-close>' + esc(I18N.close || 'Close') + '</button>';
+        });
+    }
+
+    function renderProfile(p) {
+        var html = '<div class="rtem-profile">';
+        html += '<div class="rtem-profile-head">';
+        if (p.photo) { html += '<img class="rtem-profile-photo" src="' + esc(p.photo) + '" alt="">'; }
+        html += '<div><h2 class="rtem-name">' + esc(p.name) + '</h2>';
+        if (p.club) { html += '<div class="rtem-profile-club">' + esc(p.club) + '</div>'; }
+        if (p.phone) { html += '<div class="rtem-profile-phone">' + esc(I18N.phone || 'Phone') + ': <a href="tel:' + esc(p.phone) + '">' + esc(p.phone) + '</a></div>'; }
+        html += '</div></div>';
+
+        // Booked tickets & tours.
+        html += '<h3 class="rtem-profile-h">' + esc(I18N.bookings || 'Booked tickets & tours') + '</h3>';
+        if (p.tickets && p.tickets.length) {
+            html += '<table class="rtem-profile-table">';
+            p.tickets.forEach(function (t) {
+                html += '<tr><td>' + esc(t.holder) + '</td><td>' + esc(t.product) +
+                    '<span class="rtem-profile-type">' + esc(t.type) + '</span>' +
+                    (t.dietary ? '<span class="rtem-profile-diet">' + esc(t.dietary) + '</span>' : '') +
+                    '</td><td><span class="rtem-badge rtem-badge-status rtem-status-' + esc(t.status) + '">' + esc(statusLabel(t.status)) + '</span></td></tr>';
+            });
+            html += '</table>';
+        } else {
+            html += '<p class="rtem-muted">—</p>';
+        }
+
+        // Emergency contacts.
+        html += '<h3 class="rtem-profile-h">' + esc(I18N.emergency || 'Emergency contacts') + '</h3>';
+        if (p.emergency && p.emergency.length) {
+            p.emergency.forEach(function (c) {
+                html += '<div class="rtem-emergency">';
+                html += '<strong>' + esc(c.name) + '</strong>' + (c.relationship ? ' <span class="rtem-muted">· ' + esc(c.relationship) + '</span>' : '');
+                if (c.phone) { html += '<div>' + esc(I18N.phone || 'Phone') + ': <a href="tel:' + esc(c.phone) + '">' + esc(c.phone) + '</a></div>'; }
+                if (c.email) { html += '<div><a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a></div>'; }
+                html += '</div>';
+            });
+        } else {
+            html += '<p class="rtem-muted">—</p>';
+        }
+
+        html += '<button type="button" class="rtem-btn" id="rtem-profile-close">' + esc(I18N.close || 'Close') + '</button>';
+        html += '</div>';
+        modalBody.innerHTML = html;
     }
 
     if (startBtn) { startBtn.addEventListener('click', startScan); }

@@ -213,6 +213,80 @@
 .rtem-banner-danger { background: #f8d7da; color: #842029; }
 .rtem-banner-secondary { background: #eef1f5; color: #33475b; }
 
+.rtem-btn-profile { width: 100%; margin-top: 10px; }
+.rtem-btn-reset {
+    width: 100%;
+    margin-top: 10px;
+    background: #fff;
+    color: #842029;
+    border-color: #e0b4b8;
+}
+
+/* Member profile modal */
+.rtem-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 20px 12px;
+    overflow-y: auto;
+}
+.rtem-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+.rtem-modal-dialog {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 520px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+.rtem-profile-head {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.rtem-profile-photo {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: 0 0 auto;
+    background: #eee;
+}
+.rtem-profile-club { color: #777; font-size: 13px; }
+.rtem-profile-phone { font-size: 15px; margin-top: 2px; }
+.rtem-profile-h {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #CC0B24;
+    margin: 18px 0 6px;
+}
+.rtem-profile-table { width: 100%; border-collapse: collapse; }
+.rtem-profile-table td {
+    padding: 7px 6px;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: top;
+    font-size: 14px;
+}
+.rtem-profile-type { display: block; font-size: 12px; color: #777; }
+.rtem-profile-diet { display: block; font-size: 12px; color: #a8631a; }
+.rtem-emergency {
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 14px;
+}
+.rtem-muted { color: #999; }
+
 /* Flash toast after a check-in */
 .rtem-flash {
     position: fixed;
