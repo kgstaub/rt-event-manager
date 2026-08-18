@@ -971,7 +971,7 @@
     .rtacc-tickets tr.rtacc-trow-event,
     .rtacc-tickets tr.rtacc-trow-minor {
         background: var(--rtacc-secondary-bg);
-        border-color: var(--rtacc-primary);
+        border: 1px solid var(--rtacc-primary) !important;
     }
     .rtacc-tickets tr.rtacc-trow-event td + td,
     .rtacc-tickets tr.rtacc-trow-minor td + td {
