@@ -326,6 +326,14 @@ class RT_Event_Manager_Apple_Wallet {
         if (!empty($last['summary'])) {
             echo '<tr><th scope="row">' . esc_html__('Last push result', 'rt-event-manager') . '</th><td><code>' . esc_html($last['summary']) . '</code><br><span class="description">' . esc_html($last['when'] ?? '') . '</span></td></tr>';
         }
+        $ws_log = get_option('rt_event_manager_wallet_ws_log', array());
+        echo '<tr><th scope="row">' . esc_html__('Web service log', 'rt-event-manager') . '</th><td>';
+        if (empty($ws_log) || !is_array($ws_log)) {
+            echo '<span class="description">' . esc_html__('No web-service requests received yet. If devices still do not register, Apple is not reaching this URL — check that it is HTTPS, uses pretty permalinks, and the REST API is publicly reachable.', 'rt-event-manager') . '</span>';
+        } else {
+            echo '<pre style="max-height:160px;overflow:auto;margin:0;padding:8px;background:#f6f7f7;border:1px solid #dcdcde;">' . esc_html(implode("\n", $ws_log)) . '</pre>';
+        }
+        echo '</td></tr>';
         echo '</table>';
 
         echo '<form method="post" style="margin-top:8px;">';
@@ -752,14 +760,28 @@ class RT_Event_Manager_Apple_Wallet {
         return false;
     }
 
+    /** Ring buffer of the last web-service hits, for settings-page diagnostics. */
+    private function ws_log($line) {
+        $log = get_option('rt_event_manager_wallet_ws_log', array());
+        if (!is_array($log)) {
+            $log = array();
+        }
+        array_unshift($log, current_time('mysql') . ' — ' . $line);
+        update_option('rt_event_manager_wallet_ws_log', array_slice($log, 0, 12), false);
+    }
+
     public function ws_register($request) {
-        $serial = sanitize_text_field($request['serial']);
+        $serial   = sanitize_text_field($request['serial']);
+        $has_auth = '' !== (string) $request->get_header('authorization')
+            || !empty($_SERVER['HTTP_AUTHORIZATION']) || !empty($_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
         if (!$this->ws_authed($request, $serial)) {
+            $this->ws_log('register REJECTED (401) serial=' . $serial . ' auth-header=' . ($has_auth ? 'present' : 'MISSING'));
             return new WP_REST_Response(null, 401);
         }
         $body  = json_decode($request->get_body(), true);
         $token = is_array($body) && !empty($body['pushToken']) ? sanitize_text_field($body['pushToken']) : '';
         if ('' === $token) {
+            $this->ws_log('register bad request (400, no pushToken) serial=' . $serial);
             return new WP_REST_Response(null, 400);
         }
         global $wpdb;
@@ -776,6 +798,7 @@ class RT_Event_Manager_Apple_Wallet {
             'serial_number' => $serial,
             'updated_at'    => current_time('mysql'),
         ), array('%s', '%s', '%s', '%s', '%s'));
+        $this->ws_log('register OK serial=' . $serial . ' device=' . substr($device, 0, 8) . '…');
         return new WP_REST_Response(null, $exists ? 200 : 201);
     }
 
