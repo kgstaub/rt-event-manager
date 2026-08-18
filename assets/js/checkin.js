@@ -132,8 +132,10 @@
 
     function renderTicket(t) {
         result.hidden = false;
-        var terminal = (t.status === 'cancelled' || t.status === 'refunded');
+        // Only a confirmed ticket is checkable; anything else (cancelled,
+        // refunded, invalid, pending/draft) is blocked with a danger banner.
         var checkedIn = (t.status === 'checked_in');
+        var terminal = (!checkedIn && t.status !== 'valid');
         var extra = '';
         if (t.guardian) { extra += row('Guardian', t.guardian); }
         if (t.pretours && t.pretours.length) { extra += row('Pretours', t.pretours.join(', ')); }

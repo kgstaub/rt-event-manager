@@ -304,6 +304,20 @@ JS;
             wp_send_json_error(array('message' => __('Ticket not found.', 'rt-event-manager')));
         }
 
+        // Reconcile the stored status against the live order before showing it:
+        // an order cancelled/refunded/failed outside the normal sync would leave
+        // the ticket row stale ('valid'), which must not read as Confirmed here.
+        // recalculate_order_ticket_statuses() never touches deliberate terminal
+        // states (checked_in/cancelled/refunded), so those are preserved.
+        $mgr = RT_Event_Manager::instance();
+        if (method_exists($mgr, 'recalculate_order_ticket_statuses')) {
+            $mgr->recalculate_order_ticket_statuses(absint($ticket['order_id']));
+            $fresh = RT_Event_Manager::get_ticket_by_id(absint($ticket['id']));
+            if ($fresh) {
+                $ticket = $fresh;
+            }
+        }
+
         wp_send_json_success($this->ticket_payload($ticket));
     }
 
@@ -335,14 +349,26 @@ JS;
             if (!$t) {
                 continue;
             }
+            // Reconcile against the live order first (a cancelled/refunded order
+            // can leave a stale 'valid' row) so we never check in a dead ticket.
+            $mgr = RT_Event_Manager::instance();
+            if (method_exists($mgr, 'recalculate_order_ticket_statuses')) {
+                $mgr->recalculate_order_ticket_statuses(absint($t['order_id']));
+                $fresh = RT_Event_Manager::get_ticket_by_id($id);
+                if ($fresh) {
+                    $t = $fresh;
+                }
+            }
             $st     = isset($t['status']) ? $t['status'] : '';
             $holder = ('' !== $t['holder_name']) ? $t['holder_name'] : ('#' . $id);
-            if (in_array($st, array('cancelled', 'refunded'), true)) {
-                $results[] = array('holder' => $holder, 'outcome' => 'refused', 'status' => $st);
-                continue;
-            }
             if ('checked_in' === $st) {
                 $results[] = array('holder' => $holder, 'outcome' => 'already', 'status' => $st);
+                continue;
+            }
+            // Only a confirmed ticket may be checked in — refuse anything else
+            // (cancelled, refunded, invalid, draft/unpaid).
+            if ('valid' !== $st) {
+                $results[] = array('holder' => $holder, 'outcome' => 'refused', 'status' => $st);
                 continue;
             }
             RT_Event_Manager::instance()->update_ticket($id, array(
