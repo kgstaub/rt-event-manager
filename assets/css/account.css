@@ -70,6 +70,12 @@
 .rtacc-offcanvas .rtacc-nav-icon {
     color: var(--rtacc-primary) !important;
 }
+/* Uniform padding so every item's icon + label line up (incl. the Log out button). */
+.rtacc-nav .uk-nav > li > a,
+.rtacc-offcanvas .uk-nav > li > a {
+    display: block;
+    padding: 8px 12px;
+}
 /* Active item: brand colour + bolder (icon already red). */
 .rtacc-nav .uk-nav > li.uk-active > a,
 .rtacc-offcanvas .uk-nav > li.uk-active > a {
@@ -90,7 +96,6 @@
     font-weight: 400;
     background: #fdecec;
     border-radius: 6px;
-    padding: 8px 12px;
 }
 .rtacc-nav .rtacc-nav-logout > a:hover {
     color: var(--rtacc-primary-hover);
