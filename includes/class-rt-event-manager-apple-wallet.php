@@ -37,8 +37,20 @@ class RT_Event_Manager_Apple_Wallet {
         add_action('rest_api_init', array($this, 'register_web_service_routes'));
     }
 
-    /** REST base Apple appends /v1/... to for the pass update web service. */
+    /**
+     * REST base Apple appends /v1/... to for the pass update web service.
+     * A configured override (or the RT_EVENT_MANAGER_WALLET_WS_URL constant)
+     * lets you point passes at a public HTTPS tunnel while developing on a
+     * local, non-public domain. Must be the base ending in /wp-json/rtem-wallet.
+     */
     public static function web_service_url() {
+        if (defined('RT_EVENT_MANAGER_WALLET_WS_URL') && RT_EVENT_MANAGER_WALLET_WS_URL) {
+            return untrailingslashit(RT_EVENT_MANAGER_WALLET_WS_URL);
+        }
+        $override = (string) self::opt('ws_url');
+        if ('' !== $override) {
+            return untrailingslashit($override);
+        }
         return rest_url('rtem-wallet');
     }
 
@@ -131,6 +143,7 @@ class RT_Event_Manager_Apple_Wallet {
             update_option('rt_event_manager_wallet_venue_name', sanitize_text_field(wp_unslash($_POST['wallet_venue_name'] ?? '')));
             update_option('rt_event_manager_wallet_venue_lat', sanitize_text_field(wp_unslash($_POST['wallet_venue_lat'] ?? '')));
             update_option('rt_event_manager_wallet_venue_lng', sanitize_text_field(wp_unslash($_POST['wallet_venue_lng'] ?? '')));
+            update_option('rt_event_manager_wallet_ws_url', esc_url_raw(trim((string) wp_unslash($_POST['wallet_ws_url'] ?? ''))));
 
             // Password: only overwrite when a new value is entered.
             $pass = (string) wp_unslash($_POST['wallet_p12_pass'] ?? '');
@@ -290,6 +303,17 @@ class RT_Event_Manager_Apple_Wallet {
             echo '<option value="' . esc_attr($val) . '" ' . selected($cur_type, $val, false) . '>' . esc_html($label) . '</option>';
         }
         echo '</select><p class="description">' . esc_html__('Used for the pass semantic tags (Apple event-pass layout).', 'rt-event-manager') . '</p></td></tr>';
+
+        $text(
+            __('Pass update URL override', 'rt-event-manager'),
+            'wallet_ws_url',
+            self::opt('ws_url'),
+            sprintf(
+                /* translators: %s: default REST base URL. */
+                __('Optional. Base URL for pass updates that the phone can reach — set this to a public HTTPS tunnel when developing on a local domain. Leave blank to use the site default (%s).', 'rt-event-manager'),
+                rest_url('rtem-wallet')
+            )
+        );
 
         $text(__('Venue name', 'rt-event-manager'), 'wallet_venue_name', self::opt('venue_name'), __('Shown on the event pass and used for the venue semantic tag.', 'rt-event-manager'));
         $text(__('Venue latitude', 'rt-event-manager'), 'wallet_venue_lat', self::opt('venue_lat'), __('Optional — enables the map/location on the pass.', 'rt-event-manager'));
