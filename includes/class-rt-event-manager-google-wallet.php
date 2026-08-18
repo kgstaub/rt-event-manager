@@ -188,6 +188,23 @@ class RT_Event_Manager_Google_Wallet {
             'reviewStatus' => 'UNDER_REVIEW',
             'eventName'    => self::loc(self::wopt('event_name', 'RTI Half-Year Meeting 2027')),
             'hexBackgroundColor' => '#CC0B24',
+            // Pin the ticket holder (and type) to the front of the card.
+            'classTemplateInfo' => array(
+                'cardTemplateOverride' => array(
+                    'cardRowTemplateInfos' => array(
+                        array(
+                            'twoItems' => array(
+                                'startItem' => array('firstValue' => array('fields' => array(
+                                    array('fieldPath' => "object.textModulesData['attendee']"),
+                                ))),
+                                'endItem'   => array('firstValue' => array('fields' => array(
+                                    array('fieldPath' => "object.textModulesData['type']"),
+                                ))),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
         );
 
         $logo_url = (string) self::opt('logo_url');
@@ -240,12 +257,19 @@ class RT_Event_Manager_Google_Wallet {
             'hexBackgroundColor' => '#CC0B24',
         );
 
-        // Ticket type.
-        $obj['textModulesData'] = array(array(
-            'id'     => 'type',
-            'header' => __('Type', 'rt-event-manager'),
-            'body'   => RT_Event_Manager::ticket_kind_label($ticket),
-        ));
+        // Ticket holder (shown on the front of the pass) + type.
+        $obj['textModulesData'] = array(
+            array(
+                'id'     => 'attendee',
+                'header' => __('Ticket holder', 'rt-event-manager'),
+                'body'   => $holder,
+            ),
+            array(
+                'id'     => 'type',
+                'header' => __('Type', 'rt-event-manager'),
+                'body'   => RT_Event_Manager::ticket_kind_label($ticket),
+            ),
+        );
 
         // Attached tours + guardian (mirrors the Apple pass back fields).
         $add = function ($label, $rows) use (&$obj) {
