@@ -64,7 +64,7 @@
 .rtacc-nav .uk-nav > li:not(.rtacc-nav-logout) > a,
 .rtacc-offcanvas .uk-nav > li:not(.rtacc-nav-logout) > a {
     color: #333 !important;
-    font-weight: 400 !important;
+    font-weight: 300 !important;
 }
 .rtacc-nav .rtacc-nav-icon,
 .rtacc-offcanvas .rtacc-nav-icon {
@@ -76,11 +76,11 @@
     display: block;
     padding: 8px 12px;
 }
-/* Active item: brand colour on a light gray button, not bolder. */
+/* Active item: brand colour + bold on a light gray button. */
 .rtacc-nav .uk-nav > li.uk-active > a,
 .rtacc-offcanvas .uk-nav > li.uk-active > a {
     color: var(--rtacc-primary) !important;
-    font-weight: 300 !important;
+    font-weight: 700 !important;
     background: #f3f4f5;
     border-radius: 6px;
 }
@@ -101,7 +101,7 @@
 /* Logout item stands out in the brand colour on a light red background. */
 .rtacc-nav .rtacc-nav-logout > a {
     color: var(--rtacc-primary);
-    font-weight: 400;
+    font-weight: 300;
     background: #fdecec;
     border-radius: 6px;
 }
