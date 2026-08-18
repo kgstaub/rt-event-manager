@@ -591,14 +591,16 @@ class RT_Event_Manager_Account {
             'shop'      => 'fa-bag-shopping',
         );
 
-        // Regular style (requires the Pro kit above for full icon coverage).
+        // Regular style (requires the Pro kit above for full icon coverage);
+        // the active item's icon is solid.
         $fa_style = 'fa-regular';
         $item = function ($icon, $url, $label, $classes) use ($fa_style) {
+            $style = (false !== strpos($classes, 'uk-active')) ? 'fa-solid' : $fa_style;
             return sprintf(
                 '<li class="%s"><a href="%s"><i class="%s %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
                 esc_attr($classes),
                 esc_url($url),
-                esc_attr($fa_style),
+                esc_attr($style),
                 esc_attr($icon),
                 esc_html($label)
             );
