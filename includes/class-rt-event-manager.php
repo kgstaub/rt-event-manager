@@ -2925,6 +2925,13 @@ class RT_Event_Manager {
             return false;
         }
 
+        // Detect a status change so we can refresh saved wallet passes below.
+        $status_changed = false;
+        if (isset($update_data['status'])) {
+            $old_status     = $wpdb->get_var($wpdb->prepare("SELECT status FROM $table_name WHERE id = %d", absint($ticket_id)));
+            $status_changed = ((string) $old_status !== (string) $update_data['status']);
+        }
+
         $result = $wpdb->update(
             $table_name,
             $update_data,
@@ -2936,6 +2943,12 @@ class RT_Event_Manager {
         // Keep a member's pretour ticket holder in sync with their own ticket.
         if (false !== $result && isset($update_data['holder_name'])) {
             $this->sync_child_pretour_holder($ticket_id, $update_data['holder_name']);
+        }
+
+        // Any status change (confirm, cancel, refund, check-in, …) refreshes the
+        // attendee's saved Apple/Google passes, whatever triggered it.
+        if (false !== $result && $status_changed && function_exists('rt_event_manager_notify_wallets')) {
+            rt_event_manager_notify_wallets(absint($ticket_id));
         }
 
         return $result !== false;
