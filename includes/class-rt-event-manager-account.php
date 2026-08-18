@@ -591,8 +591,8 @@ class RT_Event_Manager_Account {
             'shop'      => 'fa-bag-shopping',
         );
 
-        // Regular style for all nav icons (the base slugs above all exist in it).
-        $fa_style = 'fa-regular';
+        // Light style for all nav icons (Pro kit is loaded; full coverage).
+        $fa_style = 'fa-light';
         $item = function ($icon, $url, $label, $classes) use ($fa_style) {
             return sprintf(
                 '<li class="%s"><a href="%s"><i class="%s %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
