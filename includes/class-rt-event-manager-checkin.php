@@ -358,7 +358,8 @@ JS;
         } elseif ('event' === $kind) {
             foreach (RT_Event_Manager::get_child_tours(absint($ticket['id']), 'minor') as $m) {
                 if (!in_array($m['status'], array('cancelled', 'refunded'), true)) {
-                    $companions[] = $this->companion_payload($m, __('Future member', 'rt-event-manager'));
+                    // "Future Tabler" / "Future Circler" per the minor's type.
+                    $companions[] = $this->companion_payload($m, RT_Event_Manager::ticket_kind_label($m));
                 }
             }
         }
