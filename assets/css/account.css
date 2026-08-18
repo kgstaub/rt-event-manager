@@ -360,6 +360,27 @@
     background: var(--rtacc-primary);
     color: #fff;
 }
+/* Official Add-to-Wallet badges (dashboard main tickets). */
+.rtacc-wallet-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+.rtacc-wallet-badge {
+    display: inline-flex;
+    line-height: 0;
+    transition: opacity 0.15s ease;
+}
+.rtacc-wallet-badge:hover {
+    opacity: 0.85;
+}
+.rtacc-wallet-badge img {
+    height: 40px;
+    width: auto;
+    max-width: none;
+    display: block;
+}
 
 /* Per-row Transfer / Cancel actions (icon buttons with title tooltips). */
 .rtacc-row-actions {

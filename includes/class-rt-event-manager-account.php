@@ -716,6 +716,13 @@ class RT_Event_Manager_Account {
                     }
                     echo '</td>';
                     echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
+                    // Add-to-wallet badges for the main event/Future-member ticket.
+                    if (in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true)) {
+                        $badges = $this->wallet_badges_html(absint($t['id']));
+                        if ('' !== $badges) {
+                            echo '<td data-title="' . esc_attr__('Wallet', 'rt-event-manager') . '"><div class="rtacc-wallet-badges">' . $badges . '</div></td>';
+                        }
+                    }
                     echo '</tr>';
                 }
                 echo '</tbody></table>';
@@ -2799,6 +2806,30 @@ class RT_Event_Manager_Account {
      * @param int $product_id
      * @return string
      */
+    /** Official Add-to-Apple/Google-Wallet badge links for a ticket (configured providers only). */
+    private function wallet_badges_html($ticket_id) {
+        $out = '';
+        if (class_exists('RT_Event_Manager_Apple_Wallet') && RT_Event_Manager_Apple_Wallet::is_configured()) {
+            $label = __('Add to Apple Wallet', 'rt-event-manager');
+            $url   = add_query_arg(array(
+                'action'    => 'rt_event_manager_apple_pass',
+                'ticket_id' => $ticket_id,
+                'nonce'     => wp_create_nonce('rt_event_manager_apple_pass_' . $ticket_id),
+            ), admin_url('admin-ajax.php'));
+            $out .= '<a class="rtacc-wallet-badge" href="' . esc_url($url) . '" title="' . esc_attr($label) . '" aria-label="' . esc_attr($label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-apple-wallet.svg') . '" alt="' . esc_attr($label) . '" /></a>';
+        }
+        if (class_exists('RT_Event_Manager_Google_Wallet') && RT_Event_Manager_Google_Wallet::is_configured()) {
+            $label = __('Add to Google Wallet', 'rt-event-manager');
+            $url   = add_query_arg(array(
+                'action'    => 'rt_event_manager_google_pass',
+                'ticket_id' => $ticket_id,
+                'nonce'     => wp_create_nonce('rt_event_manager_google_pass_' . $ticket_id),
+            ), admin_url('admin-ajax.php'));
+            $out .= '<a class="rtacc-wallet-badge" href="' . esc_url($url) . '" target="_blank" rel="noopener" title="' . esc_attr($label) . '" aria-label="' . esc_attr($label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-google-wallet.svg') . '" alt="' . esc_attr($label) . '" /></a>';
+        }
+        return $out;
+    }
+
     /** Sortable event/tour start timestamp for a product; undated sinks last. */
     private function event_start_ts($product_id) {
         $start = get_post_meta($product_id, '_rti_start', true);
