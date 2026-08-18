@@ -189,6 +189,9 @@ class RT_Event_Manager_Google_Wallet {
             'eventName'    => self::loc(self::wopt('event_name', 'RTI Half-Year Meeting 2027')),
             'hexBackgroundColor' => '#CC0B24',
             // Pin the ticket holder (and type) to the front of the card.
+            // Mirror the Apple pass field layout on the card front:
+            //   row 1: Attendee | Ticket   (Apple secondary fields)
+            //   row 2: Club | Status | Includes  (Apple auxiliary fields)
             'classTemplateInfo' => array(
                 'cardTemplateOverride' => array(
                     'cardRowTemplateInfos' => array(
@@ -202,11 +205,16 @@ class RT_Event_Manager_Google_Wallet {
                                 ))),
                             ),
                         ),
-                        // Second row under the attendee: family + club.
                         array(
-                            'oneItem' => array(
-                                'item' => array('firstValue' => array('fields' => array(
+                            'threeItems' => array(
+                                'startItem'  => array('firstValue' => array('fields' => array(
                                     array('fieldPath' => "object.textModulesData['org']"),
+                                ))),
+                                'middleItem' => array('firstValue' => array('fields' => array(
+                                    array('fieldPath' => "object.textModulesData['status']"),
+                                ))),
+                                'endItem'    => array('firstValue' => array('fields' => array(
+                                    array('fieldPath' => "object.textModulesData['tours']"),
                                 ))),
                             ),
                         ),
@@ -403,6 +411,13 @@ class RT_Event_Manager_Google_Wallet {
             wp_die(esc_html($link->get_error_message()));
         }
 
+        // Sync the class so front-of-card layout changes apply to this add too
+        // (the JWT below only creates the class if it does not already exist).
+        $token = $this->access_token();
+        if ('' !== $token) {
+            $this->patch_class($token);
+        }
+
         nocache_headers();
         wp_redirect($link);
         exit;
@@ -460,9 +475,13 @@ class RT_Event_Manager_Google_Wallet {
         if ('' === $token) {
             return;
         }
+
+        // Update the class first so front-of-card layout changes take effect
+        // (a JWT save only creates the class, it never updates an existing one).
+        $this->patch_class($token);
+
         $object    = $this->ticket_object($ticket);
         $object_id = $object['id'];
-
         wp_remote_request(
             'https://walletobjects.googleapis.com/walletobjects/v1/eventTicketObject/' . rawurlencode($object_id),
             array(
@@ -473,6 +492,23 @@ class RT_Event_Manager_Google_Wallet {
                     'Content-Type'  => 'application/json',
                 ),
                 'body'    => wp_json_encode($object),
+            )
+        );
+    }
+
+    /** PATCH the shared EventTicketClass so template/branding changes propagate. */
+    private function patch_class($token) {
+        $class = $this->ticket_class();
+        wp_remote_request(
+            'https://walletobjects.googleapis.com/walletobjects/v1/eventTicketClass/' . rawurlencode($class['id']),
+            array(
+                'method'  => 'PATCH',
+                'timeout' => 15,
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $token,
+                    'Content-Type'  => 'application/json',
+                ),
+                'body'    => wp_json_encode($class),
             )
         );
     }
