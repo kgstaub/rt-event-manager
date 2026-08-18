@@ -916,27 +916,20 @@ class RT_Event_Manager_Apple_Wallet {
             "SELECT serial_number FROM $table WHERE device_lib_id = %s AND pass_type_id = %s",
             $device, sanitize_text_field($request['ptid'])
         ));
-        // Filter by the ticket's own updated_at against the passesUpdatedSince tag.
         $since = $request->get_param('passesUpdatedSince');
-        $out   = array();
-        $last  = 0;
-        foreach ($serials as $serial) {
-            $mtime = $this->serial_modified_ts($serial);
-            if ($mtime > $last) {
-                $last = $mtime;
-            }
-            if (!$since || $mtime > (int) $since) {
-                $out[] = $serial;
-            }
-        }
-        if (empty($out)) {
-            $this->ws_log('serials since=' . ($since ?: '-') . ' -> 204 (nothing changed)');
+        // Return ALL of the device's serials rather than filtering by our own
+        // updated_at tag: after a push the device then fetches each pass (with a
+        // Last-Modified check), which is reliable. Filtering risked a false "204
+        // nothing changed", leaving the pass stale until a manual refresh.
+        $serials = array_values(array_unique(array_filter($serials)));
+        if (empty($serials)) {
+            $this->ws_log('serials since=' . ($since ?: '-') . ' -> 204 (no registrations)');
             return new WP_REST_Response(null, 204);
         }
-        $this->ws_log('serials since=' . ($since ?: '-') . ' -> ' . implode(',', $out));
+        $this->ws_log('serials since=' . ($since ?: '-') . ' -> ' . implode(',', $serials));
         return new WP_REST_Response(array(
-            'serialNumbers' => $out,
-            'lastUpdated'   => (string) ($last ?: time()),
+            'serialNumbers' => $serials,
+            'lastUpdated'   => (string) time(),
         ), 200);
     }
 
