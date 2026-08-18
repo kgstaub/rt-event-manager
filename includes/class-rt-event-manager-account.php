@@ -575,32 +575,30 @@ class RT_Event_Manager_Account {
 
     /** The navigation <ul> (reused by the desktop sidebar and the off-canvas). */
     private function nav_items_html($current) {
+        // Base/common icon slugs chosen to exist in the FA7 Graphite pack
+        // (compound variants like gauge-high/calendar-days are not in Graphite).
         $icons = array(
-            'dashboard' => 'fa-gauge-high',
+            'dashboard' => 'fa-house',
             'profile'   => 'fa-user',
-            'emergency' => 'fa-kit-medical',
-            'orders'    => 'fa-receipt',
-            'refunds'   => 'fa-money-bill-transfer',
+            'emergency' => 'fa-phone',
+            'orders'    => 'fa-list',
+            'refunds'   => 'fa-money-bill',
             'tickets'   => 'fa-ticket',
-            'pretour'   => 'fa-route',
-            'daytour'   => 'fa-map-location-dot',
-            'calendar'  => 'fa-calendar-days',
-            'travel'    => 'fa-passport',
+            'pretour'   => 'fa-map',
+            'daytour'   => 'fa-compass',
+            'calendar'  => 'fa-calendar',
+            'travel'    => 'fa-plane',
             'shop'      => 'fa-bag-shopping',
         );
 
-        // FontAwesome 7 "Graphite" is an expressive style with limited icon
-        // coverage, so use it only for icons that exist in it and fall back to
-        // Regular for the rest (and everywhere when no Pro kit is loaded).
-        $has_kit    = ('' !== self::fa_kit_url());
-        $graphite   = array('fa-user', 'fa-ticket', 'fa-bag-shopping');
-        $item = function ($icon, $url, $label, $classes) use ($has_kit, $graphite) {
-            $style = ($has_kit && in_array($icon, $graphite, true)) ? 'fa-graphite' : 'fa-regular';
+        // Graphite style when a Pro kit is loaded; Regular fallback otherwise.
+        $fa_style = ('' !== self::fa_kit_url()) ? 'fa-graphite' : 'fa-regular';
+        $item = function ($icon, $url, $label, $classes) use ($fa_style) {
             return sprintf(
                 '<li class="%s"><a href="%s"><i class="%s %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
                 esc_attr($classes),
                 esc_url($url),
-                esc_attr($style),
+                esc_attr($fa_style),
                 esc_attr($icon),
                 esc_html($label)
             );
@@ -639,7 +637,7 @@ class RT_Event_Manager_Account {
         if ($rendered_any) {
             $out .= '<li class="rtacc-nav-sep" aria-hidden="true"></li>';
         }
-        $out .= $item('fa-right-from-bracket', wp_logout_url($this->account_base_url()), __('Log out', 'rt-event-manager'), 'rtacc-nav-logout');
+        $out .= $item('fa-power-off', wp_logout_url($this->account_base_url()), __('Log out', 'rt-event-manager'), 'rtacc-nav-logout');
         $out .= '</ul>';
         return $out;
     }
