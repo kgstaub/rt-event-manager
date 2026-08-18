@@ -215,7 +215,12 @@ class RT_Event_Manager_Account {
         if (defined('RT_EVENT_MANAGER_FA_KIT') && RT_EVENT_MANAGER_FA_KIT) {
             return esc_url_raw(RT_EVENT_MANAGER_FA_KIT);
         }
-        return esc_url_raw((string) get_option('rt_event_manager_fa_kit', ''));
+        $opt = (string) get_option('rt_event_manager_fa_kit', '');
+        if ('' !== $opt) {
+            return esc_url_raw($opt);
+        }
+        // Default: the event's FontAwesome 7 Pro kit (overridable above).
+        return 'https://kit.fontawesome.com/75214ece5f.js';
     }
 
     /** FontAwesome kits load as a cross-origin script. */
