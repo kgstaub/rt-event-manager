@@ -656,4 +656,31 @@
         window.location.href = url;
     });
 
+    // ---- Add-to-wallet dropdown: toggle, then close on outside click / Esc. ----
+    $(document).on('click', '.rtacc-wallet-menu-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var $menu = $(this).closest('.rtacc-wallet-menu');
+        var open  = $menu.hasClass('is-open');
+        $('.rtacc-wallet-menu.is-open').removeClass('is-open')
+            .find('.rtacc-wallet-menu-btn').attr('aria-expanded', 'false');
+        if (!open) {
+            $menu.addClass('is-open').find('.rtacc-wallet-menu-btn').attr('aria-expanded', 'true');
+        }
+    });
+
+    $(document).on('click', function (e) {
+        if (!$(e.target).closest('.rtacc-wallet-menu').length) {
+            $('.rtacc-wallet-menu.is-open').removeClass('is-open')
+                .find('.rtacc-wallet-menu-btn').attr('aria-expanded', 'false');
+        }
+    });
+
+    $(document).on('keyup', function (e) {
+        if (e.key === 'Escape' || e.keyCode === 27) {
+            $('.rtacc-wallet-menu.is-open').removeClass('is-open')
+                .find('.rtacc-wallet-menu-btn').attr('aria-expanded', 'false');
+        }
+    });
+
 })(jQuery);

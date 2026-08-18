@@ -82,6 +82,7 @@ class RT_Event_Manager_Google_Wallet {
         if (isset($_POST['rt_gwallet_nonce']) && wp_verify_nonce($_POST['rt_gwallet_nonce'], 'rt_gwallet_save')) {
             update_option('rt_event_manager_google_issuer_id', sanitize_text_field(wp_unslash($_POST['google_issuer_id'] ?? '')));
             update_option('rt_event_manager_google_class_suffix', sanitize_text_field(wp_unslash($_POST['google_class_suffix'] ?? '')));
+            update_option('rt_event_manager_google_logo_url', esc_url_raw(wp_unslash($_POST['google_logo_url'] ?? '')));
 
             // Service account JSON upload: parse client_email + private_key.
             if (!empty($_FILES['google_sa_json']['tmp_name']) && is_uploaded_file($_FILES['google_sa_json']['tmp_name'])) {
@@ -130,6 +131,10 @@ class RT_Event_Manager_Google_Wallet {
         echo '<tr><th scope="row">' . esc_html__('Event class suffix', 'rt-event-manager') . '</th><td>';
         echo '<input type="text" class="regular-text" name="google_class_suffix" value="' . esc_attr($suffix) . '" />';
         echo '<p class="description">' . esc_html__('Identifier for this event’s ticket class (letters, numbers, dot, underscore, hyphen). The full class ID is issuerId.suffix.', 'rt-event-manager') . '</p></td></tr>';
+
+        echo '<tr><th scope="row">' . esc_html__('Logo URL', 'rt-event-manager') . '</th><td>';
+        echo '<input type="url" class="regular-text" name="google_logo_url" value="' . esc_attr(self::opt('logo_url')) . '" placeholder="https://…/logo.png" />';
+        echo '<p class="description">' . esc_html__('Publicly reachable, HTTPS square image (Google fetches it — no upload). Shown on the Google Wallet pass. Recommended around 660×660px.', 'rt-event-manager') . '</p></td></tr>';
 
         echo '<tr><th scope="row">' . esc_html__('Service account key (JSON)', 'rt-event-manager') . '</th><td>';
         echo '<input type="file" name="google_sa_json" accept=".json,application/json" />';
@@ -184,6 +189,14 @@ class RT_Event_Manager_Google_Wallet {
             'eventName'    => self::loc(self::wopt('event_name', 'RTI Half-Year Meeting 2027')),
             'hexBackgroundColor' => '#CC0B24',
         );
+
+        $logo_url = (string) self::opt('logo_url');
+        if ('' !== $logo_url) {
+            $class['logo'] = array(
+                'sourceUri'         => array('uri' => $logo_url),
+                'contentDescription' => self::loc(self::wopt('event_name', 'RTI Half-Year Meeting 2027')),
+            );
+        }
 
         $venue = (string) self::wopt('venue_name');
         if ('' !== $venue) {

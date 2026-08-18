@@ -2049,7 +2049,8 @@ class RT_Event_Manager_Account {
             $icon_pass = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><line x1="14" y1="14" x2="14" y2="14"></line><line x1="21" y1="14" x2="21" y2="21"></line><line x1="14" y1="21" x2="18" y2="21"></line></svg>';
             $out .= '<a class="rtacc-icon-btn rtacc-ticket-pass-btn" href="' . esc_url($pass_url) . '" target="_blank" rel="noopener" title="' . esc_attr($pass_label) . '" aria-label="' . esc_attr($pass_label) . '">' . $icon_pass . '</a>';
 
-            // Add to Apple Wallet (when the Pass certificate is configured).
+            // Collect the configured wallet options into a single dropdown.
+            $wallet_items = array();
             if (class_exists('RT_Event_Manager_Apple_Wallet') && RT_Event_Manager_Apple_Wallet::is_configured()) {
                 $wallet_label = __('Add to Apple Wallet', 'rt-event-manager');
                 $wallet_url   = add_query_arg(array(
@@ -2057,10 +2058,8 @@ class RT_Event_Manager_Account {
                     'ticket_id' => $id,
                     'nonce'     => wp_create_nonce('rt_event_manager_apple_pass_' . $id),
                 ), admin_url('admin-ajax.php'));
-                $out .= '<a class="rtacc-wallet-badge rtacc-wallet-badge--apple" href="' . esc_url($wallet_url) . '" title="' . esc_attr($wallet_label) . '" aria-label="' . esc_attr($wallet_label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-apple-wallet.svg') . '" alt="' . esc_attr($wallet_label) . '" /></a>';
+                $wallet_items[] = '<a class="rtacc-wallet-badge rtacc-wallet-badge--apple" href="' . esc_url($wallet_url) . '" title="' . esc_attr($wallet_label) . '" aria-label="' . esc_attr($wallet_label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-apple-wallet.svg') . '" alt="' . esc_attr($wallet_label) . '" /></a>';
             }
-
-            // Add to Google Wallet (when the Issuer account is configured).
             if (class_exists('RT_Event_Manager_Google_Wallet') && RT_Event_Manager_Google_Wallet::is_configured()) {
                 $gwallet_label = __('Add to Google Wallet', 'rt-event-manager');
                 $gwallet_url   = add_query_arg(array(
@@ -2068,7 +2067,15 @@ class RT_Event_Manager_Account {
                     'ticket_id' => $id,
                     'nonce'     => wp_create_nonce('rt_event_manager_google_pass_' . $id),
                 ), admin_url('admin-ajax.php'));
-                $out .= '<a class="rtacc-wallet-badge rtacc-wallet-badge--google" href="' . esc_url($gwallet_url) . '" target="_blank" rel="noopener" title="' . esc_attr($gwallet_label) . '" aria-label="' . esc_attr($gwallet_label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-google-wallet.svg') . '" alt="' . esc_attr($gwallet_label) . '" /></a>';
+                $wallet_items[] = '<a class="rtacc-wallet-badge rtacc-wallet-badge--google" href="' . esc_url($gwallet_url) . '" target="_blank" rel="noopener" title="' . esc_attr($gwallet_label) . '" aria-label="' . esc_attr($gwallet_label) . '"><img src="' . esc_url(RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/add-to-google-wallet.svg') . '" alt="' . esc_attr($gwallet_label) . '" /></a>';
+            }
+            if ($wallet_items) {
+                $menu_label   = __('Add to wallet', 'rt-event-manager');
+                $icon_wallet  = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path><circle cx="17" cy="14.5" r="1.2" fill="currentColor" stroke="none"></circle></svg>';
+                $out .= '<span class="rtacc-wallet-menu">'
+                    . '<button type="button" class="rtacc-icon-btn rtacc-wallet-menu-btn" aria-haspopup="true" aria-expanded="false" title="' . esc_attr($menu_label) . '" aria-label="' . esc_attr($menu_label) . '">' . $icon_wallet . '</button>'
+                    . '<span class="rtacc-wallet-menu-dropdown" role="menu">' . implode('', $wallet_items) . '</span>'
+                    . '</span>';
             }
         }
 
