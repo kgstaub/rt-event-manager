@@ -93,7 +93,9 @@ class RT_Event_Manager_Checkin {
                 'checkedInBy'  => __('Checked in by', 'rt-event-manager'),
                 'at'           => __('at', 'rt-event-manager'),
                 'viewProfile'  => __('View profile', 'rt-event-manager'),
+                'mainProfile'  => __('Main account profile', 'rt-event-manager'),
                 'resetCheckin' => __('Reset check-in', 'rt-event-manager'),
+                'resetTogether' => __('Reset together', 'rt-event-manager'),
                 'confirmReset' => __('Reset the check-in for this ticket?', 'rt-event-manager'),
                 'profile'      => __('Member profile', 'rt-event-manager'),
                 'phone'        => __('Phone', 'rt-event-manager'),
@@ -367,22 +369,47 @@ JS;
             wp_send_json_error(array('message' => __('This ticket is not checked in.', 'rt-event-manager')));
         }
 
+        // Reset the primary plus any related (guardian ⇄ minor) tickets the admin
+        // opted to reset at the same time — the mirror of combined check-in.
+        $ids = array($ticket_id);
+        if (isset($_POST['also']) && is_array($_POST['also'])) {
+            foreach ($_POST['also'] as $aid) {
+                $aid = absint($aid);
+                if ($aid && !in_array($aid, $ids, true)) {
+                    $ids[] = $aid;
+                }
+            }
+        }
+
         global $wpdb;
-        $table = $wpdb->prefix . 'rti_tickets';
-        $wpdb->query($wpdb->prepare(
-            "UPDATE $table SET status = 'valid', checked_in_at = NULL, checked_in_by = 0 WHERE id = %d",
-            $ticket_id
-        ));
-        // Normalise the status against the order (paid → valid, unpaid → draft).
+        $table  = $wpdb->prefix . 'rti_tickets';
+        $orders = array();
+        foreach ($ids as $id) {
+            $t = RT_Event_Manager::get_ticket_by_id($id);
+            if (!$t || 'checked_in' !== $t['status']) {
+                continue;
+            }
+            $wpdb->query($wpdb->prepare(
+                "UPDATE $table SET status = 'valid', checked_in_at = NULL, checked_in_by = 0 WHERE id = %d",
+                $id
+            ));
+            $orders[absint($t['order_id'])] = true;
+        }
+        // Normalise statuses against the order(s) (paid → valid, unpaid → draft).
         if (method_exists(RT_Event_Manager::instance(), 'recalculate_order_ticket_statuses')) {
-            RT_Event_Manager::instance()->recalculate_order_ticket_statuses(absint($ticket['order_id']));
+            foreach (array_keys($orders) as $oid) {
+                RT_Event_Manager::instance()->recalculate_order_ticket_statuses($oid);
+            }
         }
 
         $ticket = RT_Event_Manager::get_ticket_by_id($ticket_id);
         wp_send_json_success(array('ticket' => $this->ticket_payload($ticket)));
     }
 
-    /** Staff: the full member profile behind a ticket. */
+    /**
+     * Staff: the scanned attendee's own details, plus the main account profile
+     * (the person who booked) behind a link.
+     */
     public function ajax_profile() {
         $this->guard();
         $ticket_id = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
@@ -395,14 +422,58 @@ JS;
             $order = wc_get_order(absint($ticket['order_id']));
             $owner = $order ? absint($order->get_customer_id()) : 0;
         }
-        if (!$owner) {
-            wp_send_json_error(array('message' => __('No member account is linked to this ticket.', 'rt-event-manager')));
-        }
-        wp_send_json_success($this->profile_payload($owner));
+
+        wp_send_json_success(array(
+            'attendee' => $this->attendee_payload($ticket),
+            'account'  => $owner ? $this->account_payload($owner) : null,
+        ));
     }
 
-    /** Assemble a member profile for the staff view. */
-    private function profile_payload($owner_id) {
+    /** The scanned ticket's own attendee data (not the account holder's). */
+    private function attendee_payload($ticket) {
+        $kind         = RT_Event_Manager::get_ticket_kind($ticket);
+        $product      = wc_get_product($ticket['product_id']);
+        $dietary_opts = RT_Event_Manager::get_dietary_options(true);
+
+        $diet = isset($ticket['dietary']) ? $ticket['dietary'] : '';
+        $diet_label = isset($dietary_opts[$diet]) ? $dietary_opts[$diet] : '';
+        if ('allergies' === $diet && !empty($ticket['allergy_details'])) {
+            $diet_label .= ' (' . $ticket['allergy_details'] . ')';
+        }
+
+        $names = function ($rows) {
+            $out = array();
+            foreach ($rows as $r) {
+                $p = wc_get_product($r['product_id']);
+                $out[] = $p ? $p->get_name() : ('#' . absint($r['product_id']));
+            }
+            return $out;
+        };
+
+        $guardian = '';
+        if ('minor' === $kind && absint($ticket['parent_ticket_id'])) {
+            $g = RT_Event_Manager::get_ticket_by_id(absint($ticket['parent_ticket_id']));
+            if ($g) {
+                $guardian = ('' !== $g['holder_name']) ? $g['holder_name'] : ('#' . absint($ticket['parent_ticket_id']));
+            }
+        }
+
+        return array(
+            'holder'   => ('' !== $ticket['holder_name']) ? $ticket['holder_name'] : __('Unassigned', 'rt-event-manager'),
+            'product'  => $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($ticket),
+            'type'     => RT_Event_Manager::ticket_kind_label($ticket),
+            'status'   => isset($ticket['status']) ? $ticket['status'] : 'draft',
+            'phone'    => isset($ticket['phone']) ? $ticket['phone'] : '',
+            'dietary'  => ('none' === $diet || '' === $diet) ? '' : $diet_label,
+            'family'   => ('' !== $ticket['rti_family']) ? RT_Event_Manager::get_family_label($ticket['rti_family']) : '',
+            'guardian' => $guardian,
+            'pretours' => $names(RT_Event_Manager::get_child_pretours(absint($ticket['id']))),
+            'daytours' => $names(RT_Event_Manager::get_child_daytours(absint($ticket['id']))),
+        );
+    }
+
+    /** Assemble the main account profile for the staff view. */
+    private function account_payload($owner_id) {
         $user  = get_userdata($owner_id);
         $name  = $user ? trim($user->first_name . ' ' . $user->last_name) : '';
         if ('' === $name && $user) {

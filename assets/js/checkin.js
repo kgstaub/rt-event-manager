@@ -169,8 +169,23 @@
             '<button type="button" class="rtem-btn rtem-btn-checkin" id="rtem-do">' +
             esc((I18N.checkIn || 'Check in')) + ' →</button>';
 
-        var resetBtn = (checkedIn && CFG.canReset) ?
-            '<button type="button" class="rtem-btn rtem-btn-reset" id="rtem-reset">' + esc(I18N.resetCheckin || 'Reset check-in') + '</button>' : '';
+        // Reset flow (admins): offer to reset checked-in companions together.
+        var resetBlock = '';
+        if (checkedIn && CFG.canReset) {
+            var checkedCompanions = (t.companions || []).filter(function (c) { return c.status === 'checked_in'; });
+            if (checkedCompanions.length) {
+                resetBlock += '<div class="rtem-companions rtem-companions-reset"><p class="rtem-companions-title">' +
+                    esc(I18N.resetTogether || 'Reset together') + '</p>';
+                checkedCompanions.forEach(function (c) {
+                    resetBlock += '<label class="rtem-companion"><input type="checkbox" class="rtem-reset-cb" value="' +
+                        esc(c.id) + '" checked> <span>' + esc(c.holder) + '</span> <span class="rtem-companion-rel">' +
+                        esc(c.relation) + '</span></label>';
+                });
+                resetBlock += '</div>';
+            }
+            resetBlock += '<button type="button" class="rtem-btn rtem-btn-reset" id="rtem-reset">' + esc(I18N.resetCheckin || 'Reset check-in') + '</button>';
+        }
+        var resetBtn = resetBlock;
 
         result.innerHTML =
             '<div class="rtem-card rtem-card-' + esc(t.status) + '">' +
@@ -196,7 +211,10 @@
             resetEl.addEventListener('click', function () {
                 if (!window.confirm(I18N.confirmReset || 'Reset the check-in?')) { return; }
                 resetEl.disabled = true;
-                post('rt_event_manager_checkin_reset', { ticket_id: t.id }).then(function (res) {
+                var payload = { ticket_id: t.id };
+                var also = Array.prototype.slice.call(result.querySelectorAll('.rtem-reset-cb:checked')).map(function (cb) { return cb.value; });
+                also.forEach(function (id, i) { payload['also[' + i + ']'] = id; });
+                post('rt_event_manager_checkin_reset', payload).then(function (res) {
                     if (res && res.success) { renderTicket(res.data.ticket); flash('✓', 'ok'); }
                     else { resetEl.disabled = false; showError((res && res.data && res.data.message) || I18N.networkError); }
                 }).catch(function () { resetEl.disabled = false; showError(I18N.networkError); });
@@ -283,47 +301,81 @@
         });
     }
 
-    function renderProfile(p) {
+    function detailRow(label, value) {
+        return '<tr><td class="lbl">' + esc(label) + '</td><td>' + value + '</td></tr>';
+    }
+
+    function renderProfile(data) {
+        var a = data.attendee || {};
+        var acct = data.account || null;
+
+        // Attendee-specific details (the scanned ticket).
         var html = '<div class="rtem-profile">';
-        html += '<div class="rtem-profile-head">';
-        if (p.photo) { html += '<img class="rtem-profile-photo" src="' + esc(p.photo) + '" alt="">'; }
-        html += '<div><h2 class="rtem-name">' + esc(p.name) + '</h2>';
-        if (p.club) { html += '<div class="rtem-profile-club">' + esc(p.club) + '</div>'; }
-        if (p.phone) { html += '<div class="rtem-profile-phone">' + esc(I18N.phone || 'Phone') + ': <a href="tel:' + esc(p.phone) + '">' + esc(p.phone) + '</a></div>'; }
-        html += '</div></div>';
+        html += '<h2 class="rtem-name">' + esc(a.holder) + '</h2>';
+        html += '<div class="rtem-badges"><span class="rtem-badge">' + esc(a.type) + '</span>' +
+            '<span class="rtem-badge rtem-badge-status rtem-status-' + esc(a.status) + '">' + esc(statusLabel(a.status)) + '</span></div>';
+        html += '<table class="rtem-details">';
+        html += detailRow(I18N.phone || 'Phone', a.phone ? '<a href="tel:' + esc(a.phone) + '">' + esc(a.phone) + '</a>' : '—');
+        if (a.dietary) { html += detailRow('Dietary', esc(a.dietary)); }
+        if (a.family) { html += detailRow('Family', esc(a.family)); }
+        if (a.guardian) { html += detailRow('Guardian', esc(a.guardian)); }
+        if (a.pretours && a.pretours.length) { html += detailRow('Pretours', esc(a.pretours.join(', '))); }
+        if (a.daytours && a.daytours.length) { html += detailRow('Day tours', esc(a.daytours.join(', '))); }
+        html += '</table>';
 
-        // Booked tickets & tours.
-        html += '<h3 class="rtem-profile-h">' + esc(I18N.bookings || 'Booked tickets & tours') + '</h3>';
-        if (p.tickets && p.tickets.length) {
-            html += '<table class="rtem-profile-table">';
-            p.tickets.forEach(function (t) {
-                html += '<tr><td>' + esc(t.holder) + '</td><td>' + esc(t.product) +
-                    '<span class="rtem-profile-type">' + esc(t.type) + '</span>' +
-                    (t.dietary ? '<span class="rtem-profile-diet">' + esc(t.dietary) + '</span>' : '') +
-                    '</td><td><span class="rtem-badge rtem-badge-status rtem-status-' + esc(t.status) + '">' + esc(statusLabel(t.status)) + '</span></td></tr>';
-            });
-            html += '</table>';
-        } else {
-            html += '<p class="rtem-muted">—</p>';
-        }
+        // Link to the main account profile (the person who booked).
+        if (acct) {
+            html += '<button type="button" class="rtem-btn rtem-profile-toggle" id="rtem-acct-toggle">' +
+                esc(I18N.mainProfile || 'Main account profile') + ' ▾</button>';
+            html += '<div class="rtem-account" id="rtem-account" hidden>';
+            html += '<div class="rtem-profile-head">';
+            if (acct.photo) { html += '<img class="rtem-profile-photo" src="' + esc(acct.photo) + '" alt="">'; }
+            html += '<div><strong>' + esc(acct.name) + '</strong>';
+            if (acct.club) { html += '<div class="rtem-profile-club">' + esc(acct.club) + '</div>'; }
+            if (acct.phone) { html += '<div class="rtem-profile-phone">' + esc(I18N.phone || 'Phone') + ': <a href="tel:' + esc(acct.phone) + '">' + esc(acct.phone) + '</a></div>'; }
+            html += '</div></div>';
 
-        // Emergency contacts.
-        html += '<h3 class="rtem-profile-h">' + esc(I18N.emergency || 'Emergency contacts') + '</h3>';
-        if (p.emergency && p.emergency.length) {
-            p.emergency.forEach(function (c) {
-                html += '<div class="rtem-emergency">';
-                html += '<strong>' + esc(c.name) + '</strong>' + (c.relationship ? ' <span class="rtem-muted">· ' + esc(c.relationship) + '</span>' : '');
-                if (c.phone) { html += '<div>' + esc(I18N.phone || 'Phone') + ': <a href="tel:' + esc(c.phone) + '">' + esc(c.phone) + '</a></div>'; }
-                if (c.email) { html += '<div><a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a></div>'; }
-                html += '</div>';
-            });
-        } else {
-            html += '<p class="rtem-muted">—</p>';
+            html += '<h3 class="rtem-profile-h">' + esc(I18N.bookings || 'Booked tickets & tours') + '</h3>';
+            if (acct.tickets && acct.tickets.length) {
+                html += '<table class="rtem-profile-table">';
+                acct.tickets.forEach(function (t) {
+                    html += '<tr><td>' + esc(t.holder) + '</td><td>' + esc(t.product) +
+                        '<span class="rtem-profile-type">' + esc(t.type) + '</span>' +
+                        (t.dietary ? '<span class="rtem-profile-diet">' + esc(t.dietary) + '</span>' : '') +
+                        '</td><td><span class="rtem-badge rtem-badge-status rtem-status-' + esc(t.status) + '">' + esc(statusLabel(t.status)) + '</span></td></tr>';
+                });
+                html += '</table>';
+            } else {
+                html += '<p class="rtem-muted">—</p>';
+            }
+
+            html += '<h3 class="rtem-profile-h">' + esc(I18N.emergency || 'Emergency contacts') + '</h3>';
+            if (acct.emergency && acct.emergency.length) {
+                acct.emergency.forEach(function (c) {
+                    html += '<div class="rtem-emergency">';
+                    html += '<strong>' + esc(c.name) + '</strong>' + (c.relationship ? ' <span class="rtem-muted">· ' + esc(c.relationship) + '</span>' : '');
+                    if (c.phone) { html += '<div>' + esc(I18N.phone || 'Phone') + ': <a href="tel:' + esc(c.phone) + '">' + esc(c.phone) + '</a></div>'; }
+                    if (c.email) { html += '<div><a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a></div>'; }
+                    html += '</div>';
+                });
+            } else {
+                html += '<p class="rtem-muted">—</p>';
+            }
+            html += '</div>';
         }
 
         html += '<button type="button" class="rtem-btn" id="rtem-profile-close">' + esc(I18N.close || 'Close') + '</button>';
         html += '</div>';
         modalBody.innerHTML = html;
+
+        var toggle = document.getElementById('rtem-acct-toggle');
+        if (toggle) {
+            toggle.addEventListener('click', function () {
+                var acctEl = document.getElementById('rtem-account');
+                acctEl.hidden = !acctEl.hidden;
+                toggle.innerHTML = esc(I18N.mainProfile || 'Main account profile') + (acctEl.hidden ? ' ▾' : ' ▴');
+            });
+        }
     }
 
     if (startBtn) { startBtn.addEventListener('click', startScan); }
