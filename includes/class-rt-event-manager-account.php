@@ -1286,7 +1286,7 @@ class RT_Event_Manager_Account {
     private function render_tour($kind) {
         $is_day     = ('daytour' === $kind);
         $title      = $is_day ? __('Day Tours', 'rt-event-manager') : __('Pretour', 'rt-event-manager');
-        $mine_lbl   = $is_day ? __('My day tour', 'rt-event-manager') : __('My Pretour', 'rt-event-manager');
+        $mine_lbl   = $is_day ? __('My day tours', 'rt-event-manager') : __('My Pretour', 'rt-event-manager');
         $add_lbl    = $is_day ? __('Add a day tour', 'rt-event-manager') : __('Add a pretour', 'rt-event-manager');
         $empty_mine = $is_day ? __('You do not have a day tour yet.', 'rt-event-manager') : __('You do not have a pretour ticket yet.', 'rt-event-manager');
         $empty_comp = $is_day ? __('No additional day tours yet.', 'rt-event-manager') : __('No additional pretour tickets yet.', 'rt-event-manager');
