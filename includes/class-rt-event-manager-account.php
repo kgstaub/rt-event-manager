@@ -212,15 +212,12 @@ class RT_Event_Manager_Account {
      * rt_event_manager_fa_kit option. Empty string when none is configured.
      */
     public static function fa_kit_url() {
+        // Off by default (free FontAwesome). A Pro kit can still be opted into
+        // via the RT_EVENT_MANAGER_FA_KIT constant or the settings field.
         if (defined('RT_EVENT_MANAGER_FA_KIT') && RT_EVENT_MANAGER_FA_KIT) {
             return esc_url_raw(RT_EVENT_MANAGER_FA_KIT);
         }
-        $opt = (string) get_option('rt_event_manager_fa_kit', '');
-        if ('' !== $opt) {
-            return esc_url_raw($opt);
-        }
-        // Default: the event's FontAwesome 7 Pro kit (overridable above).
-        return 'https://kit.fontawesome.com/75214ece5f.js';
+        return esc_url_raw((string) get_option('rt_event_manager_fa_kit', ''));
     }
 
     /** FontAwesome kits load as a cross-origin script. */
@@ -591,8 +588,8 @@ class RT_Event_Manager_Account {
             'shop'      => 'fa-bag-shopping',
         );
 
-        // Light style for all nav icons (Pro kit is loaded; full coverage).
-        $fa_style = 'fa-light';
+        // Solid style — works with the free FontAwesome set (no Pro required).
+        $fa_style = 'fa-solid';
         $item = function ($icon, $url, $label, $classes) use ($fa_style) {
             return sprintf(
                 '<li class="%s"><a href="%s"><i class="%s %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
