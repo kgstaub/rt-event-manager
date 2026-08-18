@@ -1983,13 +1983,28 @@ class RT_Event_Manager_Account {
         $status_labels = $this->status_labels();
 
         if ($pretour_view) {
-            // Identical columns across all pretour blocks so they align; the
-            // Future members' guardian is shown as a sub-line under the holder.
+            // Resolve each ticket's guardian up front; the Guardian column only
+            // appears when at least one ticket in this block has one.
+            $guardian_of = function ($t) use ($minor_block, $by_id) {
+                $parent = isset($t['parent_ticket_id']) ? absint($t['parent_ticket_id']) : 0;
+                $is_minor_pretour = $parent && isset($by_id[$parent]) && 'minor' === RT_Event_Manager::get_ticket_kind($by_id[$parent]);
+                return ($minor_block || $is_minor_pretour) ? $this->guardian_label($t, $by_id) : '';
+            };
+            $show_guardian = false;
+            foreach ($tickets as $gt) {
+                if ('' !== $guardian_of($gt)) {
+                    $show_guardian = true;
+                    break;
+                }
+            }
+
             echo '<table class="rtacc-table rtacc-tickets rtacc-pretour-table uk-table uk-table-divider uk-table-middle uk-table-small">';
             echo '<thead><tr>';
             echo '<th style="width:30%;">' . esc_html__('Tour', 'rt-event-manager') . '</th>';
             echo '<th style="width:24%;">' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
-            echo '<th style="width:20%;">' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
+            if ($show_guardian) {
+                echo '<th style="width:20%;">' . esc_html__('Guardian', 'rt-event-manager') . '</th>';
+            }
             echo '<th style="width:14%;">' . esc_html__('Status', 'rt-event-manager') . '</th>';
             echo '<th style="width:12%;">' . esc_html__('Actions', 'rt-event-manager') . '</th>';
             echo '</tr></thead><tbody>';
@@ -1997,17 +2012,16 @@ class RT_Event_Manager_Account {
                 $status  = isset($t['status']) ? $t['status'] : 'draft';
                 $product = wc_get_product($t['product_id']);
                 $pname   = $product ? $product->get_name() : __('(deleted product)', 'rt-event-manager');
-                // Guardian only applies to a Future member's pretour (parent is a minor).
-                $parent = isset($t['parent_ticket_id']) ? absint($t['parent_ticket_id']) : 0;
-                $is_minor_pretour = $parent && isset($by_id[$parent]) && 'minor' === RT_Event_Manager::get_ticket_kind($by_id[$parent]);
-                $guardian = ($minor_block || $is_minor_pretour) ? $this->guardian_label($t, $by_id) : '';
+                $guardian = $guardian_of($t);
 
                 $range = $this->tour_time_range($t['product_id']);
                 echo '<tr>';
                 echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '"><div class="rtacc-tour-cell"><span class="rtacc-tour-name">' . esc_html($pname) . '</span>'
                     . ($range !== '' ? '<div class="rtacc-tour-when uk-text-meta">' . esc_html($range) . '</div>' : '') . '</div></td>';
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($t['holder_name'] ?: '—') . '</td>';
-                echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html('' !== $guardian ? $guardian : '—') . '</td>';
+                if ($show_guardian && '' !== $guardian) {
+                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html($guardian) . '</td>';
+                }
                 echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
                 echo '<td data-title="' . esc_attr__('Actions', 'rt-event-manager') . '">' . $this->ticket_actions_cell($t) . '</td>';
                 echo '</tr>';
