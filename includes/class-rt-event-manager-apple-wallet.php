@@ -115,11 +115,11 @@ class RT_Event_Manager_Apple_Wallet {
             2 => 'LC',   // Ladies Circle
             3 => 'AC',   // Agora Club
             4 => 'TC',   // Tangent Club
-            9 => __('Guest', 'rt-event-manager'), // Guest/Partner
+            9 => __('Guest/Partner', 'rt-event-manager'),
         );
         $has_family = isset($ticket['rti_family']) && '' !== (string) $ticket['rti_family'];
         $fid        = $has_family ? (int) $ticket['rti_family'] : null;
-        $family     = (null !== $fid && isset($abbr[$fid])) ? $abbr[$fid] : __('Guest', 'rt-event-manager');
+        $family     = (null !== $fid && isset($abbr[$fid])) ? $abbr[$fid] : __('Guest/Partner', 'rt-event-manager');
         $club       = isset($ticket['rti_club']) ? trim((string) $ticket['rti_club']) : '';
         return trim($family . ' ' . $club);
     }
