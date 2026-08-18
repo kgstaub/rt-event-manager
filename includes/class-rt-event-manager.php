@@ -2925,11 +2925,21 @@ class RT_Event_Manager {
             return false;
         }
 
-        // Detect a status change so we can refresh saved wallet passes below.
-        $status_changed = false;
-        if (isset($update_data['status'])) {
-            $old_status     = $wpdb->get_var($wpdb->prepare("SELECT status FROM $table_name WHERE id = %d", absint($ticket_id)));
-            $status_changed = ((string) $old_status !== (string) $update_data['status']);
+        // Detect a status or holder change so we can refresh saved passes below.
+        // A transfer reassigns the row (new holder_name), so this also covers
+        // transfers — the pass regenerates for the new holder, replacing the old
+        // holder's copy (same serial) and its QR.
+        $should_notify = false;
+        if (isset($update_data['status']) || isset($update_data['holder_name'])) {
+            $old = $wpdb->get_row($wpdb->prepare("SELECT status, holder_name FROM $table_name WHERE id = %d", absint($ticket_id)), ARRAY_A);
+            if ($old) {
+                if (isset($update_data['status']) && (string) $old['status'] !== (string) $update_data['status']) {
+                    $should_notify = true;
+                }
+                if (isset($update_data['holder_name']) && (string) $old['holder_name'] !== (string) $update_data['holder_name']) {
+                    $should_notify = true;
+                }
+            }
         }
 
         $result = $wpdb->update(
@@ -2945,9 +2955,10 @@ class RT_Event_Manager {
             $this->sync_child_pretour_holder($ticket_id, $update_data['holder_name']);
         }
 
-        // Any status change (confirm, cancel, refund, check-in, …) refreshes the
-        // attendee's saved Apple/Google passes, whatever triggered it.
-        if (false !== $result && $status_changed && function_exists('rt_event_manager_notify_wallets')) {
+        // A status change (confirm/cancel/refund/check-in) or a holder change
+        // (incl. a transfer) refreshes the attendee's saved Apple/Google passes,
+        // whatever triggered it.
+        if (false !== $result && $should_notify && function_exists('rt_event_manager_notify_wallets')) {
             rt_event_manager_notify_wallets(absint($ticket_id));
         }
 
