@@ -196,11 +196,6 @@ class RT_Event_Manager_Ticket_Pass {
             .qr { text-align: center; width: 190px; }
             .qr img { width: 170px; height: 170px; }
             .qr .hint { font-size: 8pt; color: #777; margin-top: 4px; }
-            .qrwrap { position: relative; display: inline-block; width: 170px; height: 170px; }
-            .qrbadges { position: absolute; top: -7px; right: -7px; width: 90px; text-align: right; }
-            .qrbadge { display: block; margin: 0 0 3px auto; padding: 2px 8px; border-radius: 8px; font-size: 7.5pt; font-weight: bold; color: #fff; }
-            .qrbadge--pt { background: #1f6feb; }
-            .qrbadge--dt { background: #d97706; }
             table.details { width: 100%; border-collapse: collapse; margin: 0; }
             table.details td { padding: 4px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
             table.details td.lbl { width: 130px; color: #555; }
@@ -225,15 +220,7 @@ class RT_Event_Manager_Ticket_Pass {
                         </table>
                     </td>
                     <td class="qr">
-                        <div class="qrwrap">
-                            <?php if ($qr_img) : ?><img src="<?php echo esc_attr($qr_img); ?>" alt="QR" /><?php endif; ?>
-                            <?php if (!empty($pretours) || !empty($daytours)) : ?>
-                            <div class="qrbadges">
-                                <?php if (!empty($pretours)) : ?><span class="qrbadge qrbadge--pt"><?php esc_html_e('Pretour', 'rt-event-manager'); ?></span><?php endif; ?>
-                                <?php if (!empty($daytours)) : ?><span class="qrbadge qrbadge--dt"><?php esc_html_e('Day tour', 'rt-event-manager'); ?></span><?php endif; ?>
-                            </div>
-                            <?php endif; ?>
-                        </div>
+                        <?php if ($qr_img) : ?><img src="<?php echo esc_attr($qr_img); ?>" alt="QR" /><?php endif; ?>
                         <div class="hint"><?php esc_html_e('Present this code at check-in', 'rt-event-manager'); ?></div>
                     </td>
                 </tr></table>

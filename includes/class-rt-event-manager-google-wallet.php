@@ -294,15 +294,6 @@ class RT_Event_Manager_Google_Wallet {
             ),
         );
 
-        // Minors are identified by their Future Circler / Future Tabler category.
-        if ('minor' === RT_Event_Manager::get_ticket_kind($ticket)) {
-            $obj['textModulesData'][] = array(
-                'id'     => 'category',
-                'header' => __('Category', 'rt-event-manager'),
-                'body'   => RT_Event_Manager::ticket_kind_label($ticket),
-            );
-        }
-
         // Family + club line (shown under the attendee on the card front).
         $org = RT_Event_Manager_Apple_Wallet::org_line($ticket);
         if ('' !== $org) {
@@ -310,6 +301,19 @@ class RT_Event_Manager_Google_Wallet {
                 'id'     => 'org',
                 'header' => __('Club', 'rt-event-manager'),
                 'body'   => $org,
+            );
+        }
+
+        // Included-tours indicator (shown above the barcode).
+        $tours = RT_Event_Manager_Apple_Wallet::tours_line(
+            (bool) RT_Event_Manager::get_child_pretours(absint($ticket['id'])),
+            (bool) RT_Event_Manager::get_child_daytours(absint($ticket['id']))
+        );
+        if ('' !== $tours) {
+            $obj['textModulesData'][] = array(
+                'id'     => 'tours',
+                'header' => __('Includes', 'rt-event-manager'),
+                'body'   => $tours,
             );
         }
 

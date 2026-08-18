@@ -107,6 +107,11 @@ class RT_Event_Manager_Apple_Wallet {
 
     /** "<Family> <Club>" line for a ticket; family abbreviated, "Guest" if unset. */
     public static function org_line($ticket) {
+        // Minors have no club — the CLUB field carries their Future Circler /
+        // Future Tabler category instead.
+        if ('minor' === RT_Event_Manager::get_ticket_kind($ticket)) {
+            return RT_Event_Manager::ticket_kind_label($ticket);
+        }
         // Family id → short code. NB family ids are 0-based (Round Table = 0),
         // so test for an empty string, not a falsy value.
         $abbr = array(
@@ -122,6 +127,18 @@ class RT_Event_Manager_Apple_Wallet {
         $family     = (null !== $fid && isset($abbr[$fid])) ? $abbr[$fid] : __('Guest/Partner', 'rt-event-manager');
         $club       = isset($ticket['rti_club']) ? trim((string) $ticket['rti_club']) : '';
         return trim($family . ' ' . $club);
+    }
+
+    /** Short "Pretour · Day tour" indicator for the tours a ticket includes. */
+    public static function tours_line($has_pretour, $has_daytour) {
+        $parts = array();
+        if ($has_pretour) {
+            $parts[] = __('Pretour', 'rt-event-manager');
+        }
+        if ($has_daytour) {
+            $parts[] = __('Day tour', 'rt-event-manager');
+        }
+        return implode(' · ', $parts);
     }
 
     /** Whether Apple Wallet passes can be issued (all credentials present). */
@@ -567,8 +584,10 @@ class RT_Event_Manager_Apple_Wallet {
                 $back[] = array('key' => sanitize_key($label), 'label' => $label, 'value' => implode(', ', $names));
             }
         };
-        $add_back(__('Pretours', 'rt-event-manager'), RT_Event_Manager::get_child_pretours(absint($ticket['id'])));
-        $add_back(__('Day tours', 'rt-event-manager'), RT_Event_Manager::get_child_daytours(absint($ticket['id'])));
+        $pretours = RT_Event_Manager::get_child_pretours(absint($ticket['id']));
+        $daytours = RT_Event_Manager::get_child_daytours(absint($ticket['id']));
+        $add_back(__('Pretours', 'rt-event-manager'), $pretours);
+        $add_back(__('Day tours', 'rt-event-manager'), $daytours);
         if ('minor' === $kind && absint($ticket['parent_ticket_id'])) {
             $g = RT_Event_Manager::get_ticket_by_id(absint($ticket['parent_ticket_id']));
             if ($g && '' !== $g['holder_name']) {
@@ -580,14 +599,15 @@ class RT_Event_Manager_Apple_Wallet {
         // auxiliary field aligns under the leftmost secondary field).
         $org = self::org_line($ticket);
         $aux = array();
-        // Minors are identified by their Future Circler / Future Tabler category.
-        if ('minor' === $kind) {
-            $aux[] = array('key' => 'category', 'label' => __('CATEGORY', 'rt-event-manager'), 'value' => RT_Event_Manager::ticket_kind_label($ticket));
-        }
         if ('' !== $org) {
             $aux[] = array('key' => 'org', 'label' => __('CLUB', 'rt-event-manager'), 'value' => $org);
         }
         $aux[] = array('key' => 'status', 'label' => __('STATUS', 'rt-event-manager'), 'value' => self::status_label($ticket));
+        // Included-tours indicator, shown in the field row above the QR.
+        $tours = self::tours_line(!empty($pretours), !empty($daytours));
+        if ('' !== $tours) {
+            $aux[] = array('key' => 'tours', 'label' => __('INCLUDES', 'rt-event-manager'), 'value' => $tours);
+        }
 
         $pass = array(
             'formatVersion'      => 1,
