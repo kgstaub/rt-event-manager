@@ -52,6 +52,14 @@
     margin-right: 10px;
     text-align: center;
 }
+/* Separator between navigation groups. */
+.rtacc-nav-sep {
+    list-style: none;
+    height: 0;
+    margin: 8px 12px;
+    padding: 0;
+    border-top: 1px solid var(--rtacc-border);
+}
 /* Logout item stands out in the brand colour. */
 .rtacc-nav .rtacc-nav-logout > a {
     color: var(--rtacc-primary);

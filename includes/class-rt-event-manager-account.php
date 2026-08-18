@@ -145,28 +145,39 @@ class RT_Event_Manager_Account {
      * @return array
      */
     private function get_tabs() {
+        // Order matches the sidebar layout (see nav_items_html groups).
         $tabs = array(
             'dashboard' => __('Dashboard', 'rt-event-manager'),
             'profile'   => __('My Profile', 'rt-event-manager'),
-            'emergency' => __('Emergency Contact', 'rt-event-manager'),
             'orders'    => __('Order History', 'rt-event-manager'),
             'refunds'   => __('Refunds', 'rt-event-manager'),
+            'emergency' => __('Emergency Contact', 'rt-event-manager'),
+            'calendar'  => __('My Calendar', 'rt-event-manager'),
             'tickets'   => __('Event Tickets', 'rt-event-manager'),
             'pretour'   => __('Pretour', 'rt-event-manager'),
             'daytour'   => __('Day Tours', 'rt-event-manager'),
-            'calendar'  => __('My Calendar', 'rt-event-manager'),
             'travel'    => __('Travel and Visa', 'rt-event-manager'),
             'shop'      => __('Shop', 'rt-event-manager'),
         );
 
+        $uid = get_current_user_id();
+
         // The Refunds tab only appears once the member has a refund on record.
-        if (!$this->user_has_refunds(get_current_user_id())) {
+        if (!$this->user_has_refunds($uid)) {
             unset($tabs['refunds']);
         }
 
         // Backend show/hide toggles for the optional tabs.
         foreach (array('pretour', 'daytour', 'calendar', 'travel', 'shop') as $key) {
             if ('yes' !== get_option('rt_event_manager_show_' . $key, 'yes')) {
+                unset($tabs[$key]);
+            }
+        }
+
+        // Calendar, tours and Travel & Visa only apply once the member holds an
+        // event ticket.
+        if (!RT_Event_Manager::instance()->user_has_event_ticket($uid)) {
+            foreach (array('calendar', 'pretour', 'daytour', 'travel') as $key) {
                 unset($tabs[$key]);
             }
         }
@@ -559,10 +570,33 @@ class RT_Event_Manager_Account {
             );
         };
 
+        // Visual grouping (separators shown between non-empty groups).
+        $groups = array(
+            array('dashboard', 'profile', 'orders', 'refunds', 'emergency'),
+            array('calendar', 'tickets', 'pretour', 'daytour', 'travel'),
+            array('shop'),
+        );
+        $tabs = $this->get_tabs();
+
         $out = '<ul class="uk-nav uk-nav-default uk-nav-divider">';
-        foreach ($this->get_tabs() as $key => $label) {
-            $icon = isset($icons[$key]) ? $icons[$key] : 'fa-circle';
-            $out .= $item($icon, $this->tab_url($key), $label, ($key === $current) ? 'uk-active' : '');
+        $rendered_any = false;
+        foreach ($groups as $group) {
+            $group_html = '';
+            foreach ($group as $key) {
+                if (!isset($tabs[$key])) {
+                    continue;
+                }
+                $icon = isset($icons[$key]) ? $icons[$key] : 'fa-circle';
+                $group_html .= $item($icon, $this->tab_url($key), $tabs[$key], ($key === $current) ? 'uk-active' : '');
+            }
+            if ('' === $group_html) {
+                continue;
+            }
+            if ($rendered_any) {
+                $out .= '<li class="rtacc-nav-sep" aria-hidden="true"></li>';
+            }
+            $out .= $group_html;
+            $rendered_any = true;
         }
         $out .= $item('fa-right-from-bracket', wp_logout_url($this->account_base_url()), __('Log out', 'rt-event-manager'), 'rtacc-nav-logout');
         $out .= '</ul>';
