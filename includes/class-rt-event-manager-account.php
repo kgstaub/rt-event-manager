@@ -682,6 +682,10 @@ class RT_Event_Manager_Account {
             }
 
             foreach ($groups as $holder => $rows) {
+                // Order each holder's tickets by their event/tour start date.
+                usort($rows, function ($a, $b) {
+                    return $this->event_start_ts($a['product_id']) <=> $this->event_start_ts($b['product_id']);
+                });
                 $open = ($own_holder !== '' && $holder === $own_holder) ? ' open' : '';
                 echo '<details class="rtacc-dash-group"' . $open . '>';
                 echo '<summary class="rtacc-dash-summary">' . esc_html($holder) . ' <span class="rtacc-dash-count">' . esc_html(sprintf(_n('%d ticket', '%d tickets', count($rows), 'rt-event-manager'), count($rows))) . '</span></summary>';
@@ -2789,6 +2793,16 @@ class RT_Event_Manager_Account {
      * @param int $product_id
      * @return string
      */
+    /** Sortable event/tour start timestamp for a product; undated sinks last. */
+    private function event_start_ts($product_id) {
+        $start = get_post_meta($product_id, '_rti_start', true);
+        if ('' === $start) {
+            $start = (string) get_option('rt_event_manager_event_start', '');
+        }
+        $ts = ('' !== $start) ? strtotime($start) : 0;
+        return $ts ? $ts : PHP_INT_MAX;
+    }
+
     private function ticket_event_date($product_id) {
         $start = get_post_meta($product_id, '_rti_start', true);
         if ('' === $start) {
