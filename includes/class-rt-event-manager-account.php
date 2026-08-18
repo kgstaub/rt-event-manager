@@ -2048,6 +2048,18 @@ class RT_Event_Manager_Account {
             ), admin_url('admin-ajax.php'));
             $icon_pass = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><line x1="14" y1="14" x2="14" y2="14"></line><line x1="21" y1="14" x2="21" y2="21"></line><line x1="14" y1="21" x2="18" y2="21"></line></svg>';
             $out .= '<a class="rtacc-icon-btn rtacc-ticket-pass-btn" href="' . esc_url($pass_url) . '" target="_blank" rel="noopener" title="' . esc_attr($pass_label) . '" aria-label="' . esc_attr($pass_label) . '">' . $icon_pass . '</a>';
+
+            // Add to Apple Wallet (when the Pass certificate is configured).
+            if (class_exists('RT_Event_Manager_Apple_Wallet') && RT_Event_Manager_Apple_Wallet::is_configured()) {
+                $wallet_label = __('Add to Apple Wallet', 'rt-event-manager');
+                $wallet_url   = add_query_arg(array(
+                    'action'    => 'rt_event_manager_apple_pass',
+                    'ticket_id' => $id,
+                    'nonce'     => wp_create_nonce('rt_event_manager_apple_pass_' . $id),
+                ), admin_url('admin-ajax.php'));
+                $icon_wallet = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path></svg>';
+                $out .= '<a class="rtacc-icon-btn rtacc-wallet-btn" href="' . esc_url($wallet_url) . '" title="' . esc_attr($wallet_label) . '" aria-label="' . esc_attr($wallet_label) . '">' . $icon_wallet . '</a>';
+            }
         }
 
         if (in_array($kind, array('event', 'pretour', 'daytour'), true)) {

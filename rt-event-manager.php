@@ -101,6 +101,7 @@ function rt_event_manager_init() {
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-account.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-visa.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-ticket-pass.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-apple-wallet.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-checkin.php';
 
     // Initialize
@@ -117,6 +118,9 @@ function rt_event_manager_init() {
 
     // Initialize the QR check-in ticket generator
     RT_Event_Manager_Ticket_Pass::instance();
+
+    // Initialize Apple Wallet pass generator
+    RT_Event_Manager_Apple_Wallet::instance();
 
     // Initialize the staff check-in PWA
     RT_Event_Manager_Checkin::instance();
