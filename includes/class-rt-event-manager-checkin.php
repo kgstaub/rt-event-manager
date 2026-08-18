@@ -250,7 +250,10 @@ JS;
         $this->guard();
 
         $ticket = null;
-        $token  = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
+        // Note: do NOT run the token through sanitize_text_field() — it strips
+        // %XX octets and would corrupt the rawurlencoded name inside the token.
+        // verify_checkin_token() strictly regex-validates the whole string.
+        $token = isset($_POST['token']) ? trim((string) wp_unslash($_POST['token'])) : '';
         if ('' !== $token) {
             $data = RT_Event_Manager_Ticket_Pass::verify_checkin_token($token);
             if (!$data) {
