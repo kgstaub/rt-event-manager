@@ -326,6 +326,10 @@
     height: 16px;
     display: block;
 }
+.rtacc-icon-btn i {
+    font-size: 16px;
+    line-height: 1;
+}
 .rtacc-icon-btn:hover,
 .rtacc-icon-btn:focus-visible {
     background: var(--rtacc-primary);

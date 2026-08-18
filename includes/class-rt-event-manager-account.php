@@ -2071,7 +2071,7 @@ class RT_Event_Manager_Account {
             }
             if ($wallet_items) {
                 $menu_label   = __('Add to wallet', 'rt-event-manager');
-                $icon_wallet  = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path><circle cx="17" cy="14.5" r="1.2" fill="currentColor" stroke="none"></circle></svg>';
+                $icon_wallet  = '<i class="fa-solid fa-ticket" aria-hidden="true"></i>';
                 $out .= '<span class="rtacc-wallet-menu">'
                     . '<button type="button" class="rtacc-icon-btn rtacc-wallet-menu-btn" aria-haspopup="true" aria-expanded="false" title="' . esc_attr($menu_label) . '" aria-label="' . esc_attr($menu_label) . '">' . $icon_wallet . '</button>'
                     . '<span class="rtacc-wallet-menu-dropdown" role="menu">' . implode('', $wallet_items) . '</span>'
