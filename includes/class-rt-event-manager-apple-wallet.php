@@ -930,8 +930,10 @@ class RT_Event_Manager_Apple_Wallet {
             }
         }
         if (empty($out)) {
+            $this->ws_log('serials since=' . ($since ?: '-') . ' -> 204 (nothing changed)');
             return new WP_REST_Response(null, 204);
         }
+        $this->ws_log('serials since=' . ($since ?: '-') . ' -> ' . implode(',', $out));
         return new WP_REST_Response(array(
             'serialNumbers' => $out,
             'lastUpdated'   => (string) ($last ?: time()),
@@ -947,6 +949,7 @@ class RT_Event_Manager_Apple_Wallet {
         if (!$ticket) {
             return new WP_REST_Response(null, 404);
         }
+        $this->ws_log('get pass serial=' . $serial);
         $pkpass = $this->build_pkpass($ticket);
         if (is_wp_error($pkpass)) {
             return new WP_REST_Response(null, 500);
