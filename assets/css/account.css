@@ -375,6 +375,29 @@
     color: #fff;
     border-color: var(--rtacc-primary);
 }
+/* Text menu row (e.g. the PDF download) inside the dropdown. */
+.rtacc-wallet-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1.2;
+    color: #333;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.rtacc-wallet-menu-item i {
+    width: 16px;
+    text-align: center;
+    color: var(--rtacc-primary);
+}
+.rtacc-wallet-menu-item:hover,
+.rtacc-wallet-menu-item:focus-visible {
+    background: var(--rtacc-bg-muted, #f3f4f5);
+    color: #333;
+}
 
 /* Official "Add to Apple/Google Wallet" badges — rendered as-is, unaltered. */
 .rtacc-wallet-badge {
