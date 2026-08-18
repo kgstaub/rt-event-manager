@@ -484,7 +484,7 @@ class RT_Event_Manager_Account {
 
         // Mobile: a hamburger opens the navigation in a UIkit off-canvas.
         echo '<button class="rtacc-hamburger" type="button" uk-toggle="target: #rtacc-offcanvas-nav" aria-label="' . esc_attr__('Open menu', 'rt-event-manager') . '">';
-        echo '<i class="fa-solid fa-bars" aria-hidden="true"></i> ' . esc_html__('Menu', 'rt-event-manager');
+        echo '<i class="fa-light fa-bars" aria-hidden="true"></i> ' . esc_html__('Menu', 'rt-event-manager');
         echo '</button>';
         echo '<div id="rtacc-offcanvas-nav" uk-offcanvas="overlay: true">';
         echo '<div class="uk-offcanvas-bar">';
@@ -562,7 +562,7 @@ class RT_Event_Manager_Account {
 
         $item = function ($icon, $url, $label, $classes) {
             return sprintf(
-                '<li class="%s"><a href="%s"><i class="fa-solid %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
+                '<li class="%s"><a href="%s"><i class="fa-light %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
                 esc_attr($classes),
                 esc_url($url),
                 esc_attr($icon),
@@ -664,7 +664,7 @@ class RT_Event_Manager_Account {
                     echo '<td data-title="' . esc_attr__('Ticket', 'rt-event-manager') . '">' . esc_html($what) . '</td>';
                     echo '<td data-title="' . esc_attr__('Event date', 'rt-event-manager') . '">';
                     if ('' !== $event_date) {
-                        echo '<span class="rtacc-badge rtacc-badge--date"><i class="fa-regular fa-calendar" aria-hidden="true"></i> ' . esc_html($event_date) . '</span>';
+                        echo '<span class="rtacc-badge rtacc-badge--date"><i class="fa-light fa-calendar" aria-hidden="true"></i> ' . esc_html($event_date) . '</span>';
                     } else {
                         echo '—';
                     }
@@ -2109,7 +2109,7 @@ class RT_Event_Manager_Account {
                         }
                     }
                     $plabel = ($p['holder_name'] !== '') ? $p['holder_name'] : ('#' . $parent_id);
-                    $lock   = $guardian_locked ? ' <i class="fa-solid fa-lock rtacc-guardian-lock" title="' . esc_attr__('The guardian cannot be changed once a tour is booked for this Future member.', 'rt-event-manager') . '" aria-hidden="true"></i>' : '';
+                    $lock   = $guardian_locked ? ' <i class="fa-light fa-lock rtacc-guardian-lock" title="' . esc_attr__('The guardian cannot be changed once a tour is booked for this Future member.', 'rt-event-manager') . '" aria-hidden="true"></i>' : '';
                     echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">' . esc_html($plabel) . $lock . '</td>';
                 } elseif ($parent_id) {
                     echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '">#' . esc_html($parent_id) . '</td>';
@@ -2153,7 +2153,7 @@ class RT_Event_Manager_Account {
             if ($host_id) {
                 $host = RT_Event_Manager::get_ticket_by_id($host_id);
                 if ($host && 'checked_in' === $host['status']) {
-                    return '<span class="rtacc-locked" title="' . esc_attr__('Locked — the attendee has checked in.', 'rt-event-manager') . '"><i class="fa-solid fa-lock" aria-hidden="true"></i></span>';
+                    return '<span class="rtacc-locked" title="' . esc_attr__('Locked — the attendee has checked in.', 'rt-event-manager') . '"><i class="fa-light fa-lock" aria-hidden="true"></i></span>';
                 }
             }
         }
@@ -2184,7 +2184,7 @@ class RT_Event_Manager_Account {
                 'ticket_id' => $id,
                 'nonce'     => wp_create_nonce('rt_event_manager_ticket_pass_' . $id),
             ), admin_url('admin-ajax.php'));
-            $menu_items[] = '<a class="rtacc-menu-item" href="' . esc_url($pass_url) . '" target="_blank" rel="noopener" role="menuitem"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i> ' . esc_html($pass_label) . '</a>';
+            $menu_items[] = '<a class="rtacc-menu-item" href="' . esc_url($pass_url) . '" target="_blank" rel="noopener" role="menuitem"><i class="fa-light fa-file-pdf" aria-hidden="true"></i> ' . esc_html($pass_label) . '</a>';
 
             // Add to Apple Wallet (when the Pass certificate is configured).
             if (class_exists('RT_Event_Manager_Apple_Wallet') && RT_Event_Manager_Apple_Wallet::is_configured()) {
@@ -2209,7 +2209,7 @@ class RT_Event_Manager_Account {
 
             $menu_label = __('Ticket', 'rt-event-manager');
             $out .= '<span class="rtacc-menu">'
-                . '<button type="button" class="rtacc-icon-btn rtacc-menu-btn" aria-haspopup="true" aria-expanded="false" title="' . esc_attr($menu_label) . '" aria-label="' . esc_attr($menu_label) . '"><i class="fa-solid fa-ticket" aria-hidden="true"></i></button>'
+                . '<button type="button" class="rtacc-icon-btn rtacc-menu-btn" aria-haspopup="true" aria-expanded="false" title="' . esc_attr($menu_label) . '" aria-label="' . esc_attr($menu_label) . '"><i class="fa-light fa-ticket" aria-hidden="true"></i></button>'
                 . '<span class="rtacc-menu-dropdown" role="menu">' . implode('', $menu_items) . '</span>'
                 . '</span>';
         }
@@ -2219,18 +2219,18 @@ class RT_Event_Manager_Account {
         if (in_array($kind, array('event', 'pretour', 'daytour'), true)) {
             if ($has_pending_transfer) {
                 // Withdrawing a pending offer stays available even after the deadline.
-                $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" role="menuitem"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> ' . esc_html($withdraw_label) . '</button>';
+                $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" role="menuitem"><i class="fa-light fa-rotate-left" aria-hidden="true"></i> ' . esc_html($withdraw_label) . '</button>';
             } elseif ($is_confirmed && $can_transfer) {
-                $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" role="menuitem"><i class="fa-solid fa-right-left" aria-hidden="true"></i> ' . esc_html($transfer_label) . '</button>';
+                $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" role="menuitem"><i class="fa-light fa-right-left" aria-hidden="true"></i> ' . esc_html($transfer_label) . '</button>';
             }
         }
         if ($is_confirmed) {
-            $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-menu-item--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" role="menuitem"><i class="fa-solid fa-circle-xmark" aria-hidden="true"></i> ' . esc_html($cancel_label) . '</button>';
+            $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-menu-item--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" role="menuitem"><i class="fa-light fa-circle-xmark" aria-hidden="true"></i> ' . esc_html($cancel_label) . '</button>';
         }
         if ($opt_items) {
             $opts_label = __('Options', 'rt-event-manager');
             $out .= '<span class="rtacc-menu">'
-                . '<button type="button" class="rtacc-icon-btn rtacc-menu-btn" aria-haspopup="true" aria-expanded="false" title="' . esc_attr($opts_label) . '" aria-label="' . esc_attr($opts_label) . '"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>'
+                . '<button type="button" class="rtacc-icon-btn rtacc-menu-btn" aria-haspopup="true" aria-expanded="false" title="' . esc_attr($opts_label) . '" aria-label="' . esc_attr($opts_label) . '"><i class="fa-light fa-gear" aria-hidden="true"></i></button>'
                 . '<span class="rtacc-menu-dropdown" role="menu">' . implode('', $opt_items) . '</span>'
                 . '</span>';
         }
