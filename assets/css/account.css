@@ -965,6 +965,11 @@
         padding: 6px 12px;
         margin-bottom: 12px;
     }
+    /* Ticket blocks use the secondary (cream) background. */
+    .rtacc-tickets tr {
+        background: var(--rtacc-secondary-bg);
+        border-color: var(--rtacc-secondary-bg);
+    }
     .rtacc-tickets td,
     .rtacc-orders td {
         display: flex;
