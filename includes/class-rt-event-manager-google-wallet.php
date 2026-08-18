@@ -109,6 +109,20 @@ class RT_Event_Manager_Google_Wallet {
             }
         }
 
+        // Sync/test: PATCH a specific ticket's pass now and report the result.
+        if (isset($_POST['rt_gwallet_test_nonce']) && wp_verify_nonce($_POST['rt_gwallet_test_nonce'], 'rt_gwallet_test')) {
+            $order  = absint($_POST['test_order'] ?? 0);
+            $number = absint($_POST['test_number'] ?? 0);
+            $ticket = ($order && $number) ? RT_Event_Manager::get_ticket_by_order_and_number($order, $number) : null;
+            if (!$ticket) {
+                echo '<div class="notice notice-error"><p>' . esc_html__('No ticket found for that order and number.', 'rt-event-manager') . '</p></div>';
+            } else {
+                $this->notify($ticket);
+                $last = get_option('rt_event_manager_google_last', array());
+                echo '<div class="notice notice-info"><p><strong>' . esc_html__('Sync result:', 'rt-event-manager') . '</strong> <code>' . esc_html($last['summary'] ?? '') . '</code></p></div>';
+            }
+        }
+
         $has_key = '' !== self::opt('sa_key_enc');
         $email   = self::opt('sa_email');
         $suffix  = self::opt('class_suffix', 'rt_event');
@@ -145,7 +159,23 @@ class RT_Event_Manager_Google_Wallet {
 
         echo '</table>';
         submit_button(__('Save Google Wallet settings', 'rt-event-manager'));
-        echo '</form></div>';
+        echo '</form>';
+
+        // Diagnostics: last API result + a manual sync/test.
+        $last = get_option('rt_event_manager_google_last', array());
+        echo '<hr /><h2>' . esc_html__('Pass updates', 'rt-event-manager') . '</h2>';
+        echo '<p class="description">' . esc_html__('Re-adding a Google pass never updates an existing one — Google ignores the pass data on re-add. Updates only apply via the server PATCH below, which also fires automatically on status/tour changes.', 'rt-event-manager') . '</p>';
+        if (!empty($last['summary'])) {
+            echo '<p><strong>' . esc_html__('Last result:', 'rt-event-manager') . '</strong> <code>' . esc_html($last['summary']) . '</code> <span class="description">' . esc_html($last['when'] ?? '') . '</span></p>';
+        }
+        echo '<form method="post">';
+        wp_nonce_field('rt_gwallet_test', 'rt_gwallet_test_nonce');
+        echo '<input type="number" name="test_order" placeholder="' . esc_attr__('Order #', 'rt-event-manager') . '" style="width:120px;" /> ';
+        echo '<input type="number" name="test_number" placeholder="' . esc_attr__('Ticket #', 'rt-event-manager') . '" style="width:100px;" /> ';
+        echo '<button type="submit" class="button">' . esc_html__('Sync this pass now', 'rt-event-manager') . '</button>';
+        echo '</form>';
+
+        echo '</div>';
     }
 
     /* ---------------------------------------------------------------------
@@ -482,7 +512,7 @@ class RT_Event_Manager_Google_Wallet {
 
         $object    = $this->ticket_object($ticket);
         $object_id = $object['id'];
-        wp_remote_request(
+        $res = wp_remote_request(
             'https://walletobjects.googleapis.com/walletobjects/v1/eventTicketObject/' . rawurlencode($object_id),
             array(
                 'method'  => 'PATCH',
@@ -494,8 +524,27 @@ class RT_Event_Manager_Google_Wallet {
                 'body'    => wp_json_encode($object),
             )
         );
+        $this->record_result('object PATCH ' . $object_id, $res);
 
         $this->add_message($token, $object_id, $ticket);
+    }
+
+    /** Store the most recent Wallet API outcome for settings-page diagnostics. */
+    private function record_result($label, $res) {
+        if (is_wp_error($res)) {
+            $summary = $label . ' — ' . $res->get_error_message();
+        } else {
+            $code = (int) wp_remote_retrieve_response_code($res);
+            $body = (string) wp_remote_retrieve_body($res);
+            $summary = $label . ' — HTTP ' . $code . (200 === $code ? ' OK' : ' ' . substr($body, 0, 300));
+        }
+        update_option('rt_event_manager_google_last', array(
+            'when'    => current_time('mysql'),
+            'summary' => $summary,
+        ), false);
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[RT Google Wallet] ' . $summary);
+        }
     }
 
     /**
