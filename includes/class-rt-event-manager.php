@@ -4008,6 +4008,9 @@ class RT_Event_Manager {
                 continue;
             }
             $status = rt_event_manager_determine_ticket_status($order, $ticket['holder_name']);
+            if ($status === $ticket['status']) {
+                continue;
+            }
             $wpdb->update(
                 $table_name,
                 array('status' => $status),
@@ -4015,6 +4018,10 @@ class RT_Event_Manager {
                 array('%s'),
                 array('%d')
             );
+            // The status changed (e.g. Pending → Confirmed) — refresh saved passes.
+            if (function_exists('rt_event_manager_notify_wallets')) {
+                rt_event_manager_notify_wallets(absint($ticket['id']));
+            }
         }
     }
 
