@@ -79,6 +79,20 @@ class RT_Event_Manager_Apple_Wallet {
         return get_option('rt_event_manager_wallet_' . $key, $default);
     }
 
+    /** Human-readable ticket status shown on the pass. */
+    public static function status_label($ticket) {
+        $map = array(
+            'valid'      => __('Confirmed', 'rt-event-manager'),
+            'draft'      => __('Pending', 'rt-event-manager'),
+            'invalid'    => __('Invalid', 'rt-event-manager'),
+            'checked_in' => __('Checked in', 'rt-event-manager'),
+            'cancelled'  => __('Cancelled', 'rt-event-manager'),
+            'refunded'   => __('Refunded', 'rt-event-manager'),
+        );
+        $s = isset($ticket['status']) ? $ticket['status'] : 'draft';
+        return isset($map[$s]) ? $map[$s] : $s;
+    }
+
     /** Whether Apple Wallet passes can be issued (all credentials present). */
     public static function is_configured() {
         $has_signcert = ('' !== self::opt('p12_enc'))
@@ -485,6 +499,7 @@ class RT_Event_Manager_Apple_Wallet {
                 ),
                 'auxiliaryFields' => array(
                     array('key' => 'ticket', 'label' => __('TICKET', 'rt-event-manager'), 'value' => '#' . absint($ticket['order_id']) . ' · ' . $number),
+                    array('key' => 'status', 'label' => __('STATUS', 'rt-event-manager'), 'value' => self::status_label($ticket)),
                 ),
                 'backFields'      => $back,
             ),

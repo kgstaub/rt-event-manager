@@ -525,6 +525,16 @@ function rt_event_manager_notify_wallets($ticket) {
     if (!$ticket) {
         return;
     }
+    // Only event/minor tickets carry a wallet pass. A pretour/day tour is shown
+    // on its host's pass, so a change to a tour must refresh the HOST's pass.
+    $kind = RT_Event_Manager::get_ticket_kind($ticket);
+    if (in_array($kind, array('pretour', 'daytour'), true) && absint($ticket['parent_ticket_id'])) {
+        $host = RT_Event_Manager::get_ticket_by_id(absint($ticket['parent_ticket_id']));
+        if (!$host) {
+            return;
+        }
+        $ticket = $host;
+    }
     if (class_exists('RT_Event_Manager_Apple_Wallet') && RT_Event_Manager_Apple_Wallet::is_configured()) {
         RT_Event_Manager_Apple_Wallet::instance()->notify($ticket);
     }

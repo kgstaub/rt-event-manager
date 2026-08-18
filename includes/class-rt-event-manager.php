@@ -2039,6 +2039,24 @@ class RT_Event_Manager {
             }
         }
 
+        // Refresh saved wallet passes for the host tickets this order touched —
+        // a newly bought tour is shown on its host attendee's pass. Re-read the
+        // rows so parent links resolved above are current.
+        if (function_exists('rt_event_manager_notify_wallets')) {
+            $hosts = array();
+            foreach (self::get_tickets_for_order($order_id) as $ot) {
+                $k = self::get_ticket_kind($ot);
+                if (in_array($k, array('event', 'minor'), true)) {
+                    $hosts[absint($ot['id'])] = true;
+                } elseif (in_array($k, array('pretour', 'daytour'), true) && absint($ot['parent_ticket_id'])) {
+                    $hosts[absint($ot['parent_ticket_id'])] = true;
+                }
+            }
+            foreach (array_keys($hosts) as $hid) {
+                rt_event_manager_notify_wallets($hid);
+            }
+        }
+
         $order->save();
     }
 

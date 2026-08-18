@@ -244,10 +244,20 @@ class RT_Event_Manager_Google_Wallet {
         $holder = ('' !== $ticket['holder_name']) ? $ticket['holder_name'] : __('Attendee', 'rt-event-manager');
         $uid    = 'rtem-' . absint($ticket['order_id']) . '-' . $number;
 
+        $status = isset($ticket['status']) ? $ticket['status'] : 'draft';
+        // Map the ticket status to a Google Wallet object state.
+        if ('checked_in' === $status) {
+            $state = 'COMPLETED';
+        } elseif ('valid' === $status) {
+            $state = 'ACTIVE';
+        } else { // cancelled, refunded, invalid, draft
+            $state = 'INACTIVE';
+        }
+
         $obj = array(
             'id'               => self::opt('issuer_id') . '.' . $uid,
             'classId'          => self::class_id(),
-            'state'            => 'ACTIVE',
+            'state'            => $state,
             'ticketHolderName' => $holder,
             'ticketNumber'     => '#' . absint($ticket['order_id']) . ' · ' . $number,
             'barcode'          => array(
@@ -268,6 +278,11 @@ class RT_Event_Manager_Google_Wallet {
                 'id'     => 'type',
                 'header' => __('Type', 'rt-event-manager'),
                 'body'   => RT_Event_Manager::ticket_kind_label($ticket),
+            ),
+            array(
+                'id'     => 'status',
+                'header' => __('Status', 'rt-event-manager'),
+                'body'   => RT_Event_Manager_Apple_Wallet::status_label($ticket),
             ),
         );
 
