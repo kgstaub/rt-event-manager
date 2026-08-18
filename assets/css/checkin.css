@@ -211,6 +211,7 @@
 }
 .rtem-banner-warn { background: #fff3cd; color: #856404; }
 .rtem-banner-danger { background: #f8d7da; color: #842029; }
+.rtem-banner-secondary { background: #eef1f5; color: #33475b; }
 
 /* Flash toast after a check-in */
 .rtem-flash {

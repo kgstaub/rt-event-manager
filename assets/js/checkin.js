@@ -142,8 +142,11 @@
 
         var banner = '';
         if (checkedIn) {
-            banner = '<div class="rtem-banner rtem-banner-warn">' + esc(I18N.alreadyIn || 'Already checked in')
-                + (t.checked_at ? ' · ' + esc(t.checked_at) : '') + (t.checked_by ? ' · ' + esc(t.checked_by) : '') + '</div>';
+            var msg = t.checked_by
+                ? (I18N.checkedInBy || 'Checked in by') + ' ' + t.checked_by
+                : (I18N.checkedIn || 'Checked in');
+            if (t.checked_at) { msg += ' ' + (I18N.at || 'at') + ' ' + t.checked_at; }
+            banner = '<div class="rtem-banner rtem-banner-secondary">' + esc(msg) + '</div>';
         } else if (terminal) {
             banner = '<div class="rtem-banner rtem-banner-danger">' + esc(statusLabel(t.status)) + '</div>';
         }

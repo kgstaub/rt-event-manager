@@ -1871,12 +1871,14 @@ class RT_Event_Manager_Account {
             // organization details; the user's own ticket inherits them and shows
             // them read-only.
             $is_comp    = ($id !== $this->own_event_id);
+            // Once a ticket is checked in, its data is frozen (read-only).
+            $is_locked  = ('checked_in' === $status);
             // The account owner's own ticket holds their personal details, managed
             // in My Profile — its holder fields are read-only here.
-            $row_editable = $can_edit && ($id !== $this->own_event_id);
+            $row_editable = $can_edit && !$is_locked && ($id !== $this->own_event_id);
             // Dietary restrictions, however, are the holder's own to set — editable
-            // on every ticket the user may edit, including their own.
-            $dietary_editable = $can_edit;
+            // on every ticket the user may edit, including their own (unless locked).
+            $dietary_editable = $can_edit && !$is_locked;
 
             echo '<tr data-ticket-id="' . esc_attr($id) . '">';
             echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '">' . esc_html(RT_Event_Manager::ticket_kind_label($t)) . '</td>';
@@ -1903,7 +1905,7 @@ class RT_Event_Manager_Account {
                 }
 
                 // Family — editable only for companions (ticket_index > 0).
-                if ($can_edit && $is_comp && !$is_minor) {
+                if ($can_edit && !$is_locked && $is_comp && !$is_minor) {
                     echo '<td data-title="' . esc_attr__('Family', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][rti_family]">';
                     echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
                     foreach ($family_options as $key => $label) {
@@ -1948,7 +1950,7 @@ class RT_Event_Manager_Account {
             // pretour or day tour has been assigned to this Future member (their
             // tour must stay matched to the guardian's).
             if ($minor_block) {
-                $guardian_locked = RT_Event_Manager::ticket_has_pretour($id) || RT_Event_Manager::ticket_has_daytour($id);
+                $guardian_locked = $is_locked || RT_Event_Manager::ticket_has_pretour($id) || RT_Event_Manager::ticket_has_daytour($id);
                 if ($can_edit && !empty($guardian_options) && !$guardian_locked) {
                     echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][parent_ticket_id]">';
                     foreach ($guardian_options as $gid => $glabel) {
@@ -3117,10 +3119,15 @@ class RT_Event_Manager_Account {
             wp_send_json_error(__('The ticket editing deadline has passed.', 'rt-event-manager'));
         }
 
-        // Build a trusted map of the user's own tickets: ticket_id => order_id.
-        $owned = array();
+        // Build a trusted map of the user's own tickets: ticket_id => order_id,
+        // and note which are checked in (their data is frozen).
+        $owned         = array();
+        $locked_ticket = array();
         foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $row) {
             $owned[intval($row['id'])] = intval($row['order_id']);
+            if ('checked_in' === (isset($row['status']) ? $row['status'] : '')) {
+                $locked_ticket[intval($row['id'])] = true;
+            }
         }
 
         $orders_touched = array();
@@ -3129,6 +3136,9 @@ class RT_Event_Manager_Account {
             $ticket_id = absint($ticket_id);
             if (!isset($owned[$ticket_id])) {
                 continue; // Not this user's ticket — silently skip.
+            }
+            if (isset($locked_ticket[$ticket_id])) {
+                continue; // Checked in — data is frozen.
             }
 
             $allowed = array();

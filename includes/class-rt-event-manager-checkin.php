@@ -87,6 +87,8 @@ class RT_Event_Manager_Checkin {
                 'checkIn'      => __('Check in', 'rt-event-manager'),
                 'checkedIn'    => __('Checked in', 'rt-event-manager'),
                 'alreadyIn'    => __('Already checked in', 'rt-event-manager'),
+                'checkedInBy'  => __('Checked in by', 'rt-event-manager'),
+                'at'           => __('at', 'rt-event-manager'),
             ),
         ));
     }
