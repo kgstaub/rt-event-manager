@@ -76,6 +76,10 @@ class RT_Event_Manager_Apple_Wallet {
             update_option('rt_event_manager_wallet_event_name', sanitize_text_field(wp_unslash($_POST['wallet_event_name'] ?? '')));
             update_option('rt_event_manager_wallet_header_label', sanitize_text_field(wp_unslash($_POST['wallet_header_label'] ?? '')));
             update_option('rt_event_manager_wallet_header_value', sanitize_text_field(wp_unslash($_POST['wallet_header_value'] ?? '')));
+            update_option('rt_event_manager_wallet_event_type', sanitize_text_field(wp_unslash($_POST['wallet_event_type'] ?? '')));
+            update_option('rt_event_manager_wallet_venue_name', sanitize_text_field(wp_unslash($_POST['wallet_venue_name'] ?? '')));
+            update_option('rt_event_manager_wallet_venue_lat', sanitize_text_field(wp_unslash($_POST['wallet_venue_lat'] ?? '')));
+            update_option('rt_event_manager_wallet_venue_lng', sanitize_text_field(wp_unslash($_POST['wallet_venue_lng'] ?? '')));
 
             // Password: only overwrite when a new value is entered.
             $pass = (string) wp_unslash($_POST['wallet_p12_pass'] ?? '');
@@ -203,6 +207,27 @@ class RT_Event_Manager_Apple_Wallet {
         // Top-right header title (Apple headerFields).
         $text(__('Top-right label', 'rt-event-manager'), 'wallet_header_label', self::opt('header_label'), __('Small caption above the top-right title (optional).', 'rt-event-manager'));
         $text(__('Top-right title', 'rt-event-manager'), 'wallet_header_value', self::opt('header_value'), __('Shown in the top-right corner of the pass (e.g. the year or a short code).', 'rt-event-manager'));
+
+        // Event semantic tags (drive Apple's modern event-pass layout).
+        $event_types = array(
+            'PKEventTypeGeneric'        => __('Generic', 'rt-event-manager'),
+            'PKEventTypeConference'     => __('Conference', 'rt-event-manager'),
+            'PKEventTypeConvention'     => __('Convention', 'rt-event-manager'),
+            'PKEventTypeWorkshop'       => __('Workshop', 'rt-event-manager'),
+            'PKEventTypeSocialGathering' => __('Social gathering', 'rt-event-manager'),
+            'PKEventTypeLivePerformance' => __('Live performance', 'rt-event-manager'),
+            'PKEventTypeSports'         => __('Sports', 'rt-event-manager'),
+        );
+        $cur_type = self::opt('event_type', 'PKEventTypeGeneric');
+        echo '<tr><th scope="row">' . esc_html__('Event type', 'rt-event-manager') . '</th><td><select name="wallet_event_type">';
+        foreach ($event_types as $val => $label) {
+            echo '<option value="' . esc_attr($val) . '" ' . selected($cur_type, $val, false) . '>' . esc_html($label) . '</option>';
+        }
+        echo '</select><p class="description">' . esc_html__('Used for the pass semantic tags (Apple event-pass layout).', 'rt-event-manager') . '</p></td></tr>';
+
+        $text(__('Venue name', 'rt-event-manager'), 'wallet_venue_name', self::opt('venue_name'), __('Shown on the event pass and used for the venue semantic tag.', 'rt-event-manager'));
+        $text(__('Venue latitude', 'rt-event-manager'), 'wallet_venue_lat', self::opt('venue_lat'), __('Optional — enables the map/location on the pass.', 'rt-event-manager'));
+        $text(__('Venue longitude', 'rt-event-manager'), 'wallet_venue_lng', self::opt('venue_lng'));
 
         echo '</table>';
         echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html__('Save Apple Wallet settings', 'rt-event-manager') . '</button></p>';
@@ -435,6 +460,58 @@ class RT_Event_Manager_Apple_Wallet {
                 'value' => $header_value,
             );
         }
+
+        // Semantic tags → makes this a proper Apple "event pass".
+        // https://developer.apple.com/documentation/walletpasses/creating-an-event-pass-using-semantic-tags
+        $event_name = (string) self::opt('event_name', 'RTI Half-Year Meeting 2027');
+        $semantics  = array(
+            'eventType' => (string) self::opt('event_type', 'PKEventTypeGeneric'),
+            'eventName' => $event_name,
+        );
+
+        // Event dates (stored as Y-m-d) → ISO-8601 with the site's timezone offset.
+        $start = (string) get_option('rt_event_manager_event_start', '');
+        $end   = (string) get_option('rt_event_manager_event_end', '');
+        if ('' !== $start) {
+            $ts = strtotime($start . ' 09:00:00');
+            if ($ts) {
+                $semantics['eventStartDate'] = wp_date('c', $ts);
+            }
+        }
+        if ('' !== $end) {
+            $ts = strtotime($end . ' 18:00:00');
+            if ($ts) {
+                $semantics['eventEndDate'] = wp_date('c', $ts);
+            }
+        }
+
+        // Venue name + optional coordinates.
+        $venue = (string) self::opt('venue_name');
+        if ('' !== $venue) {
+            $semantics['venueName'] = $venue;
+        }
+        $lat = self::opt('venue_lat');
+        $lng = self::opt('venue_lng');
+        if ('' !== (string) $lat && '' !== (string) $lng && is_numeric($lat) && is_numeric($lng)) {
+            $semantics['venueLocation'] = array(
+                'latitude'  => (float) $lat,
+                'longitude' => (float) $lng,
+            );
+            // Surface the pass on the lock screen when near the venue.
+            $pass['locations'] = array(array(
+                'latitude'         => (float) $lat,
+                'longitude'        => (float) $lng,
+                'relevantText'     => $event_name,
+            ));
+        }
+
+        $pass['semantics'] = $semantics;
+        // Attach the event window to the whole pass so it can surface at the right time.
+        if (isset($semantics['eventStartDate'])) {
+            $pass['relevantDate'] = $semantics['eventStartDate'];
+        }
+        // Opt into the modern event-ticket presentation.
+        $pass['preferredStyleSchemes'] = array('posterEventTicket');
 
         $logo_src = base64_decode((string) self::opt('logo'), true);
         $logo = function ($w, $h) use ($logo_src) {
