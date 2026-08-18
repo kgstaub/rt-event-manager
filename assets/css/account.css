@@ -131,6 +131,11 @@
     flex: none;
     max-width: none;
 }
+/* Wider off-canvas panel (capped so it never overflows a small screen). */
+#rtacc-offcanvas-nav .uk-offcanvas-bar {
+    width: 420px !important;
+    max-width: 92vw !important;
+}
 
 /* ---- Content ---- */
 .rtacc-content {
