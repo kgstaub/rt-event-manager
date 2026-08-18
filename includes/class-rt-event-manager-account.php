@@ -591,8 +591,8 @@ class RT_Event_Manager_Account {
             'shop'      => 'fa-bag-shopping',
         );
 
-        // Graphite style when a Pro kit is loaded; Regular fallback otherwise.
-        $fa_style = ('' !== self::fa_kit_url()) ? 'fa-graphite' : 'fa-regular';
+        // Regular style for all nav icons (the base slugs above all exist in it).
+        $fa_style = 'fa-regular';
         $item = function ($icon, $url, $label, $classes) use ($fa_style) {
             return sprintf(
                 '<li class="%s"><a href="%s"><i class="%s %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
