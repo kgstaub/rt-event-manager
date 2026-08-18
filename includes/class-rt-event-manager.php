@@ -5248,6 +5248,14 @@ class RT_Event_Manager {
                 'custom_attributes' => array('min' => '0', 'step' => '1'),
             ),
             array(
+                'title'    => __('FontAwesome Pro kit URL', 'rt-event-manager'),
+                'desc'     => __('Optional. Paste your FontAwesome Pro kit script URL (e.g. https://kit.fontawesome.com/abcd1234.js) to load Pro icons (enables the light style) in the member account. Leave blank to use the free icon set.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_fa_kit',
+                'type'     => 'text',
+                'default'  => '',
+                'css'      => 'min-width:360px;',
+            ),
+            array(
                 'type' => 'sectionend',
                 'id'   => 'rti_event_settings',
             ),

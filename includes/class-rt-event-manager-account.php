@@ -41,6 +41,7 @@ class RT_Event_Manager_Account {
 
         // Assets (also enqueued on demand inside the shortcode as a fallback).
         add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_assets'));
+        add_filter('script_loader_tag', array($this, 'fa_kit_script_tag'), 10, 2);
 
         // Show the merged ".WORLD" SSO login buttons above the WooCommerce
         // registration form (WC uses its own form, which the SSO module's
@@ -206,6 +207,25 @@ class RT_Event_Manager_Account {
      * Assets
      * ------------------------------------------------------------------- */
 
+    /**
+     * FontAwesome Pro kit URL, from the RT_EVENT_MANAGER_FA_KIT constant or the
+     * rt_event_manager_fa_kit option. Empty string when none is configured.
+     */
+    public static function fa_kit_url() {
+        if (defined('RT_EVENT_MANAGER_FA_KIT') && RT_EVENT_MANAGER_FA_KIT) {
+            return esc_url_raw(RT_EVENT_MANAGER_FA_KIT);
+        }
+        return esc_url_raw((string) get_option('rt_event_manager_fa_kit', ''));
+    }
+
+    /** FontAwesome kits load as a cross-origin script. */
+    public function fa_kit_script_tag($tag, $handle) {
+        if ('rt-event-manager-fa-kit' === $handle && false === strpos($tag, 'crossorigin')) {
+            $tag = str_replace(' src=', ' crossorigin="anonymous" src=', $tag);
+        }
+        return $tag;
+    }
+
     public function maybe_enqueue_assets() {
         if (function_exists('is_account_page') && (is_account_page() || is_cart())) {
             $this->enqueue_assets();
@@ -217,8 +237,12 @@ class RT_Event_Manager_Account {
             return;
         }
 
-        // Font Awesome 6 (free) for the sidebar nav icons.
-        if (!wp_style_is('font-awesome', 'enqueued') && !wp_style_is('fontawesome', 'enqueued')) {
+        // Font Awesome for the nav icons: a configured Pro kit (enables the
+        // light style) takes precedence; otherwise fall back to the free CDN.
+        $fa_kit = self::fa_kit_url();
+        if ('' !== $fa_kit) {
+            wp_enqueue_script('rt-event-manager-fa-kit', $fa_kit, array(), null, false);
+        } elseif (!wp_style_is('font-awesome', 'enqueued') && !wp_style_is('fontawesome', 'enqueued')) {
             wp_enqueue_style(
                 'rt-event-manager-fa',
                 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css',
@@ -560,11 +584,15 @@ class RT_Event_Manager_Account {
             'shop'      => 'fa-bag-shopping',
         );
 
-        $item = function ($icon, $url, $label, $classes) {
+        // Use the light style when a FontAwesome Pro kit is loaded; the free
+        // set has no light, so fall back to solid there.
+        $fa_style = ('' !== self::fa_kit_url()) ? 'fa-light' : 'fa-solid';
+        $item = function ($icon, $url, $label, $classes) use ($fa_style) {
             return sprintf(
-                '<li class="%s"><a href="%s"><i class="fa-solid %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
+                '<li class="%s"><a href="%s"><i class="%s %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
                 esc_attr($classes),
                 esc_url($url),
+                esc_attr($fa_style),
                 esc_attr($icon),
                 esc_html($label)
             );
