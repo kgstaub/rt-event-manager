@@ -2889,6 +2889,8 @@ class RT_Event_Manager {
             'refund_status'         => '%s',
             'transferred_from_user_id' => '%d',
             'transferred_at'        => '%s',
+            'checked_in_at'         => '%s',
+            'checked_in_by'         => '%d',
         );
 
         foreach ($allowed_fields as $field => $format) {
@@ -5530,6 +5532,25 @@ class RT_Event_Manager {
         global $wpdb;
         $table_name = $wpdb->prefix . 'rti_tickets';
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", absint($ticket_id)), ARRAY_A);
+        return $row ?: null;
+    }
+
+    /**
+     * Look up a ticket by its order id and 1-based ticket number (as encoded in
+     * the check-in QR token; ticket_index is number - 1).
+     *
+     * @param int $order_id
+     * @param int $number 1-based ticket number.
+     * @return array|null
+     */
+    public static function get_ticket_by_order_and_number($order_id, $number) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE order_id = %d AND ticket_index = %d",
+            absint($order_id),
+            absint($number) - 1
+        ), ARRAY_A);
         return $row ?: null;
     }
 
