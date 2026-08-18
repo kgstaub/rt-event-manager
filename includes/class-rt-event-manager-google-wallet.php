@@ -261,14 +261,10 @@ class RT_Event_Manager_Google_Wallet {
         $uid    = 'rtem-' . absint($ticket['order_id']) . '-' . $number;
 
         $status = isset($ticket['status']) ? $ticket['status'] : 'draft';
-        // Map the ticket status to a Google Wallet object state.
-        if ('checked_in' === $status) {
-            $state = 'COMPLETED';
-        } elseif ('valid' === $status) {
-            $state = 'ACTIVE';
-        } else { // cancelled, refunded, invalid, draft
-            $state = 'INACTIVE';
-        }
+        // Map the ticket status to a Google Wallet object state. Only truly dead
+        // tickets are INACTIVE (Google archives those on save); a pending ticket
+        // is still held by the attendee, so it stays ACTIVE.
+        $state = in_array($status, array('cancelled', 'refunded', 'invalid'), true) ? 'INACTIVE' : 'ACTIVE';
 
         $obj = array(
             'id'               => self::opt('issuer_id') . '.' . $uid,
