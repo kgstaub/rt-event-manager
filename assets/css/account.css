@@ -965,10 +965,17 @@
         padding: 6px 12px;
         margin-bottom: 12px;
     }
-    /* Ticket blocks use the secondary (cream) background. */
-    .rtacc-tickets tr {
+    /* Only event/Future-member ticket blocks use the secondary (cream)
+       background — pretour and day-tour blocks stay plain. The border and the
+       internal divider lines use the primary colour. */
+    .rtacc-tickets tr.rtacc-trow-event,
+    .rtacc-tickets tr.rtacc-trow-minor {
         background: var(--rtacc-secondary-bg);
-        border-color: var(--rtacc-secondary-bg);
+        border-color: var(--rtacc-primary);
+    }
+    .rtacc-tickets tr.rtacc-trow-event td + td,
+    .rtacc-tickets tr.rtacc-trow-minor td + td {
+        border-top-color: var(--rtacc-primary);
     }
     .rtacc-tickets td,
     .rtacc-orders td {

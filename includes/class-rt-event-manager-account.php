@@ -700,7 +700,7 @@ class RT_Event_Manager_Account {
                     $product    = wc_get_product($t['product_id']);
                     $what       = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
                     $event_date = $this->ticket_event_date($t['product_id']);
-                    echo '<tr>';
+                    echo '<tr class="rtacc-trow-' . esc_attr(RT_Event_Manager::get_ticket_kind($t)) . '">';
                     echo '<td data-title="' . esc_attr__('Ticket', 'rt-event-manager') . '">' . esc_html($what) . '</td>';
                     echo '<td data-title="' . esc_attr__('Event date', 'rt-event-manager') . '">';
                     if ('' !== $event_date) {
@@ -2076,7 +2076,7 @@ class RT_Event_Manager_Account {
             // on every ticket the user may edit, including their own (unless locked).
             $dietary_editable = $can_edit && !$is_locked;
 
-            echo '<tr data-ticket-id="' . esc_attr($id) . '">';
+            echo '<tr data-ticket-id="' . esc_attr($id) . '" class="rtacc-trow-' . esc_attr($kind) . '">';
 
             if ($show_product) {
                 $product = wc_get_product($t['product_id']);
