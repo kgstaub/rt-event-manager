@@ -159,14 +159,24 @@ class RT_Event_Manager_Checkin {
         }
 
         if ('sw' === $what) {
-            $shell = get_option('rt_event_manager_checkin_url') ?: home_url('/');
+            $shell   = get_option('rt_event_manager_checkin_url') ?: home_url('/');
+            $css     = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/css/checkin.css';
+            $js      = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/js/checkin.js';
+            $jsq     = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/js/jsqr.min.js';
+            // Version query so cached copies match the page's enqueued URLs and
+            // change whenever an asset is edited.
+            $vcss = file_exists($css) ? filemtime($css) : '1';
+            $vjs  = file_exists($js) ? filemtime($js) : '1';
+            $vjsq = file_exists($jsq) ? filemtime($jsq) : '1';
             $assets = array(
-                RT_EVENT_MANAGER_PLUGIN_URL . 'assets/css/checkin.css',
-                RT_EVENT_MANAGER_PLUGIN_URL . 'assets/js/checkin.js',
-                RT_EVENT_MANAGER_PLUGIN_URL . 'assets/js/jsqr.min.js',
+                RT_EVENT_MANAGER_PLUGIN_URL . 'assets/css/checkin.css?ver=' . $vcss,
+                RT_EVENT_MANAGER_PLUGIN_URL . 'assets/js/checkin.js?ver=' . $vjs,
+                RT_EVENT_MANAGER_PLUGIN_URL . 'assets/js/jsqr.min.js?ver=' . $vjsq,
                 RT_EVENT_MANAGER_PLUGIN_URL . 'assets/icon.svg',
             );
-            $cache_name = 'rtem-checkin-v1';
+            // Cache name embeds the asset versions → any edit rolls the cache, so
+            // the new service worker purges the old assets on activate.
+            $cache_name = 'rtem-checkin-' . $vcss . '-' . $vjs . '-' . $vjsq;
             nocache_headers();
             header('Content-Type: application/javascript; charset=utf-8');
             header('Service-Worker-Allowed: /');
