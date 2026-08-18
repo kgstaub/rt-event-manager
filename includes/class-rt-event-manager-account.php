@@ -2082,7 +2082,7 @@ class RT_Event_Manager_Account {
 
             // Holder name (editable for every kind except the account owner's own).
             if ($row_editable) {
-                echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '"><input type="text" class="rtacc-ticket-field uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][holder_name]" value="' . esc_attr($t['holder_name']) . '" /></td>';
+                echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '"><input type="text" class="rtacc-ticket-field uk-input" name="tickets[' . esc_attr($id) . '][holder_name]" value="' . esc_attr($t['holder_name']) . '" /></td>';
             } else {
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($t['holder_name'] ?: '—') . '</td>';
             }
@@ -2090,14 +2090,14 @@ class RT_Event_Manager_Account {
             if (!$minor_block) {
                 // Phone.
                 if ($row_editable) {
-                    echo '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '"><input type="tel" class="rtacc-ticket-field uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][phone]" value="' . esc_attr($phone) . '" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" /></td>';
+                    echo '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '"><input type="tel" class="rtacc-ticket-field uk-input" name="tickets[' . esc_attr($id) . '][phone]" value="' . esc_attr($phone) . '" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" /></td>';
                 } else {
                     echo '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '">' . esc_html($phone ?: '—') . '</td>';
                 }
 
                 // Family — editable only for companions (ticket_index > 0).
                 if ($can_edit && !$is_locked && $is_comp && !$is_minor) {
-                    echo '<td data-title="' . esc_attr__('Family', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][rti_family]">';
+                    echo '<td data-title="' . esc_attr__('Family', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select" name="tickets[' . esc_attr($id) . '][rti_family]">';
                     echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
                     foreach ($family_options as $key => $label) {
                         echo '<option value="' . esc_attr($key) . '" ' . selected($t['rti_family'], (string) $key, false) . '>' . esc_html($label) . '</option>';
@@ -2113,13 +2113,13 @@ class RT_Event_Manager_Account {
             // the user may edit, including their own.
             $allergy_val = isset($t['allergy_details']) ? $t['allergy_details'] : '';
             if ($dietary_editable) {
-                echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '"><select class="rtacc-ticket-field rtacc-dietary-select uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][dietary]">';
+                echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '"><select class="rtacc-ticket-field rtacc-dietary-select uk-select" name="tickets[' . esc_attr($id) . '][dietary]">';
                 foreach ($dietary_options as $dkey => $dlabel) {
                     echo '<option value="' . esc_attr($dkey) . '" ' . selected($t['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
                 }
                 echo '</select>';
                 $list_id = 'rtacc-allergy-list-' . $id;
-                echo '<input type="text" class="rtacc-ticket-field rtacc-allergy-input uk-input uk-form-small" name="tickets[' . esc_attr($id) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" style="margin-top:4px;' . ($t['dietary'] === 'allergies' ? '' : 'display:none;') . '" />';
+                echo '<input type="text" class="rtacc-ticket-field rtacc-allergy-input uk-input" name="tickets[' . esc_attr($id) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" style="margin-top:4px;' . ($t['dietary'] === 'allergies' ? '' : 'display:none;') . '" />';
                 if (!empty($allergy_suggestions)) {
                     echo '<datalist id="' . esc_attr($list_id) . '">';
                     foreach ($allergy_suggestions as $s) {
@@ -2143,7 +2143,7 @@ class RT_Event_Manager_Account {
             if ($minor_block) {
                 $guardian_locked = $is_locked || RT_Event_Manager::ticket_has_pretour($id) || RT_Event_Manager::ticket_has_daytour($id);
                 if ($can_edit && !empty($guardian_options) && !$guardian_locked) {
-                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select uk-form-small" name="tickets[' . esc_attr($id) . '][parent_ticket_id]">';
+                    echo '<td data-title="' . esc_attr__('Guardian', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select" name="tickets[' . esc_attr($id) . '][parent_ticket_id]">';
                     foreach ($guardian_options as $gid => $glabel) {
                         echo '<option value="' . esc_attr($gid) . '" ' . selected($parent_id, absint($gid), false) . '>' . esc_html($glabel) . '</option>';
                     }
