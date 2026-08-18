@@ -84,13 +84,17 @@
     padding: 0;
     border: 0;
 }
-/* Logout item stands out in the brand colour (not bolder). */
+/* Logout item stands out in the brand colour on a light red background. */
 .rtacc-nav .rtacc-nav-logout > a {
     color: var(--rtacc-primary);
     font-weight: 400;
+    background: #fdecec;
+    border-radius: 6px;
+    padding: 8px 12px;
 }
 .rtacc-nav .rtacc-nav-logout > a:hover {
     color: var(--rtacc-primary-hover);
+    background: #fbdcdc;
 }
 /* Mobile hamburger (shown only on small screens; opens the off-canvas nav). */
 .rtacc-hamburger {
