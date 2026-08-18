@@ -105,11 +105,11 @@ class RT_Event_Manager_Apple_Wallet {
         return isset($map[$s]) ? $map[$s] : $s;
     }
 
-    /** "<Family> <Club>" line for a ticket (either part may be empty). */
+    /** "<Family> <Club>" line for a ticket; family defaults to "Guest" if unset. */
     public static function org_line($ticket) {
         $family = (!empty($ticket['rti_family']) && absint($ticket['rti_family']))
             ? RT_Event_Manager::get_family_label($ticket['rti_family'])
-            : '';
+            : __('Guest', 'rt-event-manager');
         $club = isset($ticket['rti_club']) ? trim((string) $ticket['rti_club']) : '';
         return trim($family . ' ' . $club);
     }
