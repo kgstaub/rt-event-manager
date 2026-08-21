@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: RT Event Manager
- * Plugin URI: https://example.com/rt-event-manager
- * Description: Round Table International event management — tickets, attendee registration, and organization fields for WooCommerce
- * Version: 1.1.0
- * Author: Your Name
- * Author URI: https://example.com
+ * Plugin URI: https://www.staub.ee
+ * Description: Round Table International event management for WooCommerce — attendee tickets with a full member account portal (dashboard, profile, tours, calendar, visa letters, shop), pretours &amp; day tours, ticket transfers &amp; refunds, Apple &amp; Google Wallet passes with live push updates, and a staff QR check-in web app.
+ * Version: 2.0.0
+ * Author: Kenneth Staub, RT Switzerland
+ * Author URI: https://www.staub.ee
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: rt-event-manager
@@ -19,16 +19,42 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('RT_EVENT_MANAGER_VERSION', '1.3.0');
-define('RT_EVENT_MANAGER_DB_VERSION', '1.5.0');
+define('RT_EVENT_MANAGER_VERSION', '2.0.0');
+define('RT_EVENT_MANAGER_DB_VERSION', '2.4.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
+
+// Constants for the merged "Sign in with .WORLD" SSO module. Its code uses the
+// WORLD_SSO_* / MULTI_OAUTH_SSO_* constants for versioning and asset paths;
+// point them at this plugin so its assets (assets/admin.css, admin.js, icon.svg)
+// resolve correctly.
+define('WORLD_SSO_VERSION', '1.2.0');
+define('WORLD_SSO_PLUGIN_DIR', RT_EVENT_MANAGER_PLUGIN_DIR);
+define('WORLD_SSO_PLUGIN_URL', RT_EVENT_MANAGER_PLUGIN_URL);
+define('MULTI_OAUTH_SSO_VERSION', WORLD_SSO_VERSION);
+define('MULTI_OAUTH_SSO_PLUGIN_DIR', WORLD_SSO_PLUGIN_DIR);
+define('MULTI_OAUTH_SSO_PLUGIN_URL', WORLD_SSO_PLUGIN_URL);
 
 // Load Composer autoloader for badge generation dependencies (DOMPDF, QR Code)
 $composer_autoload = RT_EVENT_MANAGER_PLUGIN_DIR . 'vendor/autoload.php';
 if (file_exists($composer_autoload)) {
     require_once $composer_autoload;
 }
+
+// Load the merged .WORLD SSO module (independent of WooCommerce). Required at
+// file scope so the classes are available during activation.
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-oauth-client.php';
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-attribute-mapper.php';
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-admin-settings.php';
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-user-handler.php';
+require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-world-sso.php';
+
+// Boot the SSO module (registers login buttons, OAuth callback, avatar, etc.).
+add_action('plugins_loaded', function () {
+    if (class_exists('Multi_OAuth_SSO')) {
+        Multi_OAuth_SSO::get_instance();
+    }
+}, 5);
 
 /**
  * Check if WooCommerce is active
@@ -70,11 +96,38 @@ function rt_event_manager_init() {
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-badge-template.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-badge-generator.php';
 
+    // Load customer account portal + PDF receipt generator
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-receipt.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-account.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-visa.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-ticket-pass.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-apple-wallet.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-google-wallet.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-checkin.php';
+
     // Initialize
     RT_Event_Manager::instance();
 
     // Initialize badge template handler
     RT_Event_Manager_Badge_Template::instance();
+
+    // Initialize customer account portal (shortcode + AJAX)
+    RT_Event_Manager_Account::instance();
+
+    // Initialize visa letter of invitation handler
+    RT_Event_Manager_Visa::instance();
+
+    // Initialize the QR check-in ticket generator
+    RT_Event_Manager_Ticket_Pass::instance();
+
+    // Initialize Apple Wallet pass generator
+    RT_Event_Manager_Apple_Wallet::instance();
+
+    // Initialize Google Wallet save-link generator
+    RT_Event_Manager_Google_Wallet::instance();
+
+    // Initialize the staff check-in PWA
+    RT_Event_Manager_Checkin::instance();
 
     // Run one-time ticket migration for old orders
     rt_event_manager_migrate_tickets();
@@ -254,21 +307,41 @@ function rt_event_manager_install_db() {
             order_id bigint(20) unsigned NOT NULL,
             product_id bigint(20) unsigned NOT NULL,
             combination_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            parent_ticket_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            ticket_kind varchar(20) NOT NULL DEFAULT 'event',
+            minor_type varchar(20) NOT NULL DEFAULT '',
             ticket_index int(11) unsigned NOT NULL DEFAULT 0,
             holder_name varchar(255) NOT NULL DEFAULT '',
+            phone varchar(32) NOT NULL DEFAULT '',
+            dob varchar(10) NOT NULL DEFAULT '',
             rti_family varchar(50) NOT NULL DEFAULT '',
             rti_club varchar(255) NOT NULL DEFAULT '',
             dietary varchar(50) NOT NULL DEFAULT '',
+            allergy_details varchar(255) NOT NULL DEFAULT '',
             world_id varchar(100) NOT NULL DEFAULT '',
             qr_code_url varchar(500) NOT NULL DEFAULT '',
             status varchar(20) NOT NULL DEFAULT 'draft',
+            owner_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            transfer_token varchar(64) NOT NULL DEFAULT '',
+            transfer_email varchar(255) NOT NULL DEFAULT '',
+            transfer_requested_at datetime NULL DEFAULT NULL,
+            refund_status varchar(20) NOT NULL DEFAULT '',
+            refund_note varchar(500) NOT NULL DEFAULT '',
+            transferred_from_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            transferred_at datetime NULL DEFAULT NULL,
+            checked_in_at datetime NULL DEFAULT NULL,
+            checked_in_by bigint(20) unsigned NOT NULL DEFAULT 0,
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             UNIQUE KEY order_ticket (order_id, ticket_index),
             KEY order_id (order_id),
             KEY product_id (product_id),
-            KEY status (status)
+            KEY status (status),
+            KEY parent_ticket_id (parent_ticket_id),
+            KEY ticket_kind (ticket_kind),
+            KEY owner_user_id (owner_user_id),
+            KEY transfer_token (transfer_token)
         ) $charset_collate;";
 
         // Dedupe existing rows on upgrade so the UNIQUE KEY can be applied.
@@ -312,6 +385,44 @@ function rt_event_manager_install_db() {
         if (empty($col_exists)) {
             $wpdb->query("ALTER TABLE $table_name ADD COLUMN `combination_id` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `product_id`");
         }
+
+        // Always ensure the per-ticket phone column exists, regardless of version check.
+        $phone_col_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_name LIKE 'phone'");
+        if (empty($phone_col_exists)) {
+            $wpdb->query("ALTER TABLE $table_name ADD COLUMN `phone` varchar(32) NOT NULL DEFAULT '' AFTER `holder_name`");
+        }
+
+        // Ensure the ticket-relationship columns exist (pretour / minor linking).
+        $relationship_columns = array(
+            'parent_ticket_id' => "ADD COLUMN `parent_ticket_id` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `combination_id`",
+            'ticket_kind'      => "ADD COLUMN `ticket_kind` varchar(20) NOT NULL DEFAULT 'event' AFTER `parent_ticket_id`",
+            'minor_type'       => "ADD COLUMN `minor_type` varchar(20) NOT NULL DEFAULT '' AFTER `ticket_kind`",
+            'dob'              => "ADD COLUMN `dob` varchar(10) NOT NULL DEFAULT '' AFTER `phone`",
+            'allergy_details'  => "ADD COLUMN `allergy_details` varchar(255) NOT NULL DEFAULT '' AFTER `dietary`",
+            // Ownership + transfer (added in 2.0.0). owner_user_id is the current
+            // holder of the ticket; it can differ from the order customer after a
+            // transfer. transfer_* hold a pending transfer offer.
+            'owner_user_id'         => "ADD COLUMN `owner_user_id` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `status`",
+            'transfer_token'        => "ADD COLUMN `transfer_token` varchar(64) NOT NULL DEFAULT '' AFTER `owner_user_id`",
+            'transfer_email'        => "ADD COLUMN `transfer_email` varchar(255) NOT NULL DEFAULT '' AFTER `transfer_token`",
+            'transfer_requested_at' => "ADD COLUMN `transfer_requested_at` datetime NULL DEFAULT NULL AFTER `transfer_email`",
+            // Refund tracking for cancelled tickets (added in 2.1.0).
+            'refund_status'         => "ADD COLUMN `refund_status` varchar(20) NOT NULL DEFAULT '' AFTER `transfer_requested_at`",
+            // Reason recorded when an organiser declines a refund (added in 2.4.0).
+            'refund_note'           => "ADD COLUMN `refund_note` varchar(500) NOT NULL DEFAULT '' AFTER `refund_status`",
+            // Completed-transfer record (added in 2.2.0).
+            'transferred_from_user_id' => "ADD COLUMN `transferred_from_user_id` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `refund_status`",
+            'transferred_at'        => "ADD COLUMN `transferred_at` datetime NULL DEFAULT NULL AFTER `transferred_from_user_id`",
+            // Check-in audit (added in 2.3.0).
+            'checked_in_at'         => "ADD COLUMN `checked_in_at` datetime NULL DEFAULT NULL AFTER `transferred_at`",
+            'checked_in_by'         => "ADD COLUMN `checked_in_by` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `checked_in_at`",
+        );
+        foreach ($relationship_columns as $column => $ddl) {
+            $exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM $table_name LIKE %s", $column));
+            if (empty($exists)) {
+                $wpdb->query("ALTER TABLE $table_name $ddl");
+            }
+        }
     }
 }
 
@@ -352,8 +463,8 @@ function rt_event_manager_recalculate_all_ticket_statuses() {
         ), ARRAY_A);
 
         foreach ($tickets as $ticket) {
-            // Never overwrite checked_in status automatically
-            if (isset($ticket['status']) && $ticket['status'] === 'checked_in') {
+            // Never overwrite terminal states set deliberately.
+            if (isset($ticket['status']) && in_array($ticket['status'], array('checked_in', 'cancelled', 'refunded'), true)) {
                 continue;
             }
             $status = rt_event_manager_determine_ticket_status($order, $ticket['holder_name']);
@@ -402,10 +513,49 @@ function rt_event_manager_determine_ticket_status($order, $holder_name) {
 }
 
 /**
+ * Notify the wallet services that a ticket changed so saved passes update.
+ * Safe to call with a ticket array or id; no-ops when nothing is configured.
+ *
+ * @param array|int $ticket
+ */
+function rt_event_manager_notify_wallets($ticket) {
+    if (!is_array($ticket)) {
+        $ticket = RT_Event_Manager::get_ticket_by_id(absint($ticket));
+    }
+    if (!$ticket) {
+        return;
+    }
+    // Only event/minor tickets carry a wallet pass. A pretour/day tour is shown
+    // on its host's pass, so a change to a tour must refresh the HOST's pass.
+    $kind = RT_Event_Manager::get_ticket_kind($ticket);
+    if (in_array($kind, array('pretour', 'daytour'), true) && absint($ticket['parent_ticket_id'])) {
+        $host = RT_Event_Manager::get_ticket_by_id(absint($ticket['parent_ticket_id']));
+        if (!$host) {
+            return;
+        }
+        $ticket = $host;
+    }
+    if (class_exists('RT_Event_Manager_Apple_Wallet') && RT_Event_Manager_Apple_Wallet::is_configured()) {
+        RT_Event_Manager_Apple_Wallet::instance()->notify($ticket);
+    }
+    if (class_exists('RT_Event_Manager_Google_Wallet') && RT_Event_Manager_Google_Wallet::is_configured()) {
+        RT_Event_Manager_Google_Wallet::instance()->notify($ticket);
+    }
+}
+
+/**
  * Activation hook
  */
 function rt_event_manager_activate() {
     rt_event_manager_install_db();
+
+    // Set up the merged .WORLD SSO module: create its OAuth clients table and
+    // seed the default .WORLD providers. (check_upgrade() also self-heals this
+    // on admin_init, but do it immediately on activation.)
+    if (class_exists('Multi_OAuth_SSO')) {
+        Multi_OAuth_SSO::get_instance()->activate();
+    }
+
     flush_rewrite_rules();
 }
 register_activation_hook(__FILE__, 'rt_event_manager_activate');

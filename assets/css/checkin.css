@@ -1,0 +1,307 @@
+/**
+ * RT Event Manager — staff check-in PWA styles (mobile-first).
+ */
+.rtem-checkin {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 12px 14px 40px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #1a1a1a;
+}
+.rtem-checkin-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.rtem-checkin-head h1 {
+    font-size: 22px;
+    margin: 0;
+    color: #CC0B24;
+}
+.rtem-checkin-user {
+    margin: 0;
+    font-size: 13px;
+    color: #777;
+}
+
+/* Scanner */
+.rtem-scan {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #111;
+    border-radius: 12px;
+    overflow: hidden;
+}
+#rtem-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    opacity: 0.35;
+    transition: opacity 0.2s;
+}
+#rtem-video.is-live { opacity: 1; }
+.rtem-scan-overlay {
+    position: absolute;
+    inset: 14%;
+    border: 3px solid rgba(255, 255, 255, 0.9);
+    border-radius: 14px;
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.15);
+    pointer-events: none;
+}
+.rtem-hint {
+    text-align: center;
+    color: #555;
+    font-size: 14px;
+    margin: 10px 0;
+}
+
+/* Controls */
+.rtem-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.rtem-btn {
+    flex: 1 1 auto;
+    padding: 12px 16px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background: #f6f6f6;
+    color: #222;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.rtem-btn-primary {
+    background: #CC0B24;
+    border-color: #CC0B24;
+    color: #fff;
+}
+.rtem-btn-primary:hover { background: #740800; }
+.rtem-btn-checkin {
+    width: 100%;
+    background: #1a8a34;
+    border-color: #1a8a34;
+    color: #fff;
+    font-size: 18px;
+    padding: 16px;
+    margin-top: 14px;
+}
+.rtem-btn-checkin:disabled { opacity: 0.6; }
+.rtem-btn-next {
+    width: 100%;
+    margin-top: 10px;
+}
+
+/* Manual entry */
+.rtem-manual {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 12px;
+    background: #f6f6f6;
+    border-radius: 8px;
+}
+.rtem-manual label {
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+    color: #555;
+    gap: 4px;
+}
+.rtem-manual input {
+    padding: 8px 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 16px;
+    width: 110px;
+}
+
+/* Result card */
+.rtem-result { margin-top: 16px; }
+.rtem-card {
+    border: 1px solid #e6e6e6;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.rtem-name {
+    font-size: 24px;
+    margin: 6px 0 8px;
+}
+.rtem-badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.rtem-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #eef1f5;
+    color: #33475b;
+}
+.rtem-badge-status { color: #fff; }
+.rtem-status-valid { background: #1a8a34; }
+.rtem-status-draft { background: #b9880f; }
+.rtem-status-checked_in { background: #2271b1; }
+.rtem-status-cancelled { background: #8c8f94; }
+.rtem-status-refunded { background: #8250df; }
+.rtem-status-invalid { background: #CC0B24; }
+
+.rtem-details {
+    width: 100%;
+    border-collapse: collapse;
+}
+.rtem-details td {
+    padding: 6px 4px;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: top;
+    font-size: 15px;
+}
+.rtem-details td.lbl {
+    color: #777;
+    width: 40%;
+}
+
+/* Combined check-in (guardian ⇄ minors) */
+.rtem-companions {
+    margin: 14px 0 4px;
+    padding: 12px;
+    background: #f6f6f6;
+    border-radius: 8px;
+}
+.rtem-companions-title {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.rtem-companion {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 16px;
+}
+.rtem-companion input { width: 20px; height: 20px; }
+.rtem-companion-rel {
+    margin-left: auto;
+    font-size: 12px;
+    color: #777;
+}
+
+/* Banners */
+.rtem-banner {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+.rtem-banner-warn { background: #fff3cd; color: #856404; }
+.rtem-banner-danger { background: #f8d7da; color: #842029; }
+.rtem-banner-secondary { background: #eef1f5; color: #33475b; }
+
+.rtem-btn-profile { width: 100%; margin-top: 10px; }
+.rtem-btn-reset {
+    width: 100%;
+    margin-top: 10px;
+    background: #fff;
+    color: #842029;
+    border-color: #e0b4b8;
+}
+
+/* Member profile modal */
+.rtem-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 20px 12px;
+    overflow-y: auto;
+}
+.rtem-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+.rtem-modal-dialog {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 520px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+.rtem-profile-head {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.rtem-profile-photo {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: 0 0 auto;
+    background: #eee;
+}
+.rtem-profile-club { color: #777; font-size: 13px; }
+.rtem-profile-phone { font-size: 15px; margin-top: 2px; }
+.rtem-profile-h {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #CC0B24;
+    margin: 18px 0 6px;
+}
+.rtem-profile-table { width: 100%; border-collapse: collapse; }
+.rtem-profile-table td {
+    padding: 7px 6px;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: top;
+    font-size: 14px;
+}
+.rtem-profile-type { display: block; font-size: 12px; color: #777; }
+.rtem-profile-diet { display: block; font-size: 12px; color: #a8631a; }
+.rtem-emergency {
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 14px;
+}
+.rtem-muted { color: #999; }
+
+/* Flash toast after a check-in */
+.rtem-flash {
+    position: fixed;
+    left: 50%;
+    bottom: 26px;
+    transform: translateX(-50%);
+    padding: 14px 22px;
+    border-radius: 30px;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    z-index: 9999;
+    transition: opacity 0.4s, transform 0.4s;
+}
+.rtem-flash-ok { background: #1a8a34; }
+.rtem-flash-warn { background: #b9880f; }
+.rtem-flash.is-out { opacity: 0; transform: translateX(-50%) translateY(10px); }

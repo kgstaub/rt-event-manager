@@ -127,13 +127,32 @@ class RT_Event_Manager {
         add_action('woocommerce_after_order_notes', array($this, 'add_ticket_holder_fields'));
         add_action('woocommerce_checkout_process', array($this, 'validate_ticket_holder_fields'));
 
+        // Ticket linking: carry the chosen parent ticket (and minor gender) from the
+        // add-to-cart request through the cart into the order line item.
+        add_filter('woocommerce_add_cart_item_data', array($this, 'capture_link_cart_item_data'), 10, 2);
+        add_filter('woocommerce_get_item_data', array($this, 'display_link_cart_item_data'), 10, 2);
+        add_action('woocommerce_checkout_create_order_line_item', array($this, 'save_link_order_item_meta'), 10, 4);
+
+        // Future (minor) tickets may only be bought as a co-traveller (parent required)
+        // and are hidden from the normal catalog.
+        add_filter('woocommerce_add_to_cart_validation', array($this, 'validate_future_add_to_cart'), 10, 3);
+        // Re-check tour conflicts at cart/checkout time against the live DB state
+        // so a stale cart (e.g. a second browser window) cannot double-book a tour
+        // after another order has already claimed the host.
+        add_action('woocommerce_check_cart_items', array($this, 'validate_cart_tours_against_db'));
+        add_action('woocommerce_check_cart_items', array($this, 'validate_future_needs_adult'));
+        add_action('woocommerce_product_query', array($this, 'hide_future_from_catalog'));
+
+        // Carry the linkage through the single-product "choose options" page for
+        // variable / MTO tickets: echo the request params as hidden add-to-cart fields.
+        add_action('woocommerce_before_add_to_cart_button', array($this, 'inject_link_hidden_fields'));
+
         // Admin ticket metabox on order page
         add_action('add_meta_boxes', array($this, 'add_tickets_metabox'));
 
         // AJAX handlers for ticket management
         add_action('wp_ajax_rti_save_tickets', array($this, 'ajax_save_tickets'));
         add_action('wp_ajax_rti_add_ticket', array($this, 'ajax_add_ticket'));
-        add_action('wp_ajax_rti_update_ticket_combination', array($this, 'ajax_update_ticket_combination'));
         add_action('wp_ajax_rti_export_tickets_xlsx', array($this, 'ajax_export_tickets_xlsx'));
 
         // Frontend ticket display on order view (My Account > Orders > View)
@@ -142,9 +161,8 @@ class RT_Event_Manager {
         // Frontend AJAX save handler for customers
         add_action('wp_ajax_rti_frontend_save_tickets', array($this, 'ajax_frontend_save_tickets'));
 
-        // WooCommerce settings for ticket edit cutoff
-        add_filter('woocommerce_get_sections_advanced', array($this, 'add_ticket_settings_section'));
-        add_filter('woocommerce_get_settings_advanced', array($this, 'get_ticket_settings_fields'), 10, 2);
+        // Settings live on the RT Event Manager → Settings admin page (see
+        // add_admin_menu / render_settings_page), not the WooCommerce settings page.
         add_action('woocommerce_admin_field_rti_datetime', array($this, 'render_datetime_field'));
         add_action('woocommerce_update_option_rti_datetime', array($this, 'save_datetime_field'));
 
@@ -153,6 +171,11 @@ class RT_Event_Manager {
 
         // Update ticket statuses when order status changes
         add_action('woocommerce_order_status_changed', array($this, 'on_order_status_changed'), 10, 4);
+
+        // A full WooCommerce refund confirms any refund request and refunds the
+        // tickets. Runs before woocommerce_order_status_changed so the refunded
+        // status is set first and preserved by the recalculation.
+        add_action('woocommerce_order_status_refunded', array($this, 'on_order_refunded'), 10, 1);
 
         // Handle order trashed/deleted
         add_action('woocommerce_trash_order', array($this, 'on_order_trashed'));
@@ -298,15 +321,35 @@ class RT_Event_Manager {
                 padding-bottom: 10px;
                 border-bottom: 2px solid #ccc;
             }
+            .rti-ticket-section {
+                margin-bottom: 40px;
+            }
+            .rti-ticket-section-title {
+                margin: 0 0 15px;
+                font-size: 1.1em;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                color: #660b05;
+            }
+            .rti-field-hint {
+                margin: -6px 0 12px;
+                font-size: 0.85em;
+                color: #777;
+            }
             .rti-ticket-holder-group {
-                margin-bottom: 20px;
-                padding: 15px;
-                background: #f9f9f9;
-                border: 1px solid #e5e5e5;
-                border-radius: 4px;
+                margin: 0 0 32px;
+                padding: 0;
+                background: none;
+                border: 0;
+            }
+            /* A table-style gray divider + extra space between consecutive tickets. */
+            .rti-ticket-holder-group + .rti-ticket-holder-group {
+                margin-top: 32px;
+                padding-top: 32px;
+                border-top: 1px solid #ddd !important;
             }
             .rti-ticket-holder-group h4 {
-                margin: 0 0 10px 0;
+                margin: 0 0 15px 0;
                 font-weight: 600;
             }
             /* Frontend ticket table (order view) */
@@ -383,6 +426,21 @@ class RT_Event_Manager {
             'description' => __('Show a dietary restrictions dropdown for each ticket holder. Only applies when "Is Ticket" is enabled.', 'rt-event-manager'),
         ));
 
+        woocommerce_wp_text_input(array(
+            'id'          => '_rti_start',
+            'label'       => __('Starts (date & time)', 'rt-event-manager'),
+            'type'        => 'datetime-local',
+            'desc_tip'    => true,
+            'description' => __('When this ticket / tour begins — shown in the customer event calendar.', 'rt-event-manager'),
+        ));
+        woocommerce_wp_text_input(array(
+            'id'          => '_rti_end',
+            'label'       => __('Ends (date & time)', 'rt-event-manager'),
+            'type'        => 'datetime-local',
+            'desc_tip'    => true,
+            'description' => __('When this ticket / tour ends — shown in the customer event calendar.', 'rt-event-manager'),
+        ));
+
         echo '</div>';
     }
 
@@ -394,6 +452,8 @@ class RT_Event_Manager {
     public function save_ticket_product_options($post_id) {
         update_post_meta($post_id, '_rti_is_ticket', isset($_POST['_rti_is_ticket']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rti_ticket_dietary', isset($_POST['_rti_ticket_dietary']) ? 'yes' : 'no');
+        update_post_meta($post_id, '_rti_start', sanitize_text_field(wp_unslash($_POST['_rti_start'] ?? '')));
+        update_post_meta($post_id, '_rti_end', sanitize_text_field(wp_unslash($_POST['_rti_end'] ?? '')));
     }
 
     /**
@@ -410,9 +470,8 @@ class RT_Event_Manager {
 
         foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
             $product_id = $cart_item['product_id'];
-            $is_ticket = get_post_meta($product_id, '_rti_is_ticket', true);
 
-            if ('yes' === $is_ticket) {
+            if (self::is_ticket_product($product_id)) {
                 $require_dietary = get_post_meta($product_id, '_rti_ticket_dietary', true);
                 $ticket_items[] = array(
                     'cart_item_key'   => $cart_item_key,
@@ -420,6 +479,16 @@ class RT_Event_Manager {
                     'product_name'    => $cart_item['data']->get_name(),
                     'quantity'        => $cart_item['quantity'],
                     'require_dietary' => 'yes' === $require_dietary,
+                    'kind'            => self::get_ticket_kind_for_product($product_id),
+                    // A linked co-traveller (added from the account with a parent)
+                    // is never the purchaser, even when it is the only ticket in the
+                    // order (ticket_index 0).
+                    'has_parent'      => !empty($cart_item['rti_parent_ticket_id']),
+                    // Details entered in the account "customize ticket" modal
+                    // before checkout (holder name, phone, family, etc.).
+                    'prefill'         => isset($cart_item['rti_prefill']) && is_array($cart_item['rti_prefill']) ? $cart_item['rti_prefill'] : array(),
+                    // Minor gender chosen at add-to-cart (empty when added directly).
+                    'minor_gender'    => isset($cart_item['rti_minor_gender']) ? $cart_item['rti_minor_gender'] : '',
                 );
             }
         }
@@ -448,16 +517,62 @@ class RT_Event_Manager {
             }
         }
 
+        // If the buyer already holds their own event ticket, every ticket in this
+        // new order is for someone else — request full details for all of them.
+        $buyer_has_ticket = $current_user->ID && self::user_has_own_event_ticket($current_user->ID);
+
+        // Pre-compute a flat list of every ticket slot so a pretour can offer a
+        // picker of the event / Future member tickets in this same order to link
+        // to (the pretour then inherits that attendee's details).
+        $host_options  = array(); // global ticket index => fallback label
+        $host_products = array(); // global ticket index => product name
+        $event_slots   = array(); // global ticket index => true (adult event slots)
+        $slot_idx = 0;
+        foreach ($ticket_items as $item) {
+            for ($q = 0; $q < $item['quantity']; $q++) {
+                if (in_array($item['kind'], array('event', 'minor'), true)) {
+                    $host_options[$slot_idx] = sprintf(
+                        __('Ticket %d — %s', 'rt-event-manager'),
+                        $slot_idx + 1,
+                        $item['product_name']
+                    );
+                    $host_products[$slot_idx] = $item['product_name'];
+                }
+                if ('event' === $item['kind']) {
+                    $event_slots[$slot_idx] = true;
+                }
+                $slot_idx++;
+            }
+        }
+
+        // Guardian options for Future member tickets: adult event tickets already
+        // on the buyer's account (static labels) plus adult event tickets in this
+        // cart (dynamic, live holder names — value is the slot index).
+        $guardian_account = array(); // ticket id => holder name
+        if ($current_user->ID) {
+            foreach (self::get_tickets_for_user($current_user->ID) as $at) {
+                if ('event' === self::get_ticket_kind($at)) {
+                    $name = ($at['holder_name'] !== '') ? $at['holder_name'] : sprintf(__('Ticket #%d', 'rt-event-manager'), absint($at['id']));
+                    $guardian_account[absint($at['id'])] = $name;
+                }
+            }
+        }
+
         $ticket_index = 0;
 
         echo '<div id="rti-ticket-holders">';
         echo '<h3>' . esc_html__('Ticket Holders', 'rt-event-manager') . '</h3>';
+
+        // Buffer each ticket's fields and bucket them by kind so they can be shown
+        // grouped in sections, while the field index stays tied to the cart slot.
+        $sections = array('event' => array(), 'minor' => array(), 'pretour' => array(), 'daytour' => array(), 'other' => array());
 
         foreach ($ticket_items as $item) {
             for ($i = 0; $i < $item['quantity']; $i++) {
                 $ticket_num = $ticket_index + 1;
                 $field_prefix = 'rti_ticket_' . $ticket_index;
 
+                ob_start();
                 echo '<div class="rti-ticket-holder-group">';
                 echo '<h4>' . esc_html(sprintf(
                     __('Ticket %d — %s', 'rt-event-manager'),
@@ -465,17 +580,139 @@ class RT_Event_Manager {
                     $item['product_name']
                 )) . '</h4>';
 
-                $name_value = ($ticket_index === 0) ? $default_name : '';
+                $is_minor = (isset($item['kind']) && 'minor' === $item['kind']);
+                // A ticket is "additional" (for someone other than the purchaser)
+                // when it is not the first ticket of the order OR it is a linked
+                // co-traveller added from the account.
+                $is_additional = ($ticket_index > 0) || !empty($item['has_parent']) || $buyer_has_ticket;
+                $prefill = isset($item['prefill']) ? $item['prefill'] : array();
+
+                // A pretour / day tour added from the cart (no explicit parent, not
+                // prefilled) is booked for one of the attendees in this same order
+                // rather than a new person — offer a picker to choose which one.
+                $item_kind = isset($item['kind']) ? $item['kind'] : '';
+                $is_cart_tour = in_array($item_kind, array('pretour', 'daytour'), true) && empty($item['has_parent']);
+
+                if (!empty($prefill)) {
+                    // Details were entered in the account modal before checkout —
+                    // show a read-only summary and pass them through as hidden
+                    // fields so the normal save path stores them unchanged.
+                    $this->render_prefilled_ticket_fields($field_prefix, $prefill);
+                } elseif ($is_cart_tour && !empty($host_options)) {
+                    // Link picker: the tour inherits the chosen attendee's name,
+                    // phone, family, club and dietary details at checkout.
+                    $tour_word = ('daytour' === $item_kind) ? __('day tour', 'rt-event-manager') : __('pretour', 'rt-event-manager');
+                    $link_opts = array('' => __('— Select the attendee —', 'rt-event-manager'));
+                    foreach ($host_options as $hidx => $hlabel) {
+                        $link_opts[$hidx] = $hlabel;
+                    }
+                    woocommerce_form_field($field_prefix . '_link', array(
+                        'type'        => 'select',
+                        'label'       => sprintf(__('This %s is for', 'rt-event-manager'), $tour_word),
+                        'required'    => true,
+                        'class'       => array('form-row-wide'),
+                        'options'     => $link_opts,
+                    ), '');
+                    // Static hint (not the WC field description, which toggles on
+                    // focus and shifts the layout).
+                    echo '<p class="rti-field-hint">' . esc_html(sprintf(__('Choose which attendee is joining this %s — it uses their name and details.', 'rt-event-manager'), $tour_word)) . '</p>';
+                } else {
+
+                $name_value = (!$is_additional && !$is_minor) ? $default_name : '';
 
                 woocommerce_form_field($field_prefix . '_name', array(
                     'type'     => 'text',
-                    'label'    => __('Ticket Holder Name', 'rt-event-manager'),
+                    'label'    => $is_minor ? __('Child\'s Name', 'rt-event-manager') : __('Ticket Holder Name', 'rt-event-manager'),
                     'required' => true,
                     'class'    => array('form-row-wide'),
                 ), $name_value);
 
-                // RTI Family dropdown for subsequent tickets (ticket #1 inherits from billing)
-                if ($ticket_index > 0) {
+                // Minors (Future Tabler / Circler) do not require a phone number,
+                // but must provide a date of birth for age verification.
+                if ($is_minor) {
+                    $min_age = self::get_minor_min_age();
+                    $max_age = self::get_minor_max_age();
+                    $dob_attrs = array();
+                    $event_date = self::get_event_date();
+                    if ($event_date !== '' && ($ev_ts = strtotime($event_date))) {
+                        $dob_attrs['max'] = gmdate('Y-m-d', strtotime('-' . $min_age . ' years', $ev_ts));
+                        $dob_attrs['min'] = gmdate('Y-m-d', strtotime('-' . ($max_age + 1) . ' years +1 day', $ev_ts));
+                    }
+                    woocommerce_form_field($field_prefix . '_dob', array(
+                        'type'              => 'date',
+                        'label'             => __('Date of Birth', 'rt-event-manager'),
+                        'required'          => true,
+                        'class'             => array('form-row-wide'),
+                        'description'       => sprintf(
+                            /* translators: 1: min age, 2: max age */
+                            __('Future members must be between %1$d and %2$d years old at the time of the event.', 'rt-event-manager'),
+                            $min_age,
+                            $max_age
+                        ),
+                        'custom_attributes' => $dob_attrs,
+                    ), '');
+
+                    // Gender/type — only asked here when it wasn't already chosen
+                    // when the ticket was added (i.e. added directly from the cart).
+                    $item_gender = isset($item['minor_gender']) ? $item['minor_gender'] : '';
+                    if ('' === $item_gender) {
+                        woocommerce_form_field($field_prefix . '_minor_gender', array(
+                            'type'     => 'select',
+                            'label'    => __('Type', 'rt-event-manager'),
+                            'required' => true,
+                            'class'    => array('form-row-wide'),
+                            'options'  => array(
+                                'tabler'  => __('Future Tabler', 'rt-event-manager'),
+                                'circler' => __('Future Circler', 'rt-event-manager'),
+                            ),
+                        ), '');
+                    }
+
+                    // Guardian picker: the accompanying adult, chosen from the
+                    // buyer's account event tickets or the adult tickets in this
+                    // cart. Only shown when the minor was not already linked to a
+                    // guardian when it was added from the account.
+                    if (empty($item['has_parent'])) {
+                        $g_opts = array('' => __('— Select the guardian —', 'rt-event-manager'));
+                        foreach ($guardian_account as $gid => $gname) {
+                            $g_opts['acct:' . $gid] = $gname;
+                        }
+                        foreach ($event_slots as $es => $unused) {
+                            if (isset($host_options[$es])) {
+                                $g_opts[$es] = $host_options[$es];
+                            }
+                        }
+                        if (count($g_opts) > 1) {
+                            woocommerce_form_field($field_prefix . '_guardian', array(
+                                'type'        => 'select',
+                                'label'       => __('Guardian', 'rt-event-manager'),
+                                'required'    => true,
+                                'class'       => array('form-row-wide'),
+                                'options'     => $g_opts,
+                            ), '');
+                            echo '<p class="rti-field-hint">' . esc_html__('Choose the accompanying adult (parent / guardian) for this child.', 'rt-event-manager') . '</p>';
+                        }
+                    }
+                } else {
+                    woocommerce_form_field($field_prefix . '_phone', array(
+                        'type'              => 'tel',
+                        'label'             => __('Phone Number', 'rt-event-manager'),
+                        'required'          => true,
+                        'class'             => array('form-row-wide'),
+                        'placeholder'       => __('+41 79 123 45 67', 'rt-event-manager'),
+                        'description'       => __('Please use international format, starting with your country code (e.g. +41…).', 'rt-event-manager'),
+                        'custom_attributes' => array(
+                            'pattern'   => '\+[0-9\s()\-]{7,}',
+                            'inputmode' => 'tel',
+                            'title'     => __('Enter the number in international format, e.g. +41791234567', 'rt-event-manager'),
+                        ),
+                    ), '');
+                }
+
+                // Additional travellers carry their OWN organization details (they
+                // are not the purchaser). The purchaser's own ticket inherits the
+                // buyer's family / club / .WORLD ID; minors carry none of these.
+                if ($is_additional && !$is_minor) {
                     woocommerce_form_field($field_prefix . '_family', array(
                         'type'     => 'select',
                         'label'    => __('Family Organization', 'rt-event-manager'),
@@ -483,6 +720,17 @@ class RT_Event_Manager {
                         'class'    => array('form-row-wide'),
                         'options'  => array('' => __('— Select Organization —', 'rt-event-manager')) + self::$family_options,
                     ), '9');
+
+                    woocommerce_form_field($field_prefix . '_club', array(
+                        'type'     => 'text',
+                        'label'    => __('Club', 'rt-event-manager'),
+                        'required' => false,
+                        'class'    => array('form-row-wide'),
+                    ), '');
+
+                    // .WORLD ID is not collected on the checkout form (kept as a
+                    // hidden field so the save path still receives the key).
+                    echo '<input type="hidden" name="' . esc_attr($field_prefix . '_world_id') . '" value="" />';
                 }
 
                 if ($item['require_dietary']) {
@@ -490,40 +738,137 @@ class RT_Event_Manager {
                         'type'     => 'select',
                         'label'    => __('Dietary Restrictions', 'rt-event-manager'),
                         'required' => true,
-                        'class'    => array('form-row-wide'),
-                        'options'  => array(
-                            'none'       => __('None', 'rt-event-manager'),
-                            'vegetarian' => __('Vegetarian', 'rt-event-manager'),
-                        ),
+                        'class'    => array('form-row-wide', 'rti-dietary-select'),
+                        'options'  => self::get_dietary_options(false),
                     ), '');
+
+                    // Conditional allergy details field (shown only when "Allergies"
+                    // is selected), with admin-maintained type-ahead suggestions.
+                    $allergy_suggestions = self::get_allergy_suggestions();
+                    $list_id = $field_prefix . '_allergy_list';
+                    echo '<p class="form-row form-row-wide rti-allergy-field" id="' . esc_attr($field_prefix) . '_allergy_field" style="display:none;">';
+                    echo '<label for="' . esc_attr($field_prefix) . '_allergy">' . esc_html__('Please specify the allergies', 'rt-event-manager') . '&nbsp;<abbr class="required" title="required">*</abbr></label>';
+                    echo '<span class="woocommerce-input-wrapper">';
+                    echo '<input type="text" class="input-text" id="' . esc_attr($field_prefix) . '_allergy" name="' . esc_attr($field_prefix) . '_allergy" value="" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" autocomplete="off" />';
+                    if (!empty($allergy_suggestions)) {
+                        echo '<datalist id="' . esc_attr($list_id) . '">';
+                        foreach ($allergy_suggestions as $s) {
+                            echo '<option value="' . esc_attr($s) . '"></option>';
+                        }
+                        echo '</datalist>';
+                    }
+                    echo '</span></p>';
                 }
+
+                } // end visible-fields branch
 
                 // Hidden field mapping this ticket index to its product ID
                 echo '<input type="hidden" name="rti_ticket_product_map[' . esc_attr($ticket_index) . ']" value="' . esc_attr($item['product_id']) . '" />';
 
                 echo '</div>';
 
+                $bucket = in_array($item['kind'], array('event', 'minor', 'pretour', 'daytour'), true) ? $item['kind'] : 'other';
+                $sections[$bucket][] = ob_get_clean();
+
                 $ticket_index++;
             }
+        }
+
+        // Emit the buffered tickets grouped into labelled sections.
+        $section_labels = array(
+            'event'   => __('Event Tickets', 'rt-event-manager'),
+            'minor'   => __('Future Tablers / Future Circlers', 'rt-event-manager'),
+            'pretour' => __('Pretours', 'rt-event-manager'),
+            'daytour' => __('Day Tours', 'rt-event-manager'),
+            'other'   => __('Other', 'rt-event-manager'),
+        );
+        foreach ($section_labels as $bucket => $label) {
+            if (empty($sections[$bucket])) {
+                continue;
+            }
+            echo '<section class="rti-ticket-section">';
+            echo '<h4 class="rti-ticket-section-title">' . esc_html($label) . '</h4>';
+            echo implode('', $sections[$bucket]); // phpcs:ignore — already-escaped buffered markup
+            echo '</section>';
         }
 
         // Hidden field to track total ticket count
         echo '<input type="hidden" name="rti_ticket_count" value="' . esc_attr($ticket_index) . '" />';
 
-        // Emergency Contact (once for the whole order, only shown when tickets are purchased)
-        $emergency_value = '';
-        if (is_user_logged_in()) {
-            $emergency_value = get_user_meta(get_current_user_id(), 'rti_emergency_contact', true);
-        }
-        woocommerce_form_field('rti_emergency_contact', array(
-            'type'        => 'text',
-            'label'       => __('Emergency Contact', 'rt-event-manager'),
-            'required'    => false,
-            'class'       => array('form-row-wide'),
-            'placeholder' => __('Name, Phone, Email', 'rt-event-manager'),
-        ), $emergency_value);
+        // Toggle each ticket's allergy-details field based on its dietary select,
+        // and keep the "This tour is for" pickers labelled with the live holder
+        // names entered above (falling back to "Ticket N — Product").
+        ?>
+        <script type="text/javascript">
+        (function () {
+            function toggleAllergy(sel) {
+                var prefix = sel.name.replace(/_dietary$/, '');
+                var field  = document.getElementById(prefix + '_allergy_field');
+                if (field) { field.style.display = (sel.value === 'allergies') ? '' : 'none'; }
+            }
+            var selects = document.querySelectorAll('#rti-ticket-holders select[name$="_dietary"]');
+            selects.forEach(function (sel) {
+                toggleAllergy(sel);
+                sel.addEventListener('change', function () { toggleAllergy(sel); });
+            });
+
+            var products  = <?php echo wp_json_encode($host_products); ?>;
+            var fallbacks = <?php echo wp_json_encode($host_options); ?>;
+            function holderName(idx) {
+                var el = document.getElementById('rti_ticket_' + idx + '_name');
+                return el ? el.value.trim() : '';
+            }
+            function refreshPickers() {
+                var links = document.querySelectorAll('#rti-ticket-holders select[name$="_link"], #rti-ticket-holders select[name$="_guardian"]');
+                links.forEach(function (sel) {
+                    Array.prototype.forEach.call(sel.options, function (opt) {
+                        // Only the cart-slot options (numeric value) track a live
+                        // holder name; blank and account (acct:*) options stay put.
+                        if (!/^\d+$/.test(opt.value)) { return; }
+                        var name = holderName(opt.value);
+                        if (name !== '') {
+                            var product = products[opt.value] ? ' — ' + products[opt.value] : '';
+                            opt.textContent = name + product;
+                        } else if (fallbacks[opt.value]) {
+                            opt.textContent = fallbacks[opt.value];
+                        }
+                    });
+                });
+            }
+            document.addEventListener('input', function (e) {
+                if (e.target && /^rti_ticket_\d+_name$/.test(e.target.id || '')) { refreshPickers(); }
+            });
+            refreshPickers();
+        })();
+        </script>
+        <?php
 
         echo '</div>';
+    }
+
+    /**
+     * Render a prefilled ticket (details entered in the account modal) as a
+     * read-only summary plus hidden inputs, so the standard checkout save path
+     * stores them without the buyer re-entering anything.
+     *
+     * @param string $field_prefix e.g. rti_ticket_0
+     * @param array  $prefill      name/phone/family/club/world_id/dietary/allergy/dob
+     */
+    private function render_prefilled_ticket_fields($field_prefix, $prefill) {
+        $val = function ($k) use ($prefill) {
+            return isset($prefill[$k]) ? $prefill[$k] : '';
+        };
+
+        $summary_bits = array_filter(array($val('name'), $val('phone')));
+        echo '<p class="rti-prefilled-summary">' . esc_html(implode(' — ', $summary_bits)) . ' <em>(' . esc_html__('details entered', 'rt-event-manager') . ')</em></p>';
+
+        // Marker so checkout validation skips this ticket — it was already
+        // validated when it was added from the account.
+        echo '<input type="hidden" name="' . esc_attr($field_prefix . '_prefilled') . '" value="1" />';
+
+        foreach (array('name', 'phone', 'family', 'club', 'world_id', 'dietary', 'allergy', 'dob') as $key) {
+            echo '<input type="hidden" name="' . esc_attr($field_prefix . '_' . $key) . '" value="' . esc_attr($val($key)) . '" />';
+        }
     }
 
     /**
@@ -532,9 +877,31 @@ class RT_Event_Manager {
     public function validate_ticket_holder_fields() {
         $ticket_count = isset($_POST['rti_ticket_count']) ? absint($_POST['rti_ticket_count']) : 0;
 
+        $product_map = isset($_POST['rti_ticket_product_map']) ? array_map('absint', (array) $_POST['rti_ticket_product_map']) : array();
+
         for ($i = 0; $i < $ticket_count; $i++) {
             $field_prefix = 'rti_ticket_' . $i;
             $name_key = $field_prefix . '_name';
+            $phone_key = $field_prefix . '_phone';
+
+            // Prefilled tickets (added and validated from the account) are not
+            // re-validated at checkout.
+            if (!empty($_POST[$field_prefix . '_prefilled'])) {
+                continue;
+            }
+
+            // A cart pretour uses the "This pretour is for" picker instead of its
+            // own holder fields — just require that an attendee was chosen.
+            if (isset($_POST[$field_prefix . '_link'])) {
+                $link = wp_unslash($_POST[$field_prefix . '_link']);
+                if ('' === trim((string) $link) || !is_numeric($link)) {
+                    wc_add_notice(sprintf(
+                        __('Please choose which attendee Ticket %d is for.', 'rt-event-manager'),
+                        $i + 1
+                    ), 'error');
+                }
+                continue;
+            }
 
             if (empty($_POST[$name_key])) {
                 wc_add_notice(sprintf(
@@ -542,7 +909,226 @@ class RT_Event_Manager {
                     $i + 1
                 ), 'error');
             }
+
+            // If dietary is "Allergies", the details are required (applies to any
+            // ticket kind, including minors).
+            $dietary_val = isset($_POST[$field_prefix . '_dietary']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_dietary'])) : '';
+            if ('allergies' === $dietary_val && trim((string) ($_POST[$field_prefix . '_allergy'] ?? '')) === '') {
+                wc_add_notice(sprintf(
+                    __('Please specify the allergies for Ticket %d.', 'rt-event-manager'),
+                    $i + 1
+                ), 'error');
+            }
+
+            // Minors (Future Tabler / Circler) are exempt from the phone
+            // requirement but must provide a date of birth within the age range.
+            $pid = isset($product_map[$i]) ? $product_map[$i] : 0;
+            if ($pid && 'minor' === self::get_ticket_kind_for_product($pid)) {
+                $dob_raw = isset($_POST[$field_prefix . '_dob']) ? wp_unslash($_POST[$field_prefix . '_dob']) : '';
+                if (trim($dob_raw) === '') {
+                    wc_add_notice(sprintf(
+                        __('Please enter the date of birth for Ticket %d.', 'rt-event-manager'),
+                        $i + 1
+                    ), 'error');
+                } elseif (!self::is_valid_minor_dob($dob_raw)) {
+                    wc_add_notice(sprintf(
+                        /* translators: 1: ticket number, 2: min age, 3: max age */
+                        __('Ticket %1$d: Future members must be between %2$d and %3$d years old at the time of the event.', 'rt-event-manager'),
+                        $i + 1,
+                        self::get_minor_min_age(),
+                        self::get_minor_max_age()
+                    ), 'error');
+                }
+                // When the type/gender is asked on the form (added directly), it
+                // must be chosen.
+                if (isset($_POST[$field_prefix . '_minor_gender'])) {
+                    $g = sanitize_key(wp_unslash($_POST[$field_prefix . '_minor_gender']));
+                    if (!in_array($g, array('tabler', 'circler'), true)) {
+                        wc_add_notice(sprintf(
+                            __('Please choose the type for Ticket %d.', 'rt-event-manager'),
+                            $i + 1
+                        ), 'error');
+                    }
+                }
+                // When the guardian picker is shown, one must be chosen.
+                if (isset($_POST[$field_prefix . '_guardian']) && '' === trim((string) wp_unslash($_POST[$field_prefix . '_guardian']))) {
+                    wc_add_notice(sprintf(
+                        __('Please choose the guardian for Ticket %d.', 'rt-event-manager'),
+                        $i + 1
+                    ), 'error');
+                }
+                continue;
+            }
+
+            $phone_raw = isset($_POST[$phone_key]) ? wp_unslash($_POST[$phone_key]) : '';
+            if (trim($phone_raw) === '') {
+                wc_add_notice(sprintf(
+                    __('Please enter the phone number for Ticket %d.', 'rt-event-manager'),
+                    $i + 1
+                ), 'error');
+            } elseif (!self::is_valid_intl_phone($phone_raw)) {
+                wc_add_notice(sprintf(
+                    __('Please enter the phone number for Ticket %d in international format, e.g. +41791234567.', 'rt-event-manager'),
+                    $i + 1
+                ), 'error');
+            }
         }
+
+        // Validate the "This pretour is for" picker selections (one tour per
+        // attendee; a Future member's tour must match their guardian's).
+        $this->validate_pretour_assignments();
+    }
+
+    /**
+     * Validate pretour picker selections at checkout:
+     *  - an attendee may be assigned at most one tour (no double-booking), and
+     *  - a Future member may only join the same tour as their guardian.
+     */
+    private function validate_pretour_assignments() {
+        $ticket_count = isset($_POST['rti_ticket_count']) ? absint($_POST['rti_ticket_count']) : 0;
+        if ($ticket_count < 1) {
+            return;
+        }
+        $product_map = isset($_POST['rti_ticket_product_map']) ? array_map('absint', (array) $_POST['rti_ticket_product_map']) : array();
+
+        // Kind per ticket index and the guardian (first event ticket in the order).
+        $kind           = array();
+        $guardian_index = -1;
+        for ($i = 0; $i < $ticket_count; $i++) {
+            $pid       = isset($product_map[$i]) ? $product_map[$i] : 0;
+            $kind[$i]  = $pid ? self::get_ticket_kind_for_product($pid) : 'event';
+            if ($guardian_index < 0 && 'event' === $kind[$i]) {
+                $guardian_index = $i;
+            }
+        }
+
+        // Collect picker selections per tour kind: kind => host index => products.
+        // Pretours and day tours are tracked separately (a host may have one of
+        // each).
+        $assign = array();
+        for ($i = 0; $i < $ticket_count; $i++) {
+            $tk = isset($kind[$i]) ? $kind[$i] : '';
+            if (!in_array($tk, array('pretour', 'daytour'), true) || !isset($_POST['rti_ticket_' . $i . '_link'])) {
+                continue;
+            }
+            $raw = wp_unslash($_POST['rti_ticket_' . $i . '_link']);
+            if ('' === trim((string) $raw) || !is_numeric($raw)) {
+                continue; // emptiness is reported by the required-field check
+            }
+            $host = absint($raw);
+            if ($host === $i || !isset($kind[$host])) {
+                continue;
+            }
+            if (!in_array($kind[$host], array('event', 'minor'), true)) {
+                wc_add_notice(sprintf(
+                    __('Ticket %d cannot be assigned to that attendee.', 'rt-event-manager'),
+                    $i + 1
+                ), 'error');
+                continue;
+            }
+            $assign[$tk][$host][] = isset($product_map[$i]) ? absint($product_map[$i]) : 0;
+        }
+
+        // Pretours: one per attendee. Day tours: several are allowed per attendee
+        // as long as their times do not overlap.
+        foreach ($assign as $tk => $hosts) {
+            foreach ($hosts as $host => $products) {
+                if ('pretour' === $tk) {
+                    if (count($products) > 1) {
+                        wc_add_notice(sprintf(
+                            __('%s can join only one pretour. Please assign the other pretour to a different attendee.', 'rt-event-manager'),
+                            $this->attendee_label_from_post($host)
+                        ), 'error');
+                    }
+                    continue;
+                }
+                // Day tours — flag only genuinely overlapping selections.
+                $count = count($products);
+                $clash = false;
+                for ($a = 0; $a < $count && !$clash; $a++) {
+                    for ($b = $a + 1; $b < $count; $b++) {
+                        if (self::daytours_conflict($products[$a], $products[$b])) {
+                            $clash = true;
+                            break;
+                        }
+                    }
+                }
+                if ($clash) {
+                    wc_add_notice(sprintf(
+                        __('%s has overlapping day tours. Day tours for the same person must not overlap in time — choose day tours at different times, or assign one to a different attendee.', 'rt-event-manager'),
+                        $this->attendee_label_from_post($host)
+                    ), 'error');
+                }
+            }
+        }
+
+        // A Future member's tour must match one their CHOSEN guardian is also on.
+        // The guardian is taken from that minor's guardian picker — either another
+        // attendee in this cart or an event ticket already on the account.
+        foreach ($assign as $tk => $hostmap) {
+            $tour_word = ('daytour' === $tk) ? __('day tour', 'rt-event-manager') : __('pretour', 'rt-event-manager');
+            foreach ($hostmap as $host => $products) {
+                if ('minor' !== $kind[$host]) {
+                    continue;
+                }
+                $guardian_products = $this->guardian_tour_products($host, $tk, $assign);
+                foreach ($products as $p) {
+                    if (!in_array($p, $guardian_products, true)) {
+                        wc_add_notice(sprintf(
+                            /* translators: 1: attendee name, 2: pretour / day tour */
+                            __('%1$s can only join the same %2$s as their guardian. Please also add that %2$s for their guardian.', 'rt-event-manager'),
+                            $this->attendee_label_from_post($host),
+                            $tour_word
+                        ), 'error');
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The tour products (of a kind) the chosen guardian of a Future member is on.
+     * The guardian comes from that minor's guardian picker: a cart attendee slot
+     * (its tours assigned in this same cart) or an account event ticket (its tours
+     * already stored in the database).
+     *
+     * @param int    $minor_slot Checkout ticket index of the Future member.
+     * @param string $kind       'pretour' | 'daytour'
+     * @param array  $assign     kind => host slot => product ids assigned this cart.
+     * @return int[] Guardian's tour product ids.
+     */
+    private function guardian_tour_products($minor_slot, $kind, $assign) {
+        $raw = isset($_POST['rti_ticket_' . $minor_slot . '_guardian'])
+            ? sanitize_text_field(wp_unslash($_POST['rti_ticket_' . $minor_slot . '_guardian']))
+            : '';
+        if (is_numeric($raw)) {
+            $g = absint($raw);
+            return isset($assign[$kind][$g]) ? $assign[$kind][$g] : array();
+        }
+        if (0 === strpos($raw, 'acct:')) {
+            $gid = absint(substr($raw, 5));
+            $out = array();
+            if ($gid) {
+                foreach (self::get_child_tours($gid, $kind) as $ch) {
+                    $out[] = absint($ch['product_id']);
+                }
+            }
+            return $out;
+        }
+        return array();
+    }
+
+    /**
+     * Human label for the attendee at a given checkout ticket index — their typed
+     * name if present, otherwise the ticket number.
+     *
+     * @param int $index
+     * @return string
+     */
+    private function attendee_label_from_post($index) {
+        $name = isset($_POST['rti_ticket_' . $index . '_name']) ? sanitize_text_field(wp_unslash($_POST['rti_ticket_' . $index . '_name'])) : '';
+        return ('' !== trim($name)) ? $name : sprintf(__('Ticket %d', 'rt-event-manager'), absint($index) + 1);
     }
 
     /**
@@ -581,7 +1167,7 @@ class RT_Event_Manager {
                 // Section: Attendee - before first_name
                 var $firstName = $billingForm.find('#billing_first_name_field');
                 if ($firstName.length && !$firstName.prev('.wc-checkout-section-header').length) {
-                    $firstName.before('<h4 class="wc-checkout-section-header"><?php echo esc_js(__('Attendee', 'rt-event-manager')); ?></h4>');
+                    $firstName.before('<h4 class="wc-checkout-section-header"><?php echo esc_js(__('Purchased by', 'rt-event-manager')); ?></h4>');
                 }
 
                 // Section: Billing Address - before address_1
@@ -1083,9 +1669,9 @@ class RT_Event_Manager {
         // Emergency Contact is now displayed in the Ticket Holders section
         // (only shown when a ticket product is in the cart).
 
-        // Order comments (Additional Information) - move to this section
+        // Remove the default WooCommerce "Order notes" textarea from checkout.
         if (isset($fields['order']['order_comments'])) {
-            $fields['order']['order_comments']['priority'] = 23;
+            unset($fields['order']['order_comments']);
         }
 
         // ===========================================
@@ -1174,19 +1760,27 @@ class RT_Event_Manager {
             // Only iterate ticket items (_rti_is_ticket=yes) to match the checkout form's
             // ticket_product_map indexing which also only counts ticket items.
             $combination_map = array(); // ticket_index => combination_id
+            $kind_map        = array(); // ticket_index => 'event'|'pretour'|'minor'
+            $parent_map      = array(); // ticket_index => parent ticket id
+            $minor_type_map  = array(); // ticket_index => 'tabler'|'circler'
             $item_combo_index = 0;
             foreach ($order->get_items() as $item) {
                 $pid = $item->get_product_id();
-                $is_ticket = get_post_meta($pid, '_rti_is_ticket', true);
-                if ('yes' !== $is_ticket) {
+                if (!self::is_ticket_product($pid)) {
                     continue;
                 }
                 $combo_id = absint($item->get_meta('_mto_combination_id'));
+                $kind     = self::get_ticket_kind_for_product($pid);
+                $parent   = absint($item->get_meta('_rti_parent_ticket_id'));
+                $gender   = sanitize_text_field($item->get_meta('_rti_minor_gender'));
                 $qty = $item->get_quantity();
                 for ($q = 0; $q < $qty; $q++) {
                     if ($combo_id) {
                         $combination_map[$item_combo_index] = $combo_id;
                     }
+                    $kind_map[$item_combo_index]       = $kind;
+                    $parent_map[$item_combo_index]     = $parent;
+                    $minor_type_map[$item_combo_index] = ('minor' === $kind) ? $gender : '';
                     $item_combo_index++;
                 }
             }
@@ -1198,22 +1792,54 @@ class RT_Event_Manager {
             // Get the purchaser's .WORLD ID from user meta (not on checkout form)
             $buyer_world_id = $user_id ? get_user_meta($user_id, 'world_id', true) : '';
 
+            // If the buyer already owns their own event ticket (a prior order),
+            // every ticket here is an additional co-traveller with its own details.
+            $buyer_has_ticket = $user_id && self::user_has_own_event_ticket($user_id, $order_id);
+
             for ($i = 0; $i < $ticket_count; $i++) {
                 $field_prefix = 'rti_ticket_' . $i;
                 $holder_name  = isset($_POST[$field_prefix . '_name']) ? sanitize_text_field($_POST[$field_prefix . '_name']) : '';
+                $phone        = isset($_POST[$field_prefix . '_phone']) ? self::normalize_phone(wp_unslash($_POST[$field_prefix . '_phone'])) : '';
                 $dietary      = isset($_POST[$field_prefix . '_dietary']) ? sanitize_text_field($_POST[$field_prefix . '_dietary']) : '';
+                $allergy      = ('allergies' === $dietary && isset($_POST[$field_prefix . '_allergy'])) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_allergy'])) : '';
                 $product_id   = isset($ticket_product_map[$i]) ? $ticket_product_map[$i] : 0;
                 $combo_id     = isset($combination_map[$i]) ? $combination_map[$i] : 0;
+                $kind         = isset($kind_map[$i]) ? $kind_map[$i] : 'event';
+                $parent_id    = isset($parent_map[$i]) ? $parent_map[$i] : 0;
+                $minor_type   = isset($minor_type_map[$i]) ? $minor_type_map[$i] : '';
+                $is_minor     = ('minor' === $kind);
+                // A ticket is "additional" (not the purchaser's own) when it is not
+                // the first ticket of the order, OR it is a linked co-traveller, OR
+                // the buyer already holds their own ticket from a previous order.
+                $is_additional = ($i > 0) || ($parent_id > 0) || $buyer_has_ticket;
+                $dob          = ($is_minor && isset($_POST[$field_prefix . '_dob'])) ? self::sanitize_dob(wp_unslash($_POST[$field_prefix . '_dob'])) : '';
 
-                // Ticket #1 uses the buyer's family; subsequent tickets have their own selector
-                if ($i === 0) {
-                    $ticket_family = $buyer_family;
-                } else {
-                    $ticket_family = isset($_POST[$field_prefix . '_family']) ? sanitize_text_field($_POST[$field_prefix . '_family']) : '9';
+                // Gender/type from the checkout form when it wasn't chosen at
+                // add-to-cart (Future member added directly alongside an event ticket).
+                if ($is_minor && '' === $minor_type && isset($_POST[$field_prefix . '_minor_gender'])) {
+                    $g = sanitize_key(wp_unslash($_POST[$field_prefix . '_minor_gender']));
+                    if (in_array($g, array('tabler', 'circler'), true)) {
+                        $minor_type = $g;
+                    }
                 }
 
-                // Ticket #1 always gets the buyer's .WORLD ID and QR code
-                $world_id    = ($i === 0 && $user_id) ? $buyer_world_id : '';
+                // The purchaser's own ticket inherits their family / club / .WORLD
+                // ID. Additional travellers carry their OWN details entered on the
+                // checkout form. Minors carry none of these.
+                if ($is_minor) {
+                    $ticket_family = '';
+                    $ticket_club   = '';
+                    $world_id      = '';
+                } elseif (!$is_additional) {
+                    $ticket_family = $buyer_family;
+                    $ticket_club   = $buyer_club;
+                    $world_id      = $user_id ? $buyer_world_id : '';
+                } else {
+                    $ticket_family = isset($_POST[$field_prefix . '_family']) ? sanitize_text_field($_POST[$field_prefix . '_family']) : '9';
+                    $ticket_club   = isset($_POST[$field_prefix . '_club']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_club'])) : '';
+                    $world_id      = isset($_POST[$field_prefix . '_world_id']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_world_id'])) : '';
+                }
+
                 $qr_code_url = '';
                 if (!empty($world_id)) {
                     $qr_code_url = 'tablerworld:///member?id=' . $world_id;
@@ -1223,22 +1849,730 @@ class RT_Event_Manager {
                 $ticket_status = rt_event_manager_determine_ticket_status($order, $holder_name);
 
                 $this->insert_ticket(array(
-                    'order_id'       => $order_id,
-                    'product_id'     => $product_id,
-                    'combination_id' => $combo_id,
-                    'ticket_index'   => $i,
-                    'holder_name'    => $holder_name,
-                    'rti_family'     => $ticket_family,
-                    'rti_club'       => $buyer_club,
-                    'dietary'        => $dietary,
-                    'world_id'       => $world_id,
-                    'qr_code_url'    => $qr_code_url,
-                    'status'         => $ticket_status,
+                    'order_id'         => $order_id,
+                    'product_id'       => $product_id,
+                    'combination_id'   => $combo_id,
+                    'parent_ticket_id' => $parent_id,
+                    'ticket_kind'      => $kind,
+                    'minor_type'       => $minor_type,
+                    'ticket_index'     => $i,
+                    'holder_name'      => $holder_name,
+                    'phone'            => $phone,
+                    'dob'              => $dob,
+                    'rti_family'       => $ticket_family,
+                    'rti_club'         => $ticket_club,
+                    'dietary'          => $dietary,
+                    'allergy_details'  => $allergy,
+                    'world_id'         => $world_id,
+                    'qr_code_url'      => $qr_code_url,
+                    'status'           => $ticket_status,
+                    // Initial owner is the buyer; a transfer can reassign it later.
+                    'owner_user_id'    => $user_id,
                 ));
+            }
+
+            // Link any Future member or pretour added directly (no parent yet) to
+            // this order's own tickets. Future members attach to the buyer's event
+            // ticket (their guardian); pretours are spread one-per-host across the
+            // event AND Future member tickets, so no ticket ends up with more than
+            // one pretour.
+            $order_tickets    = self::get_tickets_for_order($order_id);
+            $event_ticket_ids = array();
+            $minor_ticket_ids = array();
+            foreach ($order_tickets as $ot) {
+                $k = self::get_ticket_kind($ot);
+                if ('event' === $k && !absint($ot['parent_ticket_id'])) {
+                    $event_ticket_ids[] = absint($ot['id']);
+                } elseif ('minor' === $k) {
+                    $minor_ticket_ids[] = absint($ot['id']);
+                }
+            }
+            // Pretours are one per host; day tours may stack on a host as long as
+            // they do not overlap in time (checked live against DB children, which
+            // update_ticket writes immediately below).
+            $tour_taken = array('pretour' => array());
+            foreach ($order_tickets as $ot) {
+                if ('pretour' === self::get_ticket_kind($ot) && absint($ot['parent_ticket_id'])) {
+                    $tour_taken['pretour'][absint($ot['parent_ticket_id'])] = true;
+                }
+            }
+            $primary_event = !empty($event_ticket_ids) ? $event_ticket_ids[0] : 0;
+
+            // Map every checkout slot index to the ticket id just created for it,
+            // used by the guardian and tour-link pickers below.
+            $idx_to_id = array();
+            foreach ($order_tickets as $ot) {
+                $idx_to_id[absint($ot['ticket_index'])] = absint($ot['id']);
+            }
+
+            // Adult event tickets the buyer may pick as a guardian: those in this
+            // order, plus any already on their account.
+            $event_id_set = array_flip($event_ticket_ids);
+            $acct_event   = array();
+            $buyer_id     = absint($order->get_customer_id());
+            if ($buyer_id) {
+                foreach (self::get_tickets_for_user($buyer_id) as $at) {
+                    if ('event' === self::get_ticket_kind($at)) {
+                        $acct_event[absint($at['id'])] = true;
+                    }
+                }
+            }
+
+            // Attach each Future member to its chosen guardian (an adult event
+            // ticket in this order or on the account), falling back to the buyer's
+            // first event ticket in this order.
+            foreach ($order_tickets as $ot) {
+                if ('minor' !== self::get_ticket_kind($ot) || absint($ot['parent_ticket_id'])) {
+                    continue;
+                }
+                $slot     = absint($ot['ticket_index']);
+                $guardian = 0;
+                if (isset($_POST['rti_ticket_' . $slot . '_guardian'])) {
+                    $raw = sanitize_text_field(wp_unslash($_POST['rti_ticket_' . $slot . '_guardian']));
+                    if (is_numeric($raw)) {
+                        $cand = isset($idx_to_id[absint($raw)]) ? $idx_to_id[absint($raw)] : 0;
+                        if ($cand && isset($event_id_set[$cand])) {
+                            $guardian = $cand;
+                        }
+                    } elseif (0 === strpos($raw, 'acct:')) {
+                        $cand = absint(substr($raw, 5));
+                        if ($cand && isset($acct_event[$cand])) {
+                            $guardian = $cand;
+                        }
+                    }
+                }
+                if (!$guardian) {
+                    $guardian = $primary_event;
+                }
+                if ($guardian) {
+                    $this->update_ticket($ot['id'], array('parent_ticket_id' => $guardian));
+                }
+            }
+
+            // Resolve tours the buyer linked to a specific attendee at checkout
+            // (the "This pretour/day tour is for" picker): copy that attendee's
+            // details onto the tour and link it to their ticket. The picker value
+            // is the host ticket's checkout index (== stored ticket_index).
+            for ($li = 0; $li < $ticket_count; $li++) {
+                if (!isset($_POST['rti_ticket_' . $li . '_link'])) {
+                    continue;
+                }
+                $raw = wp_unslash($_POST['rti_ticket_' . $li . '_link']);
+                if ('' === $raw || !is_numeric($raw)) {
+                    continue;
+                }
+                $host_index = absint($raw);
+                if ($host_index === $li || !isset($idx_to_id[$li], $idx_to_id[$host_index])) {
+                    continue;
+                }
+                $tour_id  = $idx_to_id[$li];
+                $tour_row = self::get_ticket_by_id($tour_id);
+                $tour_kind = $tour_row ? self::get_ticket_kind($tour_row) : '';
+                if (!in_array($tour_kind, array('pretour', 'daytour'), true)) {
+                    continue;
+                }
+                $host_id = $idx_to_id[$host_index];
+                if ('pretour' === $tour_kind) {
+                    if (!empty($tour_taken['pretour'][$host_id])) {
+                        continue; // one pretour per host
+                    }
+                } elseif (self::host_daytour_conflict($host_id, absint($tour_row['product_id']))) {
+                    continue; // day tour overlaps one this host already has
+                }
+                $host_row = self::get_ticket_by_id($host_id);
+                if (!$host_row || !in_array(self::get_ticket_kind($host_row), array('event', 'minor'), true)) {
+                    continue;
+                }
+                $this->update_ticket($tour_id, array(
+                    'parent_ticket_id' => $host_id,
+                    'holder_name'      => $host_row['holder_name'],
+                    'phone'            => $host_row['phone'],
+                    'rti_family'       => $host_row['rti_family'],
+                    'rti_club'         => $host_row['rti_club'],
+                    'dietary'          => $host_row['dietary'],
+                    'allergy_details'  => $host_row['allergy_details'],
+                    'world_id'         => $host_row['world_id'],
+                    'qr_code_url'      => $host_row['qr_code_url'],
+                    'status'           => rt_event_manager_determine_ticket_status($order, $host_row['holder_name']),
+                ));
+                if ('pretour' === $tour_kind) {
+                    $tour_taken['pretour'][$host_id] = true;
+                }
+            }
+
+            // Re-read so tours just linked above are seen as parented and are not
+            // re-distributed by the fallback below.
+            $order_tickets = self::get_tickets_for_order($order_id);
+
+            // Distribute any still-unparented tours across available hosts (event
+            // tickets first, then Future member tickets). Pretours go one per host;
+            // day tours prefer a host they do not overlap on.
+            $hosts = array_merge($event_ticket_ids, $minor_ticket_ids);
+            if (!empty($hosts)) {
+                foreach ($order_tickets as $ot) {
+                    $ok = self::get_ticket_kind($ot);
+                    if (!in_array($ok, array('pretour', 'daytour'), true) || absint($ot['parent_ticket_id'])) {
+                        continue;
+                    }
+                    $target = 0;
+                    if ('pretour' === $ok) {
+                        // Prefer a host with no pretour — including any already
+                        // attached by a previous order (checked against the DB).
+                        foreach ($hosts as $hid) {
+                            if (empty($tour_taken['pretour'][$hid]) && !self::ticket_has_pretour($hid)) {
+                                $target = $hid;
+                                break;
+                            }
+                        }
+                    } else { // daytour: first host it does not overlap on
+                        $product = absint($ot['product_id']);
+                        foreach ($hosts as $hid) {
+                            if (!self::host_daytour_conflict($hid, $product)) {
+                                $target = $hid;
+                                break;
+                            }
+                        }
+                    }
+                    if (!$target) {
+                        $target = $hosts[0];
+                    }
+                    if ('pretour' === $ok) {
+                        $tour_taken['pretour'][$target] = true;
+                    }
+                    $this->update_ticket($ot['id'], array('parent_ticket_id' => $target));
+                }
+            }
+        }
+
+        // Refresh saved wallet passes for the host tickets this order touched —
+        // a newly bought tour is shown on its host attendee's pass. Re-read the
+        // rows so parent links resolved above are current.
+        if (function_exists('rt_event_manager_notify_wallets')) {
+            $hosts = array();
+            foreach (self::get_tickets_for_order($order_id) as $ot) {
+                $k = self::get_ticket_kind($ot);
+                if (in_array($k, array('event', 'minor'), true)) {
+                    $hosts[absint($ot['id'])] = true;
+                } elseif (in_array($k, array('pretour', 'daytour'), true) && absint($ot['parent_ticket_id'])) {
+                    $hosts[absint($ot['parent_ticket_id'])] = true;
+                }
+            }
+            foreach (array_keys($hosts) as $hid) {
+                rt_event_manager_notify_wallets($hid);
             }
         }
 
         $order->save();
+    }
+
+    /* ---------------------------------------------------------------------
+     * Ticket linking (pretour / minor co-travellers)
+     * ------------------------------------------------------------------- */
+
+    /**
+     * Capture the parent ticket id and (for minors) the gender from the
+     * add-to-cart request so they travel with the cart item.
+     *
+     * @param array $cart_item_data
+     * @param int   $product_id
+     * @return array
+     */
+    public function capture_link_cart_item_data($cart_item_data, $product_id) {
+        $unique = false;
+
+        if (isset($_REQUEST['rti_parent_ticket_id'])) {
+            $cart_item_data['rti_parent_ticket_id'] = absint($_REQUEST['rti_parent_ticket_id']);
+            $unique = true;
+        }
+        if (isset($_REQUEST['rti_minor_gender'])) {
+            $gender = sanitize_key(wp_unslash($_REQUEST['rti_minor_gender']));
+            if (in_array($gender, array('tabler', 'circler'), true)) {
+                $cart_item_data['rti_minor_gender'] = $gender;
+                $unique = true;
+            }
+        }
+
+        // Keep each linked co-traveller as its own cart line (don't merge quantities).
+        if ($unique) {
+            $cart_item_data['rti_link_unique'] = md5(wp_json_encode($cart_item_data) . wp_rand());
+        }
+
+        return $cart_item_data;
+    }
+
+    /**
+     * Show the linkage in the cart/checkout item details.
+     *
+     * @param array $item_data
+     * @param array $cart_item
+     * @return array
+     */
+    public function display_link_cart_item_data($item_data, $cart_item) {
+        if (!empty($cart_item['rti_minor_gender'])) {
+            $item_data[] = array(
+                'key'   => __('Minor', 'rt-event-manager'),
+                'value' => ('circler' === $cart_item['rti_minor_gender'])
+                    ? __('Future Circler', 'rt-event-manager')
+                    : __('Future Tabler', 'rt-event-manager'),
+            );
+        }
+        if (!empty($cart_item['rti_parent_ticket_id'])) {
+            $item_data[] = array(
+                'key'   => __('Linked to ticket', 'rt-event-manager'),
+                'value' => '#' . absint($cart_item['rti_parent_ticket_id']),
+            );
+        }
+        return $item_data;
+    }
+
+    /**
+     * Persist the linkage onto the order line item at checkout.
+     *
+     * @param WC_Order_Item_Product $item
+     * @param string                $cart_item_key
+     * @param array                 $values
+     * @param WC_Order              $order
+     */
+    public function save_link_order_item_meta($item, $cart_item_key, $values, $order) {
+        if (!empty($values['rti_parent_ticket_id'])) {
+            $item->add_meta_data('_rti_parent_ticket_id', absint($values['rti_parent_ticket_id']), true);
+        }
+        if (!empty($values['rti_minor_gender'])) {
+            $item->add_meta_data('_rti_minor_gender', sanitize_key($values['rti_minor_gender']), true);
+        }
+    }
+
+    /**
+     * Block adding a Future (minor) ticket to the cart unless a parent ticket is
+     * specified — enforcing "co-traveller only".
+     *
+     * @param bool $passed
+     * @param int  $product_id
+     * @param int  $quantity
+     * @return bool
+     */
+    /**
+     * Re-validate the tours in the cart against the current database state.
+     * Add-to-cart validation only reflects the moment an item was added; if
+     * another order (or a second browser window) has since given the host a
+     * pretour — or an overlapping day tour — this blocks checkout so the same
+     * tour cannot be sold twice for the same person.
+     */
+    /** Whether the given user already has a (non-terminal) adult event ticket. */
+    public function user_has_event_ticket($user_id) {
+        if (!$user_id) {
+            return false;
+        }
+        foreach (self::get_tickets_for_user($user_id) as $t) {
+            if ('event' === self::get_ticket_kind($t)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A Future member ticket may only be purchased when there is at least one
+     * adult event ticket to attach it to — either in this order or already on
+     * the buyer's account. Blocks checkout otherwise.
+     */
+    public function validate_future_needs_adult() {
+        if (!function_exists('WC') || !WC()->cart) {
+            return;
+        }
+        $has_future = false;
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            if ($pid && self::is_future_product($pid)) {
+                $has_future = true;
+                break;
+            }
+        }
+        if (!$has_future) {
+            return;
+        }
+        if ($this->cart_has_event_ticket()) {
+            return;
+        }
+        if (is_user_logged_in() && $this->user_has_event_ticket(get_current_user_id())) {
+            return;
+        }
+        wc_add_notice(
+            __('Future member tickets require at least one adult event ticket. Please add an adult ticket to your order, or make sure your account already has one.', 'rt-event-manager'),
+            'error'
+        );
+    }
+
+    public function validate_cart_tours_against_db() {
+        if (!function_exists('WC') || !WC()->cart) {
+            return;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+            if (!$pid || !$parent) {
+                continue; // unparented tours are resolved (and guarded) at checkout
+            }
+            $kind = self::get_ticket_kind_for_product($pid);
+            $host = self::get_ticket_by_id($parent);
+            $who  = ($host && $host['holder_name'] !== '') ? $host['holder_name'] : __('this ticket', 'rt-event-manager');
+            $product = wc_get_product($pid);
+            $pname   = $product ? $product->get_name() : __('this tour', 'rt-event-manager');
+
+            if ('pretour' === $kind && self::ticket_has_pretour($parent)) {
+                wc_add_notice(sprintf(
+                    /* translators: 1: attendee name, 2: pretour product name */
+                    __('%1$s already has a pretour, so “%2$s” can no longer be added. Please remove it from your cart.', 'rt-event-manager'),
+                    $who,
+                    $pname
+                ), 'error');
+            } elseif ('daytour' === $kind && self::host_daytour_conflict($parent, $pid)) {
+                wc_add_notice(sprintf(
+                    /* translators: 1: attendee name, 2: day tour product name */
+                    __('%1$s already has a day tour that overlaps “%2$s”. Please remove it from your cart.', 'rt-event-manager'),
+                    $who,
+                    $pname
+                ), 'error');
+            }
+        }
+    }
+
+    public function validate_future_add_to_cart($passed, $product_id, $quantity) {
+        $parent_id = isset($_REQUEST['rti_parent_ticket_id']) ? absint($_REQUEST['rti_parent_ticket_id']) : 0;
+
+        if (!$parent_id) {
+            if (self::is_future_product($product_id)) {
+                // Allowed without an explicit parent if an event ticket is in the
+                // cart — the Future member links to that event ticket at checkout.
+                if (!$this->cart_has_event_ticket()) {
+                    wc_add_notice(
+                        __('Future member tickets need an event ticket in your cart, or an existing ticket to link to.', 'rt-event-manager'),
+                        'error'
+                    );
+                    return false;
+                }
+            } elseif (self::is_pretour_product($product_id)) {
+                if (!$this->validate_unparented_tour('pretour', __('pretour', 'rt-event-manager'))) {
+                    return false;
+                }
+            } elseif (self::is_daytour_product($product_id)) {
+                if (!$this->validate_unparented_tour('daytour', __('day tour', 'rt-event-manager'))) {
+                    return false;
+                }
+            }
+        } elseif (self::is_pretour_product($product_id)) {
+            if (self::ticket_has_pretour($parent_id) || $this->cart_has_tour_for_parent($parent_id, 'pretour')) {
+                wc_add_notice(__('This ticket already has a pretour. Each ticket can have only one pretour.', 'rt-event-manager'), 'error');
+                return false;
+            }
+        } elseif (self::is_daytour_product($product_id)) {
+            // Multiple day tours per person are allowed as long as their time
+            // windows do not overlap (and the same tour is not booked twice).
+            $cart_products = $this->cart_tour_products_for_parent($parent_id, 'daytour');
+            if (self::host_daytour_conflict($parent_id, $product_id, $cart_products)) {
+                wc_add_notice(__('This day tour overlaps another day tour already booked for this person. Day tours for the same person must not overlap in time.', 'rt-event-manager'), 'error');
+                return false;
+            }
+        }
+        return $passed;
+    }
+
+    /**
+     * Shared rule for adding an unparented pretour / day tour to the cart: it
+     * needs an event ticket in the cart, and the count of that tour kind may not
+     * exceed the available hosts (event + Future member tickets).
+     *
+     * @param string $kind 'pretour' | 'daytour'
+     * @param string $word Human label for the notice.
+     * @return bool
+     */
+    private function validate_unparented_tour($kind, $word) {
+        if (!$this->cart_has_event_ticket()) {
+            wc_add_notice(sprintf(
+                /* translators: %s: pretour / day tour */
+                __('%s tickets need an event ticket in your cart, or an existing ticket to link to.', 'rt-event-manager'),
+                ucfirst($word)
+            ), 'error');
+            return false;
+        }
+        // Pretours are one per host, so an unparented pretour may not outnumber
+        // the hosts. Day tours may stack (non-overlapping) on a host, so no cap.
+        if ('daytour' !== $kind && $this->count_cart_unlinked_tours($kind) + 1 > $this->count_cart_pretour_hosts()) {
+            wc_add_notice(sprintf(
+                /* translators: %s: pretour / day tour */
+                __('Each ticket can have only one %s. Please remove one from your cart before adding another.', 'rt-event-manager'),
+                $word
+            ), 'error');
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Product ids of tours of a kind currently in the cart that are linked to a
+     * specific parent ticket.
+     *
+     * @param int    $parent_id
+     * @param string $kind 'pretour' | 'daytour'
+     * @return int[]
+     */
+    private function cart_tour_products_for_parent($parent_id, $kind) {
+        $out       = array();
+        $parent_id = absint($parent_id);
+        if (!$parent_id || !function_exists('WC') || !WC()->cart) {
+            return $out;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+            if ($pid && $parent === $parent_id && self::get_ticket_kind_for_product($pid) === $kind) {
+                $out[] = $pid;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Count tickets in the cart that can host a pretour — event tickets and
+     * Future member tickets (each can host one pretour).
+     *
+     * @return int
+     */
+    private function count_cart_pretour_hosts() {
+        $count = 0;
+        if (!function_exists('WC') || !WC()->cart) {
+            return 0;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $qty = isset($ci['quantity']) ? absint($ci['quantity']) : 1;
+            if (!$pid || !self::is_ticket_product($pid)) {
+                continue;
+            }
+            $kind = self::get_ticket_kind_for_product($pid);
+            if ('event' === $kind || 'minor' === $kind) {
+                $count += max(1, $qty);
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Count tours of a kind in the cart that have no explicit parent (they link
+     * to an event ticket in the same cart at checkout).
+     *
+     * @param string $kind 'pretour' | 'daytour'
+     * @return int
+     */
+    private function count_cart_unlinked_tours($kind) {
+        $count = 0;
+        if (!function_exists('WC') || !WC()->cart) {
+            return 0;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+            $qty    = isset($ci['quantity']) ? absint($ci['quantity']) : 1;
+            if ($pid && !$parent && self::get_ticket_kind_for_product($pid) === $kind) {
+                $count += max(1, $qty);
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Whether the cart already holds a tour of the given kind linked to a
+     * specific parent ticket.
+     *
+     * @param int    $parent_id
+     * @param string $kind 'pretour' | 'daytour'
+     * @return bool
+     */
+    private function cart_has_tour_for_parent($parent_id, $kind) {
+        $parent_id = absint($parent_id);
+        if (!$parent_id || !function_exists('WC') || !WC()->cart) {
+            return false;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid    = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $parent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+            if ($pid && $parent === $parent_id && self::get_ticket_kind_for_product($pid) === $kind) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the cart currently contains an event ticket (used to allow adding
+     * a Future member ticket alongside it).
+     *
+     * @return bool
+     */
+    private function cart_has_event_ticket() {
+        if (!function_exists('WC') || !WC()->cart) {
+            return false;
+        }
+        foreach (WC()->cart->get_cart() as $ci) {
+            $pid = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            if ($pid && self::is_ticket_product($pid) && 'event' === self::get_ticket_kind_for_product($pid)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * On the single-product page, re-emit the linkage request params (parent
+     * ticket + minor gender) as hidden fields inside the add-to-cart form so
+     * they survive an options/variation selection step (variable / MTO tickets).
+     */
+    public function inject_link_hidden_fields() {
+        if (isset($_GET['rti_parent_ticket_id'])) {
+            echo '<input type="hidden" name="rti_parent_ticket_id" value="' . esc_attr(absint($_GET['rti_parent_ticket_id'])) . '" />';
+        }
+        if (isset($_GET['rti_minor_gender'])) {
+            $gender = sanitize_key(wp_unslash($_GET['rti_minor_gender']));
+            if (in_array($gender, array('tabler', 'circler'), true)) {
+                echo '<input type="hidden" name="rti_minor_gender" value="' . esc_attr($gender) . '" />';
+            }
+        }
+    }
+
+    /**
+     * Hide Future (minor) and Pretour products from the shop catalog/archive loop
+     * so they cannot be purchased standalone (both are account-only, linked).
+     *
+     * @param WP_Query $query
+     */
+    public function hide_future_from_catalog($query) {
+        $cats = array_filter(array(self::get_future_category_id(), self::get_pretour_category_id()));
+        if (empty($cats)) {
+            return;
+        }
+        $tax_query = (array) $query->get('tax_query');
+        $tax_query[] = array(
+            'taxonomy' => 'product_cat',
+            'field'    => 'term_id',
+            'terms'    => array_map('absint', $cats),
+            'operator' => 'NOT IN',
+        );
+        $query->set('tax_query', $tax_query);
+    }
+
+    /**
+     * Normalize a phone number to E.164-style storage form: a leading "+"
+     * (if the user provided one) followed by digits only. Formatting
+     * characters (spaces, dashes, parentheses, dots) are stripped.
+     *
+     * @param string $raw Raw user input
+     * @return string Normalized phone, or '' if there were no digits
+     */
+    public static function normalize_phone($raw) {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return '';
+        }
+        $has_plus = (strpos($raw, '+') === 0);
+        $digits   = preg_replace('/\D+/', '', $raw);
+        if ($digits === '') {
+            return '';
+        }
+        return ($has_plus ? '+' : '') . $digits;
+    }
+
+    /**
+     * Validate that a phone number is in international (E.164) format:
+     * a leading "+", a country code starting 1-9, and 8-15 digits total.
+     *
+     * @param string $raw Raw user input (normalized internally)
+     * @return bool
+     */
+    public static function is_valid_intl_phone($raw) {
+        $normalized = self::normalize_phone($raw);
+        return (bool) preg_match('/^\+[1-9]\d{7,14}$/', $normalized);
+    }
+
+    /**
+     * Normalize a date-of-birth input to Y-m-d, or '' if not a valid date.
+     *
+     * @param string $raw
+     * @return string
+     */
+    public static function sanitize_dob($raw) {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return '';
+        }
+        $ts = strtotime($raw);
+        if (!$ts) {
+            return '';
+        }
+        return gmdate('Y-m-d', $ts);
+    }
+
+    /**
+     * The configured event date (Y-m-d), or '' if unset.
+     *
+     * @return string
+     */
+    public static function get_event_date() {
+        return (string) get_option('rt_event_manager_event_date', '');
+    }
+
+    /**
+     * Minimum / maximum permitted age (in years) for a Future member ticket,
+     * evaluated at the event date. Defaults 5 and 15.
+     *
+     * @return int
+     */
+    public static function get_minor_min_age() {
+        $v = (int) get_option('rt_event_manager_minor_min_age', 5);
+        return $v > 0 ? $v : 5;
+    }
+
+    public static function get_minor_max_age() {
+        $v = (int) get_option('rt_event_manager_minor_max_age', 15);
+        return $v > 0 ? $v : 15;
+    }
+
+    /**
+     * Age in whole years a person with the given DOB has at the event date
+     * (falls back to today's date if the event date is unset).
+     *
+     * @param string $dob Y-m-d (or any strtotime-parseable date)
+     * @return int|null Age in years, or null if DOB invalid.
+     */
+    public static function minor_age_at_event($dob) {
+        $dob = self::sanitize_dob($dob);
+        if ($dob === '') {
+            return null;
+        }
+        $event = self::get_event_date();
+        $ref   = $event !== '' ? $event : current_time('Y-m-d');
+
+        try {
+            $d1 = new DateTime($dob);
+            $d2 = new DateTime($ref);
+        } catch (\Exception $e) {
+            return null;
+        }
+        return (int) $d1->diff($d2)->y;
+    }
+
+    /**
+     * Whether a Future member's DOB yields an age within the configured range
+     * at the event date.
+     *
+     * @param string $dob
+     * @return bool
+     */
+    public static function is_valid_minor_dob($dob) {
+        $age = self::minor_age_at_event($dob);
+        if ($age === null) {
+            return false;
+        }
+        return $age >= self::get_minor_min_age() && $age <= self::get_minor_max_age();
     }
 
     /**
@@ -1256,29 +2590,43 @@ class RT_Event_Manager {
         // Checked-in status must never be clobbered by a re-submit.
         $sql = $wpdb->prepare(
             "INSERT INTO $table_name
-                (order_id, product_id, combination_id, ticket_index, holder_name, rti_family, rti_club, dietary, world_id, qr_code_url, status)
-             VALUES (%d, %d, %d, %d, %s, %s, %s, %s, %s, %s, %s)
+                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, dob, rti_family, rti_club, dietary, allergy_details, world_id, qr_code_url, status, owner_user_id)
+             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d)
              ON DUPLICATE KEY UPDATE
-                product_id     = VALUES(product_id),
-                combination_id = VALUES(combination_id),
-                holder_name    = VALUES(holder_name),
-                rti_family     = VALUES(rti_family),
-                rti_club       = VALUES(rti_club),
-                dietary        = VALUES(dietary),
-                world_id       = VALUES(world_id),
-                qr_code_url    = VALUES(qr_code_url),
-                status         = IF(status = 'checked_in', status, VALUES(status))",
+                product_id       = VALUES(product_id),
+                combination_id   = VALUES(combination_id),
+                parent_ticket_id = VALUES(parent_ticket_id),
+                ticket_kind      = VALUES(ticket_kind),
+                minor_type       = VALUES(minor_type),
+                holder_name      = VALUES(holder_name),
+                phone            = VALUES(phone),
+                dob              = VALUES(dob),
+                rti_family       = VALUES(rti_family),
+                rti_club         = VALUES(rti_club),
+                dietary          = VALUES(dietary),
+                allergy_details  = VALUES(allergy_details),
+                world_id         = VALUES(world_id),
+                qr_code_url      = VALUES(qr_code_url),
+                status           = IF(status IN ('checked_in', 'cancelled'), status, VALUES(status)),
+                owner_user_id    = IF(owner_user_id > 0, owner_user_id, VALUES(owner_user_id))",
             absint($data['order_id']),
             absint($data['product_id']),
             absint(isset($data['combination_id']) ? $data['combination_id'] : 0),
+            absint(isset($data['parent_ticket_id']) ? $data['parent_ticket_id'] : 0),
+            isset($data['ticket_kind']) ? sanitize_text_field($data['ticket_kind']) : 'event',
+            isset($data['minor_type']) ? sanitize_text_field($data['minor_type']) : '',
             absint($data['ticket_index']),
             sanitize_text_field($data['holder_name']),
+            self::normalize_phone(isset($data['phone']) ? $data['phone'] : ''),
+            self::sanitize_dob(isset($data['dob']) ? $data['dob'] : ''),
             sanitize_text_field($data['rti_family']),
             sanitize_text_field($data['rti_club']),
             sanitize_text_field($data['dietary']),
+            sanitize_text_field(isset($data['allergy_details']) ? $data['allergy_details'] : ''),
             sanitize_text_field($data['world_id']),
             sanitize_text_field($data['qr_code_url']),
-            isset($data['status']) ? sanitize_text_field($data['status']) : 'draft'
+            isset($data['status']) ? sanitize_text_field($data['status']) : 'draft',
+            absint(isset($data['owner_user_id']) ? $data['owner_user_id'] : 0)
         );
 
         $result = $wpdb->query($sql);
@@ -1303,6 +2651,232 @@ class RT_Event_Manager {
     }
 
     /**
+     * Get all tickets owned by a user, across every order they placed.
+     *
+     * Tickets have no direct user column — they link to a user only through
+     * their order. We resolve the user's orders HPOS-compatibly via
+     * wc_get_orders(), then fetch their tickets in a single query. Each ticket
+     * row is augmented with its `order_id` (already present) so callers can
+     * group by order.
+     *
+     * @param int $user_id
+     * @return array Array of ticket rows (ARRAY_A), ordered by order then index.
+     */
+    public static function get_tickets_for_user($user_id, $include_terminal = false) {
+        $user_id = absint($user_id);
+        if (!$user_id) {
+            return array();
+        }
+
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rti_tickets';
+
+        $order_ids = wc_get_orders(array(
+            'customer_id' => $user_id,
+            'limit'       => -1,
+            'return'      => 'ids',
+        ));
+        $order_ids = array_map('absint', (array) $order_ids);
+
+        // A ticket belongs to the user when it is explicitly owned by them
+        // (owner_user_id) OR — for legacy rows with no owner recorded — when it
+        // sits on one of their orders. A ticket transferred AWAY has a different
+        // owner_user_id, so the order-based clause no longer returns it to the
+        // original buyer.
+        $where  = array('owner_user_id = %d');
+        $params = array($user_id);
+
+        if (!empty($order_ids)) {
+            $placeholders = implode(', ', array_fill(0, count($order_ids), '%d'));
+            $where[]      = "(owner_user_id = 0 AND order_id IN ($placeholders))";
+            $params       = array_merge($params, $order_ids);
+        }
+
+        // Cancelled and refunded tickets are hidden from the customer portal
+        // unless explicitly requested (the "show cancelled" toggle).
+        $sql = "SELECT * FROM $table_name WHERE (" . implode(' OR ', $where) . ")";
+        if (!$include_terminal) {
+            $sql .= " AND status NOT IN ('cancelled', 'refunded')";
+        }
+        $sql .= ' ORDER BY order_id ASC, ticket_index ASC';
+
+        return $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+    }
+
+    /**
+     * Whether the user already holds their own event ticket (kind event, no
+     * parent) on a previous order. When true, every event ticket in a new order
+     * is treated as an additional co-traveller (full details requested).
+     *
+     * @param int $user_id
+     * @param int $exclude_order_id Order to ignore (the one being checked out).
+     * @return bool
+     */
+    public static function user_has_own_event_ticket($user_id, $exclude_order_id = 0) {
+        $exclude_order_id = absint($exclude_order_id);
+        foreach (self::get_tickets_for_user($user_id) as $t) {
+            if ($exclude_order_id && absint($t['order_id']) === $exclude_order_id) {
+                continue;
+            }
+            // A cancelled or refunded ticket no longer counts — the user may
+            // register a fresh ticket as their own.
+            $status = isset($t['status']) ? $t['status'] : '';
+            if (in_array($status, array('cancelled', 'refunded'), true)) {
+                continue;
+            }
+            if ('event' === self::get_ticket_kind($t) && !absint($t['parent_ticket_id'])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether a user owns a ticket row — via explicit owner_user_id, falling
+     * back to the order customer for legacy rows.
+     *
+     * @param array $t
+     * @param int   $user_id
+     * @return bool
+     */
+    public static function user_owns_ticket($t, $user_id) {
+        $owner = absint(isset($t['owner_user_id']) ? $t['owner_user_id'] : 0);
+        if ($owner) {
+            return $owner === absint($user_id);
+        }
+        $order = wc_get_order(absint($t['order_id']));
+        return $order && absint($order->get_customer_id()) === absint($user_id);
+    }
+
+    /**
+     * Whether a refund is still possible for a cancellation. Refunds are tied to
+     * the same cutoff date as ticket editing: on or before the cutoff a refund is
+     * requested; after it, cancellation happens with no refund.
+     *
+     * @return bool
+     */
+    public function is_refund_window_open() {
+        return $this->is_frontend_editing_allowed();
+    }
+
+    /**
+     * Recipient for cancellation / refund-request notifications. Defaults to the
+     * site admin (WooCommerce's default new-order recipient); filterable.
+     *
+     * @return string
+     */
+    public static function get_shop_manager_email() {
+        $email = get_option('admin_email');
+        /** Allow overriding the cancellation notification recipient. */
+        return apply_filters('rt_event_manager_cancel_notification_email', $email);
+    }
+
+    /**
+     * How long a pending transfer offer stays valid before it is automatically
+     * withdrawn. Defaults to 48 hours; filterable.
+     *
+     * @return int seconds
+     */
+    public static function transfer_expiry_seconds() {
+        return (int) apply_filters('rt_event_manager_transfer_expiry_seconds', 48 * HOUR_IN_SECONDS);
+    }
+
+    /**
+     * Per-unit amount actually paid for a ticket, from its order line item
+     * (including tax). Returns a float in the order's currency.
+     *
+     * @param array $ticket Ticket row.
+     * @return float
+     */
+    public static function get_ticket_paid_amount($ticket) {
+        $order = wc_get_order(absint($ticket['order_id']));
+        if (!$order) {
+            return 0.0;
+        }
+        $product_id = absint($ticket['product_id']);
+        foreach ($order->get_items() as $item) {
+            if (absint($item->get_product_id()) === $product_id) {
+                $qty = max(1, (int) $item->get_quantity());
+                return ((float) $item->get_total() + (float) $item->get_total_tax()) / $qty;
+            }
+        }
+        return 0.0;
+    }
+
+    /**
+     * Per-unit list price for a ticket BEFORE any coupon/voucher discount, taken
+     * from the order line subtotal (including tax). Use alongside
+     * get_ticket_paid_amount() to show original vs paid.
+     *
+     * @param array $ticket Ticket row.
+     * @return float
+     */
+    public static function get_ticket_original_amount($ticket) {
+        $order = wc_get_order(absint($ticket['order_id']));
+        if (!$order) {
+            return 0.0;
+        }
+        $product_id = absint($ticket['product_id']);
+        foreach ($order->get_items() as $item) {
+            if (absint($item->get_product_id()) === $product_id) {
+                $qty = max(1, (int) $item->get_quantity());
+                return ((float) $item->get_subtotal() + (float) $item->get_subtotal_tax()) / $qty;
+            }
+        }
+        return 0.0;
+    }
+
+    /**
+     * Currency code of the order a ticket belongs to (for formatting amounts).
+     *
+     * @param array $ticket Ticket row.
+     * @return string
+     */
+    public static function get_ticket_currency($ticket) {
+        $order = wc_get_order(absint($ticket['order_id']));
+        return $order ? $order->get_currency() : get_woocommerce_currency();
+    }
+
+    /**
+     * Centralized dietary options used across checkout, order editing and the
+     * customer account. The leading empty option is included for edit contexts;
+     * checkout omits it (the field is required there).
+     *
+     * @param bool $include_empty Whether to prepend an empty "—" option.
+     * @return array value => label
+     */
+    public static function get_dietary_options($include_empty = true) {
+        $options = array(
+            'none'       => __('None', 'rt-event-manager'),
+            'vegetarian' => __('Vegetarian', 'rt-event-manager'),
+            'vegan'      => __('Vegan', 'rt-event-manager'),
+            'allergies'  => __('Allergies', 'rt-event-manager'),
+        );
+        if ($include_empty) {
+            $options = array('' => '—') + $options;
+        }
+        return $options;
+    }
+
+    /**
+     * Admin-maintained allergy suggestions (type-ahead), as a list.
+     *
+     * @return string[]
+     */
+    public static function get_allergy_suggestions() {
+        $raw   = (string) get_option('rt_event_manager_allergy_suggestions', '');
+        $lines = preg_split('/\r\n|\r|\n/', $raw);
+        $out   = array();
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line !== '') {
+                $out[] = $line;
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Update a single ticket in the custom table
      *
      * @param int   $ticket_id Ticket row ID
@@ -1317,25 +2891,60 @@ class RT_Event_Manager {
         $update_format = array();
 
         $allowed_fields = array(
-            'holder_name'    => '%s',
-            'rti_family'     => '%s',
-            'rti_club'       => '%s',
-            'dietary'        => '%s',
-            'world_id'       => '%s',
-            'qr_code_url'    => '%s',
-            'status'         => '%s',
-            'combination_id' => '%d',
+            'holder_name'           => '%s',
+            'phone'                 => '%s',
+            'dob'                   => '%s',
+            'rti_family'            => '%s',
+            'rti_club'              => '%s',
+            'dietary'               => '%s',
+            'allergy_details'       => '%s',
+            'world_id'              => '%s',
+            'qr_code_url'           => '%s',
+            'status'                => '%s',
+            'combination_id'        => '%d',
+            'parent_ticket_id'      => '%d',
+            'ticket_kind'           => '%s',
+            'minor_type'            => '%s',
+            'owner_user_id'         => '%d',
+            'transfer_token'        => '%s',
+            'transfer_email'        => '%s',
+            'transfer_requested_at' => '%s',
+            'refund_status'         => '%s',
+            'refund_note'           => '%s',
+            'transferred_from_user_id' => '%d',
+            'transferred_at'        => '%s',
+            'checked_in_at'         => '%s',
+            'checked_in_by'         => '%d',
         );
 
         foreach ($allowed_fields as $field => $format) {
             if (isset($data[$field])) {
-                $update_data[$field] = sanitize_text_field($data[$field]);
+                $update_data[$field] = ($field === 'phone')
+                    ? self::normalize_phone($data[$field])
+                    : sanitize_text_field($data[$field]);
                 $update_format[]     = $format;
             }
         }
 
         if (empty($update_data)) {
             return false;
+        }
+
+        // Detect a status or holder change so we can refresh saved passes below.
+        // A transfer reassigns the row (new holder_name), so this also covers
+        // transfers — the pass regenerates for the new holder, replacing the old
+        // holder's copy (same serial) and its QR.
+        $should_notify = false;
+        if (isset($update_data['status']) || isset($update_data['holder_name'])) {
+            $old = $wpdb->get_row($wpdb->prepare("SELECT status, holder_name FROM $table_name WHERE id = %d", absint($ticket_id)), ARRAY_A);
+            if ($old) {
+                if (isset($update_data['status']) && (string) $old['status'] !== (string) $update_data['status']) {
+                    $should_notify = true;
+                }
+                if (isset($update_data['holder_name']) && (string) $old['holder_name'] !== (string) $update_data['holder_name']) {
+                    $should_notify = true;
+                }
+            }
         }
 
         $result = $wpdb->update(
@@ -1346,7 +2955,39 @@ class RT_Event_Manager {
             array('%d')
         );
 
+        // Keep a member's pretour ticket holder in sync with their own ticket.
+        if (false !== $result && isset($update_data['holder_name'])) {
+            $this->sync_child_pretour_holder($ticket_id, $update_data['holder_name']);
+        }
+
+        // A status change (confirm/cancel/refund/check-in) or a holder change
+        // (incl. a transfer) refreshes the attendee's saved Apple/Google passes,
+        // whatever triggered it.
+        if (false !== $result && $should_notify && function_exists('rt_event_manager_notify_wallets')) {
+            rt_event_manager_notify_wallets(absint($ticket_id));
+        }
+
         return $result !== false;
+    }
+
+    /**
+     * Propagate a holder-name change to any pretour ticket linked to this ticket
+     * (a pretour is for the same person as its parent member ticket). Scoped to
+     * pretour children so it never overwrites a different person (e.g. a minor).
+     *
+     * @param int    $parent_ticket_id
+     * @param string $holder_name
+     */
+    private function sync_child_pretour_holder($parent_ticket_id, $holder_name) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $wpdb->update(
+            $table_name,
+            array('holder_name' => sanitize_text_field($holder_name)),
+            array('parent_ticket_id' => absint($parent_ticket_id), 'ticket_kind' => 'pretour'),
+            array('%s'),
+            array('%d', '%s')
+        );
     }
 
     /**
@@ -1427,85 +3068,28 @@ class RT_Event_Manager {
         $ticket_num   = intval($ticket['ticket_index']) + 1;
         $product      = wc_get_product($ticket['product_id']);
         $product_name = $product ? $product->get_name() : __('(deleted)', 'rt-event-manager');
-        $product_id   = absint($ticket['product_id']);
-        $combo_id     = isset($ticket['combination_id']) ? absint($ticket['combination_id']) : 0;
-        $is_mto       = $product && 'make_to_order' === $product->get_type();
-
-        // Lazy-load caches if not pre-built (e.g. from AJAX add).
-        if ($is_mto && class_exists('WC_MTO_Combinations')) {
-            if (!isset($this->_mto_combos_cache)) {
-                $this->_mto_combos_cache = array();
-            }
-            if (empty($this->_mto_combos_cache[$product_id])) {
-                $this->_mto_combos_cache[$product_id] = WC_MTO_Combinations::get_all_for_product($product_id);
-            }
-        }
-        if ($is_mto && class_exists('WC_MTO_Attributes')) {
-            if (!isset($this->_mto_attrs_cache)) {
-                $this->_mto_attrs_cache = array();
-            }
-            if (empty($this->_mto_attrs_cache[$product_id])) {
-                $this->_mto_attrs_cache[$product_id] = WC_MTO_Attributes::get_for_product($product_id);
-            }
-        }
-
-        // Build lookup: attribute_id => selected option_id for the current combination.
-        $combo_selections = array(); // attribute_id => option_id
-        if ($is_mto && $combo_id && !empty($this->_mto_combos_cache[$product_id])) {
-            foreach ($this->_mto_combos_cache[$product_id] as $combo) {
-                if ((int) $combo->combination_id === $combo_id && !empty($combo->items)) {
-                    foreach ($combo->items as $ci) {
-                        $combo_selections[absint($ci->attribute_id)] = absint($ci->option_id);
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Build lookup: attribute_id => first option_id (= "Yes").
-        $first_options = array(); // attribute_id => first option_id
-        if ($is_mto && !empty($this->_mto_attrs_cache[$product_id])) {
-            foreach ($this->_mto_attrs_cache[$product_id] as $attr) {
-                if (!empty($attr->options)) {
-                    $first_options[absint($attr->attribute_id)] = absint($attr->options[0]->option_id);
-                }
-            }
-        }
-
-        // Determine the ordered attribute IDs for columns.
-        $attr_ids_order = isset($this->_mto_attr_ids_order) ? $this->_mto_attr_ids_order : array();
 
         echo '<tr data-ticket-id="' . esc_attr($ticket['id']) . '">';
 
         // Ticket number
         echo '<td class="rti-ticket-num">' . esc_html($ticket_num) . '</td>';
 
+        // Type (Event / Pretour / Future Tabler|Circler)
+        echo '<td>' . esc_html(self::ticket_kind_label($ticket)) . '</td>';
+
         // Product name (read-only)
         echo '<td>' . esc_html($product_name) . '</td>';
 
-        // Per-attribute columns: ✓ if first option selected, — otherwise
-        foreach ($attr_ids_order as $attr_id) {
-            echo '<td style="text-align:center;">';
-            if ($is_mto && isset($combo_selections[$attr_id])) {
-                $is_yes = isset($first_options[$attr_id]) && $combo_selections[$attr_id] === $first_options[$attr_id];
-                echo $is_yes ? '<span style="color:#00a32a;font-weight:bold;">✓</span>' : '<span style="color:#999;">—</span>';
-            } else {
-                echo '<span style="color:#ccc;">—</span>';
-            }
-            echo '</td>';
-        }
-
-        // Editable Combo ID
-        echo '<td>';
-        if ($is_mto && !empty($this->_mto_combos_cache[$product_id])) {
-            echo '<input type="number" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][combination_id]" value="' . esc_attr($combo_id) . '" style="width:60px;" min="0" />';
-        } else {
-            echo '<span style="color:#999;">&mdash;</span>';
-        }
-        echo '</td>';
+        // Parent event/pretour ticket (for pretour and future co-travellers)
+        $parent_label = self::ticket_parent_label($ticket);
+        echo '<td>' . ($parent_label !== '' ? esc_html($parent_label) : '<span style="color:#999;">&mdash;</span>') . '</td>';
 
         // Holder name
         echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][holder_name]" value="' . esc_attr($ticket['holder_name']) . '" style="width:100%;" /></td>';
+
+        // Phone (international format)
+        $ticket_phone = isset($ticket['phone']) ? $ticket['phone'] : '';
+        echo '<td><input type="tel" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][phone]" value="' . esc_attr($ticket_phone) . '" style="width:100%;" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" /></td>';
 
         // RTI Family dropdown
         echo '<td><select class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][rti_family]" style="width:100%;">';
@@ -1518,13 +3102,26 @@ class RT_Event_Manager {
         // Club
         echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][rti_club]" value="' . esc_attr($ticket['rti_club']) . '" style="width:100%;" /></td>';
 
-        // Dietary
-        echo '<td><select class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][dietary]" style="width:100%;">';
-        $dietary_options = array('' => '—', 'none' => 'None', 'vegetarian' => 'Vegetarian');
+        // Dietary (+ conditional allergy details)
+        echo '<td><select class="rti-ticket-field rti-dietary-select" name="rti_ticket[' . esc_attr($ticket['id']) . '][dietary]" style="width:100%;">';
+        $dietary_options = self::get_dietary_options(true);
         foreach ($dietary_options as $dkey => $dlabel) {
             echo '<option value="' . esc_attr($dkey) . '" ' . selected($ticket['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
         }
-        echo '</select></td>';
+        echo '</select>';
+        $allergy_val = isset($ticket['allergy_details']) ? $ticket['allergy_details'] : '';
+        $allergy_list_id = 'rti-allergy-list-' . absint($ticket['id']);
+        $show_allergy = ($ticket['dietary'] === 'allergies') ? 'block' : 'none';
+        echo '<input type="text" class="rti-ticket-field rti-allergy-input" name="rti_ticket[' . esc_attr($ticket['id']) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($allergy_list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" style="width:100%;margin-top:4px;display:' . esc_attr($show_allergy) . ';" />';
+        $allergy_suggestions = self::get_allergy_suggestions();
+        if (!empty($allergy_suggestions)) {
+            echo '<datalist id="' . esc_attr($allergy_list_id) . '">';
+            foreach ($allergy_suggestions as $s) {
+                echo '<option value="' . esc_attr($s) . '"></option>';
+            }
+            echo '</datalist>';
+        }
+        echo '</td>';
 
         // .WORLD ID
         echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][world_id]" value="' . esc_attr($ticket['world_id']) . '" style="width:100%;" /></td>';
@@ -1540,8 +3137,8 @@ class RT_Event_Manager {
 
         // Status badge (read-only)
         $ticket_status = isset($ticket['status']) ? $ticket['status'] : 'draft';
-        $status_labels = array('valid' => __('Valid', 'rt-event-manager'), 'draft' => __('Draft', 'rt-event-manager'), 'invalid' => __('Invalid', 'rt-event-manager'), 'checked_in' => __('Checked In', 'rt-event-manager'));
-        $status_colors = array('valid' => '#00a32a', 'draft' => '#dba617', 'invalid' => '#d63638', 'checked_in' => '#2271b1');
+        $status_labels = array('valid' => __('Valid', 'rt-event-manager'), 'draft' => __('Draft', 'rt-event-manager'), 'invalid' => __('Invalid', 'rt-event-manager'), 'checked_in' => __('Checked In', 'rt-event-manager'), 'cancelled' => __('Cancelled', 'rt-event-manager'), 'refunded' => __('Refunded', 'rt-event-manager'));
+        $status_colors = array('valid' => '#00a32a', 'draft' => '#dba617', 'invalid' => '#d63638', 'checked_in' => '#2271b1', 'cancelled' => '#8c8f94', 'refunded' => '#8250df');
         $badge_color = isset($status_colors[$ticket_status]) ? $status_colors[$ticket_status] : '#999';
         $badge_label = isset($status_labels[$ticket_status]) ? $status_labels[$ticket_status] : ucfirst($ticket_status);
         echo '<td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;color:#fff;background:' . esc_attr($badge_color) . ';">' . esc_html($badge_label) . '</span></td>';
@@ -1614,67 +3211,14 @@ class RT_Event_Manager {
             }
         }
 
-        // Pre-load MTO combinations and attributes for all MTO products.
-        $mto_combinations_by_product = array();
-        $mto_attributes_by_product = array();
-        if (class_exists('WC_MTO_Combinations') && class_exists('WC_MTO_Attributes')) {
-            foreach ($ticket_product_posts as $tp) {
-                $product = wc_get_product($tp->ID);
-                if ($product && 'make_to_order' === $product->get_type()) {
-                    $combos = WC_MTO_Combinations::get_all_for_product($tp->ID);
-                    if (!empty($combos)) {
-                        $mto_combinations_by_product[$tp->ID] = $combos;
-                    }
-                    $attrs = WC_MTO_Attributes::get_for_product($tp->ID);
-                    if (!empty($attrs)) {
-                        $mto_attributes_by_product[$tp->ID] = $attrs;
-                    }
-                }
-            }
-        }
-        // Store for use in render_ticket_row.
-        $this->_mto_combos_cache = $mto_combinations_by_product;
-        $this->_mto_attrs_cache  = $mto_attributes_by_product;
-
-        // Collect all unique MTO attribute labels across products for column headers.
-        $all_attr_labels = array(); // ordered list of attribute_id => label
-        $all_attr_short_labels = array(); // attribute_id => short label
-
-        // Abbreviation map for attribute labels
-        $attr_abbrev_map = array(
-            'full weekend' => 'FW',
-            'friday'       => 'Fr',
-            'saturday'     => 'Sa',
-            'pretour'      => 'PT',
-            'pre-tour'     => 'PT',
-            'pre tour'     => 'PT',
-            'friday + saturday' => 'Fr+Sa',
-        );
-
-        foreach ($mto_attributes_by_product as $pid => $attrs) {
-            foreach ($attrs as $attr) {
-                $aid = absint($attr->attribute_id);
-                if (!isset($all_attr_labels[$aid])) {
-                    $all_attr_labels[$aid] = $attr->attribute_label;
-                    $lbl_lower = strtolower(trim($attr->attribute_label));
-                    $all_attr_short_labels[$aid] = isset($attr_abbrev_map[$lbl_lower])
-                        ? $attr_abbrev_map[$lbl_lower]
-                        : mb_substr($attr->attribute_label, 0, 2);
-                }
-            }
-        }
-
         echo '<table class="rti-tickets-table widefat striped">';
         echo '<thead><tr>';
         echo '<th>' . esc_html__('#', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Product', 'rt-event-manager') . '</th>';
-        // One column per MTO attribute (abbreviated header)
-        foreach ($all_attr_labels as $attr_id => $attr_label) {
-            $short_label = isset($all_attr_short_labels[$attr_id]) ? $all_attr_short_labels[$attr_id] : $attr_label;
-            echo '<th style="text-align:center;width:40px;" title="' . esc_attr($attr_label) . '">' . esc_html($short_label) . '</th>';
-        }
-        echo '<th style="width:70px;">' . esc_html__('Combo ID', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Main ticket / Guardian', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Ticket Phone', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('RTI Family', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Club', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Dietary', 'rt-event-manager') . '</th>';
@@ -1688,8 +3232,6 @@ class RT_Event_Manager {
             echo '<th style="width:50px;">' . esc_html__('Print', 'rt-event-manager') . '</th>';
         }
         echo '</tr></thead>';
-        // Store attribute IDs order for use in render_ticket_row.
-        $this->_mto_attr_ids_order = array_keys($all_attr_labels);
 
         // Pre-fetch order-level buyer info for use in render_ticket_row.
         if ($order) {
@@ -1705,7 +3247,7 @@ class RT_Event_Manager {
         echo '<tbody id="rti-tickets-tbody">';
 
         if (empty($tickets)) {
-            $total_cols = 12 + count($all_attr_labels) + 1 + (current_user_can('manage_options') ? 1 : 0); // 12 base cols + attribute cols + combo ID col + print col
+            $total_cols = 15 + (current_user_can('manage_options') ? 1 : 0); // 15 base cols + optional print col
             echo '<tr id="rti-no-tickets-row"><td colspan="' . intval($total_cols) . '" style="text-align:center;color:#999;">';
             echo esc_html__('No tickets yet.', 'rt-event-manager');
             echo '</td></tr>';
@@ -1724,19 +3266,6 @@ class RT_Event_Manager {
                 }
             }
 
-            // Build a map of product_id => combination_id from the order line items
-            // so tickets with combination_id=0 can inherit from their order item.
-            $order_combo_map = array(); // product_id => combination_id
-            if ($order) {
-                foreach ($order->get_items() as $item) {
-                    $pid = absint($item->get_product_id());
-                    $item_combo = absint($item->get_meta('_mto_combination_id'));
-                    if ($item_combo && !isset($order_combo_map[$pid])) {
-                        $order_combo_map[$pid] = $item_combo;
-                    }
-                }
-            }
-
             foreach ($tickets as &$ticket) {
                 // Auto-fill .WORLD ID and QR code for ticket #1 if empty
                 if (intval($ticket['ticket_index']) === 0 && empty($ticket['world_id']) && !empty($customer_world_id)) {
@@ -1747,16 +3276,6 @@ class RT_Event_Manager {
                     $this->update_ticket($ticket['id'], array(
                         'world_id'    => $customer_world_id,
                         'qr_code_url' => 'tablerworld:///member?id=' . $customer_world_id,
-                    ));
-                }
-
-                // Backfill combination_id from order item if ticket has none.
-                $ticket_pid = absint($ticket['product_id']);
-                $ticket_combo = isset($ticket['combination_id']) ? absint($ticket['combination_id']) : 0;
-                if (!$ticket_combo && isset($order_combo_map[$ticket_pid])) {
-                    $ticket['combination_id'] = $order_combo_map[$ticket_pid];
-                    $this->update_ticket($ticket['id'], array(
-                        'combination_id' => $order_combo_map[$ticket_pid],
                     ));
                 }
 
@@ -1797,6 +3316,11 @@ class RT_Event_Manager {
         jQuery(document).ready(function($) {
             var orderId = $('#rti-tickets-order-id').val();
             var nonce   = $('#rti_tickets_nonce').val();
+
+            // ---- Toggle allergy details when dietary = Allergies ----
+            $('#rti-tickets-tbody').on('change', '.rti-dietary-select', function() {
+                $(this).closest('tr').find('.rti-allergy-input').toggle($(this).val() === 'allergies');
+            });
 
             // ---- Save existing tickets ----
             $('#rti-save-tickets').on('click', function(e) {
@@ -1918,12 +3442,28 @@ class RT_Event_Manager {
         $existing = self::get_tickets_for_order($order_id);
         $valid_ids = array_map('intval', array_column($existing, 'id'));
 
+        // Map ticket id => ticket_index for human-friendly validation messages.
+        $existing_index_map = array();
+        foreach ($existing as $ex_row) {
+            $existing_index_map[intval($ex_row['id'])] = intval($ex_row['ticket_index']);
+        }
+
         $qr_urls = array();
 
         foreach ($tickets as $ticket_id => $data) {
             $ticket_id = absint($ticket_id);
             if (!in_array($ticket_id, $valid_ids, true)) {
                 continue;
+            }
+
+            // Validate phone format when one is provided. Admins may leave the
+            // field blank on a newly added ticket, but a non-empty value must be
+            // in international format.
+            if (isset($data['phone']) && trim(wp_unslash($data['phone'])) !== '' && !self::is_valid_intl_phone(wp_unslash($data['phone']))) {
+                wp_send_json_error(sprintf(
+                    __('Ticket %d: phone number must be in international format, e.g. +41791234567.', 'rt-event-manager'),
+                    intval($existing_index_map[$ticket_id]) + 1
+                ));
             }
 
             // Auto-generate QR URL from world_id
@@ -1987,8 +3527,10 @@ class RT_Event_Manager {
             'order_id'       => $order_id,
             'product_id'     => $product_id,
             'combination_id' => $combo_id,
+            'ticket_kind'    => self::get_ticket_kind_for_product($product_id),
             'ticket_index'   => $next_index,
             'holder_name'    => '',
+            'phone'          => '',
             'rti_family'     => '',
             'rti_club'       => '',
             'dietary'        => '',
@@ -2026,6 +3568,7 @@ class RT_Event_Manager {
             'product_id'   => $product_id,
             'ticket_index' => $next_index,
             'holder_name'  => '',
+            'phone'        => '',
             'rti_family'   => '',
             'rti_club'     => '',
             'dietary'      => '',
@@ -2039,28 +3582,6 @@ class RT_Event_Manager {
         $row_html = ob_get_clean();
 
         wp_send_json_success(array('row_html' => $row_html, 'ticket_id' => $ticket_id));
-    }
-
-    /**
-     * AJAX handler to update a single ticket's combination_id.
-     * Used from the RT Event Manager dashboard overview.
-     */
-    public function ajax_update_ticket_combination() {
-        check_ajax_referer('rti_overview_combination', 'nonce');
-
-        if (!current_user_can('edit_shop_orders')) {
-            wp_send_json_error(__('Permission denied.', 'rt-event-manager'));
-        }
-
-        $ticket_id      = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
-        $combination_id = isset($_POST['combination_id']) ? absint($_POST['combination_id']) : 0;
-
-        if (!$ticket_id) {
-            wp_send_json_error(__('Invalid ticket.', 'rt-event-manager'));
-        }
-
-        $this->update_ticket($ticket_id, array('combination_id' => $combination_id));
-        wp_send_json_success();
     }
 
     /**
@@ -2099,7 +3620,8 @@ class RT_Event_Manager {
 
         if (!empty($search)) {
             $like = '%' . $wpdb->esc_like($search) . '%';
-            $where[] = '(t.holder_name LIKE %s OR t.rti_club LIKE %s OR t.world_id LIKE %s)';
+            $where[] = '(t.holder_name LIKE %s OR t.rti_club LIKE %s OR t.world_id LIKE %s OR t.phone LIKE %s)';
+            $params[] = $like;
             $params[] = $like;
             $params[] = $like;
             $params[] = $like;
@@ -2136,60 +3658,6 @@ class RT_Event_Manager {
             ? $wpdb->get_results($query, ARRAY_A)
             : $wpdb->get_results($wpdb->prepare($query, $params), ARRAY_A);
 
-        // Build combination ID => human-readable label lookup
-        $combo_labels = array();
-        if (class_exists('WC_MTO_Combinations') && class_exists('WC_MTO_Attributes')) {
-            $combo_product_ids = array_unique(array_filter(array_column($tickets, 'product_id')));
-            foreach ($combo_product_ids as $cpid) {
-                $cpid = absint($cpid);
-                $p = wc_get_product($cpid);
-                if (!$p || 'make_to_order' !== $p->get_type()) {
-                    continue;
-                }
-                $combos = WC_MTO_Combinations::get_all_for_product($cpid);
-                $attrs  = WC_MTO_Attributes::get_for_product($cpid);
-                $first_opts = array();
-                foreach ($attrs as $attr) {
-                    if (!empty($attr->options)) {
-                        $first_opts[absint($attr->attribute_id)] = absint($attr->options[0]->option_id);
-                    }
-                }
-                foreach ($combos as $combo) {
-                    $cid = absint($combo->combination_id);
-                    if (isset($combo_labels[$cid])) {
-                        continue;
-                    }
-                    $yes_attrs = array();
-                    if (!empty($combo->items)) {
-                        foreach ($combo->items as $ci) {
-                            $aid = absint($ci->attribute_id);
-                            if (isset($first_opts[$aid]) && absint($ci->option_id) === $first_opts[$aid]) {
-                                $yes_attrs[] = strtolower($ci->attribute_label);
-                            }
-                        }
-                    }
-                    $yes_str = implode(',', $yes_attrs);
-                    $has_friday   = strpos($yes_str, 'friday') !== false || strpos($yes_str, 'fr') !== false;
-                    $has_saturday = strpos($yes_str, 'saturday') !== false || strpos($yes_str, 'sa') !== false;
-                    $has_pretour  = strpos($yes_str, 'pretour') !== false || strpos($yes_str, 'pre-tour') !== false || strpos($yes_str, 'pre tour') !== false || strpos($yes_str, 'pt') !== false;
-
-                    if (count($yes_attrs) >= 3 || ($has_friday && $has_saturday && $has_pretour)) {
-                        $combo_labels[$cid] = 'Full Weekend';
-                    } elseif ($has_friday && $has_saturday) {
-                        $combo_labels[$cid] = 'Friday + Saturday';
-                    } elseif ($has_saturday && !$has_friday && !$has_pretour) {
-                        $combo_labels[$cid] = 'Saturday';
-                    } elseif ($has_pretour && !$has_friday && !$has_saturday) {
-                        $combo_labels[$cid] = 'Pretour';
-                    } elseif (count($yes_attrs) === count($combo->items) && count($yes_attrs) > 0) {
-                        $combo_labels[$cid] = 'Full Weekend';
-                    } else {
-                        $combo_labels[$cid] = 'Full Weekend';
-                    }
-                }
-            }
-        }
-
         // Create spreadsheet
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -2209,10 +3677,13 @@ class RT_Event_Manager {
             'Dietary',
             '.WORLD ID',
             'QR Code URL',
-            'Combination ID',
+            'Parent Ticket',
             'Voucher',
             'Phone',
             'Function / Role',
+            'Ticket Phone',
+            'Date of Birth',
+            'Allergy details',
         );
 
         $col = 1;
@@ -2246,10 +3717,12 @@ class RT_Event_Manager {
             $dietary_label = $ticket['dietary'] ?: '';
             if ($dietary_label === 'none') $dietary_label = 'None';
             if ($dietary_label === 'vegetarian') $dietary_label = 'Vegetarian';
+            if ($dietary_label === 'allergies') $dietary_label = 'Allergies';
+            $allergy_details = isset($ticket['allergy_details']) ? $ticket['allergy_details'] : '';
 
-            // Ticket type from combination label
-            $combo_id = absint($ticket['combination_id']);
-            $ticket_type = ($combo_id && isset($combo_labels[$combo_id])) ? $combo_labels[$combo_id] : '';
+            // Ticket type (Event / Pretour / Future) and parent reference.
+            $ticket_type   = self::ticket_kind_label($ticket);
+            $parent_label  = self::ticket_parent_label($ticket);
 
             // Buyer info (only on first ticket of each order)
             $is_first_ticket = intval($ticket['ticket_index']) === 0;
@@ -2275,10 +3748,13 @@ class RT_Event_Manager {
             $sheet->setCellValueByColumnAndRow(10, $row, $dietary_label);
             $sheet->setCellValueByColumnAndRow(11, $row, $ticket['world_id']);
             $sheet->setCellValueByColumnAndRow(12, $row, $ticket['qr_code_url']);
-            $sheet->setCellValueByColumnAndRow(13, $row, $ticket['combination_id'] ?: '');
+            $sheet->setCellValueByColumnAndRow(13, $row, $parent_label);
             $sheet->setCellValueByColumnAndRow(14, $row, $buyer_voucher);
             $sheet->setCellValueByColumnAndRow(15, $row, $buyer_phone);
             $sheet->setCellValueByColumnAndRow(16, $row, $buyer_function);
+            $sheet->setCellValueByColumnAndRow(17, $row, isset($ticket['phone']) ? $ticket['phone'] : '');
+            $sheet->setCellValueByColumnAndRow(18, $row, isset($ticket['dob']) ? $ticket['dob'] : '');
+            $sheet->setCellValueByColumnAndRow(19, $row, $allergy_details);
 
             $row++;
         }
@@ -2455,6 +3931,33 @@ class RT_Event_Manager {
     }
 
     /**
+     * When an order is fully refunded in WooCommerce, mark its tickets refunded:
+     * confirm any pending refund request, and auto-cancel (refund) tickets that
+     * had no request. Checked-in tickets are left untouched.
+     *
+     * @param int $order_id
+     */
+    public function on_order_refunded($order_id) {
+        $tickets = self::get_tickets_for_order($order_id);
+        foreach ($tickets as $t) {
+            $status = isset($t['status']) ? $t['status'] : '';
+            if (in_array($status, array('checked_in', 'refunded'), true)) {
+                continue;
+            }
+            // A refund was processed → the ticket is refunded and the refund is
+            // confirmed, whether or not the holder had requested one.
+            $this->update_ticket(absint($t['id']), array(
+                'status'        => 'refunded',
+                'refund_status' => 'confirmed',
+            ));
+            // Refunding revokes the invitation — delete any visa letter(s).
+            if (class_exists('RT_Event_Manager_Visa')) {
+                RT_Event_Manager_Visa::delete_letters_for_ticket(absint($t['id']));
+            }
+        }
+    }
+
+    /**
      * Mark tickets as invalid when order is trashed (HPOS)
      *
      * @param int $order_id Order ID
@@ -2518,7 +4021,7 @@ class RT_Event_Manager {
      *
      * @param int $order_id Order ID
      */
-    private function recalculate_order_ticket_statuses($order_id) {
+    public function recalculate_order_ticket_statuses($order_id) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'rti_tickets';
 
@@ -2529,11 +4032,14 @@ class RT_Event_Manager {
         ), ARRAY_A);
 
         foreach ($tickets as $ticket) {
-            // Never overwrite checked_in status automatically
-            if ($ticket['status'] === 'checked_in') {
+            // Never overwrite terminal states set deliberately.
+            if (in_array($ticket['status'], array('checked_in', 'cancelled', 'refunded'), true)) {
                 continue;
             }
             $status = rt_event_manager_determine_ticket_status($order, $ticket['holder_name']);
+            if ($status === $ticket['status']) {
+                continue;
+            }
             $wpdb->update(
                 $table_name,
                 array('status' => $status),
@@ -2541,6 +4047,10 @@ class RT_Event_Manager {
                 array('%s'),
                 array('%d')
             );
+            // The status changed (e.g. Pending → Confirmed) — refresh saved passes.
+            if (function_exists('rt_event_manager_notify_wallets')) {
+                rt_event_manager_notify_wallets(absint($ticket['id']));
+            }
         }
     }
 
@@ -2571,6 +4081,42 @@ class RT_Event_Manager {
             array($this, 'render_tickets_overview_page')
         );
 
+        add_submenu_page(
+            'rt-event-manager',
+            __('Refunds & Cancellations', 'rt-event-manager'),
+            __('Refunds & Cancellations', 'rt-event-manager'),
+            'edit_shop_orders',
+            'rt-event-manager-refunds',
+            array($this, 'render_refunds_page')
+        );
+
+        add_submenu_page(
+            'rt-event-manager',
+            __('Transfers', 'rt-event-manager'),
+            __('Transfers', 'rt-event-manager'),
+            'edit_shop_orders',
+            'rt-event-manager-transfers',
+            array($this, 'render_transfers_page')
+        );
+
+        add_submenu_page(
+            'rt-event-manager',
+            __('Event Agenda', 'rt-event-manager'),
+            __('Event Agenda', 'rt-event-manager'),
+            'manage_options',
+            'rt-event-manager-agenda',
+            array($this, 'render_agenda_page')
+        );
+
+        add_submenu_page(
+            'rt-event-manager',
+            __('Settings', 'rt-event-manager'),
+            __('Settings', 'rt-event-manager'),
+            'manage_woocommerce',
+            'rt-event-manager-settings',
+            array($this, 'render_settings_page')
+        );
+
         // Badge Template submenu (admin only)
         add_submenu_page(
             'rt-event-manager',
@@ -2580,6 +4126,263 @@ class RT_Event_Manager {
             'rt-event-badge-template',
             array($this, 'render_badge_template_page')
         );
+    }
+
+    /**
+     * Admin page: cancelled tickets, with open refund requests surfaced first
+     * and Confirm / Decline actions to record the organiser's decision.
+     */
+    public function render_refunds_page() {
+        if (!current_user_can('edit_shop_orders')) {
+            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'rti_tickets';
+
+        $this->process_refund_decision_post();
+
+        $rows = $wpdb->get_results(
+            "SELECT t.*, p.post_title AS product_name
+             FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
+             WHERE t.status IN ('cancelled', 'refunded')
+             ORDER BY t.updated_at DESC, t.id DESC",
+            ARRAY_A
+        );
+
+        $open = array();
+        $rest = array();
+        foreach ($rows as $r) {
+            if ('requested' === $r['refund_status']) {
+                $open[] = $r;
+            } else {
+                $rest[] = $r;
+            }
+        }
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__('Refunds & Cancellations', 'rt-event-manager') . '</h1>';
+        echo '<p class="description">' . esc_html__('Confirm or decline records the decision here for your reference. Process the actual payment refund in the WooCommerce order.', 'rt-event-manager') . '</p>';
+
+        echo '<h2>' . esc_html(sprintf(__('Open refund requests (%d)', 'rt-event-manager'), count($open))) . '</h2>';
+        $this->render_refund_table($open, true);
+
+        echo '<h2>' . esc_html__('Other cancellations', 'rt-event-manager') . '</h2>';
+        $this->render_refund_table($rest, false);
+
+        echo '</div>';
+    }
+
+    /** Record a Confirm/Decline refund decision from a posted form (shared). */
+    private function process_refund_decision_post() {
+        if (!isset($_POST['rti_refund_action'], $_POST['rti_ticket_id'])) {
+            return;
+        }
+        check_admin_referer('rti_refund_action');
+        $tid      = absint($_POST['rti_ticket_id']);
+        $decision = sanitize_key(wp_unslash($_POST['rti_refund_action']));
+        if ($tid && in_array($decision, array('confirm', 'decline'), true)) {
+            $new  = ('confirm' === $decision) ? 'confirmed' : 'declined';
+            // Keep the decline reason (single line); clear it when confirming.
+            $note = ('decline' === $decision)
+                ? sanitize_text_field(wp_unslash($_POST['rti_refund_note'] ?? ''))
+                : '';
+            $this->update_ticket($tid, array('refund_status' => $new, 'refund_note' => $note));
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf(
+                'confirm' === $decision
+                    ? __('Refund marked as confirmed for ticket #%d.', 'rt-event-manager')
+                    : __('Refund marked as declined for ticket #%d.', 'rt-event-manager'),
+                $tid
+            )) . '</p></div>';
+        }
+    }
+
+    /** Render a cancelled-tickets table; $actionable adds Confirm/Decline. */
+    private function render_refund_table($rows, $actionable) {
+        if (empty($rows)) {
+            echo '<p>' . esc_html__('None.', 'rt-event-manager') . '</p>';
+            return;
+        }
+        $refund_labels = array(
+            'requested' => __('Refund requested', 'rt-event-manager'),
+            'confirmed' => __('Refund confirmed', 'rt-event-manager'),
+            'declined'  => __('Refund declined', 'rt-event-manager'),
+            'none'      => __('No refund (after cutoff)', 'rt-event-manager'),
+            ''          => __('—', 'rt-event-manager'),
+        );
+
+        echo '<table class="wp-list-table widefat fixed striped">';
+        echo '<thead><tr>';
+        echo '<th>' . esc_html__('Order', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Holder', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Amount paid', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Cancelled', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Refund', 'rt-event-manager') . '</th>';
+        if ($actionable) {
+            echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+
+        foreach ($rows as $r) {
+            $order_id = absint($r['order_id']);
+            $order    = wc_get_order($order_id);
+            $order_link = $order ? $order->get_edit_order_url() : '';
+            $amount   = wc_price(self::get_ticket_paid_amount($r), array('currency' => self::get_ticket_currency($r)));
+            $rlabel   = isset($refund_labels[$r['refund_status']]) ? $refund_labels[$r['refund_status']] : $r['refund_status'];
+            $pname    = $r['product_name'] ? $r['product_name'] : ('#' . $r['product_id']);
+
+            echo '<tr>';
+            echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html($order_id) . '</a>' : ('#' . esc_html($order_id))) . '</td>';
+            echo '<td>' . esc_html($r['holder_name'] !== '' ? $r['holder_name'] : '—') . '</td>';
+            echo '<td>' . esc_html($pname . ' (' . self::ticket_kind_label($r) . ')') . '</td>';
+            echo '<td>' . wp_kses_post($amount) . '</td>';
+            echo '<td>' . esc_html($r['updated_at']) . '</td>';
+            $rnote = isset($r['refund_note']) ? (string) $r['refund_note'] : '';
+            echo '<td>' . esc_html($rlabel);
+            if ('declined' === $r['refund_status'] && '' !== $rnote) {
+                echo '<br><span class="description">' . esc_html($rnote) . '</span>';
+            }
+            echo '</td>';
+            if ($actionable) {
+                echo '<td><form method="post">';
+                wp_nonce_field('rti_refund_action');
+                echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
+                echo '<input type="text" name="rti_refund_note" class="regular-text" style="width:100%;margin-bottom:6px;" placeholder="' . esc_attr__('Reason (shown to the member if declined)', 'rt-event-manager') . '" />';
+                echo '<button type="submit" class="button button-primary" name="rti_refund_action" value="confirm">' . esc_html__('Confirm refund', 'rt-event-manager') . '</button> ';
+                echo '<button type="submit" class="button" name="rti_refund_action" value="decline">' . esc_html__('Decline', 'rt-event-manager') . '</button>';
+                echo '</form></td>';
+            }
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+    }
+
+    /**
+     * Admin page: tickets with a pending transfer offer (awaiting acceptance),
+     * with a Withdraw action to cancel the offer.
+     */
+    public function render_transfers_page() {
+        if (!current_user_can('edit_shop_orders')) {
+            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'rti_tickets';
+
+        if (isset($_POST['rti_withdraw_transfer'], $_POST['rti_ticket_id'])) {
+            check_admin_referer('rti_withdraw_transfer');
+            $tid = absint($_POST['rti_ticket_id']);
+            if ($tid) {
+                $this->update_ticket($tid, array(
+                    'transfer_token' => '',
+                    'transfer_email' => '',
+                ));
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf(__('Transfer offer withdrawn for ticket #%d.', 'rt-event-manager'), $tid)) . '</p></div>';
+            }
+        }
+
+        $rows = $wpdb->get_results(
+            "SELECT t.*, p.post_title AS product_name
+             FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
+             WHERE t.transfer_token <> ''
+             ORDER BY t.transfer_requested_at DESC",
+            ARRAY_A
+        );
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__('Transfers', 'rt-event-manager') . '</h1>';
+
+        echo '<h2>' . esc_html(sprintf(__('Open transfers (%d)', 'rt-event-manager'), count($rows))) . '</h2>';
+        echo '<p class="description">' . esc_html__('Event tickets with a pending transfer offer that the invited person has not yet accepted.', 'rt-event-manager') . '</p>';
+
+        if (empty($rows)) {
+            echo '<p>' . esc_html__('No pending transfers.', 'rt-event-manager') . '</p>';
+        } else {
+            echo '<table class="wp-list-table widefat fixed striped">';
+            echo '<thead><tr>';
+            echo '<th>' . esc_html__('Order', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Current holder', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Requested', 'rt-event-manager') . '</th>';
+            echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
+            echo '</tr></thead><tbody>';
+
+            foreach ($rows as $r) {
+                $order_id   = absint($r['order_id']);
+                $order      = wc_get_order($order_id);
+                $order_link = $order ? $order->get_edit_order_url() : '';
+                $pname      = $r['product_name'] ? $r['product_name'] : ('#' . $r['product_id']);
+
+                echo '<tr>';
+                echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html($order_id) . '</a>' : ('#' . esc_html($order_id))) . '</td>';
+                echo '<td>' . esc_html($r['holder_name'] !== '' ? $r['holder_name'] : '—') . '</td>';
+                echo '<td>' . esc_html($pname) . '</td>';
+                echo '<td>' . esc_html($r['transfer_requested_at'] ? $r['transfer_requested_at'] : '—') . '</td>';
+                echo '<td><form method="post" style="display:inline">';
+                wp_nonce_field('rti_withdraw_transfer');
+                echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
+                echo '<button type="submit" class="button" name="rti_withdraw_transfer" value="1">' . esc_html__('Withdraw', 'rt-event-manager') . '</button>';
+                echo '</form></td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+        }
+
+        // Completed transfers (a ticket has been reassigned to a new owner).
+        $done = $wpdb->get_results(
+            "SELECT t.*, p.post_title AS product_name
+             FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
+             WHERE t.transferred_at IS NOT NULL
+             ORDER BY t.transferred_at DESC",
+            ARRAY_A
+        );
+
+        echo '<h2>' . esc_html(sprintf(__('Completed transfers (%d)', 'rt-event-manager'), count($done))) . '</h2>';
+        if (empty($done)) {
+            echo '<p>' . esc_html__('No completed transfers.', 'rt-event-manager') . '</p></div>';
+            return;
+        }
+
+        echo '<table class="wp-list-table widefat fixed striped">';
+        echo '<thead><tr>';
+        echo '<th>' . esc_html__('Order', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('From', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('To', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Transferred', 'rt-event-manager') . '</th>';
+        echo '</tr></thead><tbody>';
+
+        foreach ($done as $r) {
+            $order_id   = absint($r['order_id']);
+            $order      = wc_get_order($order_id);
+            $order_link = $order ? $order->get_edit_order_url() : '';
+            $pname      = $r['product_name'] ? $r['product_name'] : ('#' . $r['product_id']);
+
+            echo '<tr>';
+            echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html($order_id) . '</a>' : ('#' . esc_html($order_id))) . '</td>';
+            echo '<td>' . esc_html($pname) . '</td>';
+            echo '<td>' . esc_html(self::user_display($r['transferred_from_user_id'])) . '</td>';
+            echo '<td>' . esc_html(self::user_display($r['owner_user_id']) . ($r['holder_name'] !== '' ? ' — ' . $r['holder_name'] : '')) . '</td>';
+            echo '<td>' . esc_html($r['transferred_at']) . '</td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table></div>';
+    }
+
+    /** Human label (name + email) for a user id, or an em dash. */
+    private static function user_display($user_id) {
+        $user_id = absint($user_id);
+        if (!$user_id) {
+            return '—';
+        }
+        $u = get_userdata($user_id);
+        if (!$u) {
+            return '#' . $user_id;
+        }
+        $name = trim($u->first_name . ' ' . $u->last_name);
+        if ('' === $name) {
+            $name = $u->display_name;
+        }
+        return $u->user_email ? ($name . ' <' . $u->user_email . '>') : $name;
     }
 
     /**
@@ -2608,12 +4411,16 @@ class RT_Event_Manager {
             'draft'      => __('Draft', 'rt-event-manager'),
             'checked_in' => __('Checked In', 'rt-event-manager'),
             'invalid'    => __('Invalid', 'rt-event-manager'),
+            'cancelled'  => __('Cancelled', 'rt-event-manager'),
+            'refunded'   => __('Refunded', 'rt-event-manager'),
         );
         $status_colors = array(
             'valid'      => '#00a32a',
             'draft'      => '#dba617',
             'checked_in' => '#2271b1',
             'invalid'    => '#d63638',
+            'cancelled'  => '#8c8f94',
+            'refunded'   => '#8250df',
         );
 
         // Handle search / filters
@@ -2647,7 +4454,8 @@ class RT_Event_Manager {
 
         if (!empty($search)) {
             $like = '%' . $wpdb->esc_like($search) . '%';
-            $where[] = '(t.holder_name LIKE %s OR t.rti_club LIKE %s OR t.world_id LIKE %s)';
+            $where[] = '(t.holder_name LIKE %s OR t.rti_club LIKE %s OR t.world_id LIKE %s OR t.phone LIKE %s)';
+            $params[] = $like;
             $params[] = $like;
             $params[] = $like;
             $params[] = $like;
@@ -2724,77 +4532,15 @@ class RT_Event_Manager {
             $family_counts[$fs['rti_family']] = intval($fs['cnt']);
         }
 
-        // Tickets per MTO Combination (only valid + draft)
-        $combo_stats = $wpdb->get_results(
-            "SELECT combination_id, COUNT(*) AS cnt FROM $tickets_table WHERE status IN ('valid', 'draft') AND combination_id > 0 GROUP BY combination_id ORDER BY combination_id ASC",
+        // Tickets per Type (event / pretour / minor), only valid + draft.
+        $kind_stats = $wpdb->get_results(
+            "SELECT ticket_kind, COUNT(*) AS cnt FROM $tickets_table WHERE status IN ('valid', 'draft') GROUP BY ticket_kind",
             ARRAY_A
         );
-        $combo_counts = array(); // combination_id => count
-        foreach ($combo_stats as $cs) {
-            $combo_counts[absint($cs['combination_id'])] = intval($cs['cnt']);
-        }
-
-        // Build combination labels - map Yes/No patterns to friendly names
-        // Full Weekend = all Yes, Friday + Saturday = Fr+Sa Yes, Saturday = only Sa Yes, Pretour = PT Yes
-        $combo_labels = array(); // combination_id => label
-        $combo_short_labels = array(); // combination_id => short label for KPI tiles
-        if (!empty($combo_counts) && class_exists('WC_MTO_Combinations')) {
-            // Get all unique product IDs that have tickets with combinations
-            $combo_product_ids = $wpdb->get_col(
-                "SELECT DISTINCT product_id FROM $tickets_table WHERE combination_id > 0 AND status != 'invalid'"
-            );
-            foreach ($combo_product_ids as $cpid) {
-                $combos = WC_MTO_Combinations::get_all_for_product(absint($cpid));
-                foreach ($combos as $combo) {
-                    $cid = absint($combo->combination_id);
-                    if (isset($combo_counts[$cid]) && !isset($combo_labels[$cid])) {
-                        // Determine which options are "Yes" (first option = Yes)
-                        $yes_attrs = array();
-                        if (!empty($combo->items) && class_exists('WC_MTO_Attributes')) {
-                            $attrs = WC_MTO_Attributes::get_for_product(absint($cpid));
-                            $first_opts = array();
-                            foreach ($attrs as $attr) {
-                                if (!empty($attr->options)) {
-                                    $first_opts[absint($attr->attribute_id)] = absint($attr->options[0]->option_id);
-                                }
-                            }
-                            foreach ($combo->items as $ci) {
-                                $aid = absint($ci->attribute_id);
-                                if (isset($first_opts[$aid]) && absint($ci->option_id) === $first_opts[$aid]) {
-                                    $yes_attrs[] = strtolower($ci->attribute_label);
-                                }
-                            }
-                        }
-                        // Map to friendly names based on which attrs are Yes
-                        $yes_str = implode(',', $yes_attrs);
-                        $has_friday = strpos($yes_str, 'friday') !== false || strpos($yes_str, 'fr') !== false;
-                        $has_saturday = strpos($yes_str, 'saturday') !== false || strpos($yes_str, 'sa') !== false;
-                        $has_pretour = strpos($yes_str, 'pretour') !== false || strpos($yes_str, 'pre-tour') !== false || strpos($yes_str, 'pre tour') !== false || strpos($yes_str, 'pt') !== false;
-
-                        if (count($yes_attrs) >= 3 || ($has_friday && $has_saturday && $has_pretour)) {
-                            $combo_labels[$cid] = 'Full Weekend';
-                            $combo_short_labels[$cid] = 'FW';
-                        } elseif ($has_friday && $has_saturday) {
-                            $combo_labels[$cid] = 'Friday + Saturday';
-                            $combo_short_labels[$cid] = 'Fr+Sa';
-                        } elseif ($has_saturday && !$has_friday && !$has_pretour) {
-                            $combo_labels[$cid] = 'Saturday';
-                            $combo_short_labels[$cid] = 'Sa';
-                        } elseif ($has_pretour && !$has_friday && !$has_saturday) {
-                            $combo_labels[$cid] = 'Pretour';
-                            $combo_short_labels[$cid] = 'PT';
-                        } elseif (count($yes_attrs) === count($combo->items) && count($yes_attrs) > 0) {
-                            // All options are Yes = Full Weekend
-                            $combo_labels[$cid] = 'Full Weekend';
-                            $combo_short_labels[$cid] = 'FW';
-                        } else {
-                            // Fallback - default to Full Weekend for unknown patterns
-                            $combo_labels[$cid] = 'Full Weekend';
-                            $combo_short_labels[$cid] = 'FW';
-                        }
-                    }
-                }
-            }
+        $kind_counts = array(); // kind => count
+        foreach ($kind_stats as $ks) {
+            $kind = $ks['ticket_kind'] !== '' ? $ks['ticket_kind'] : 'event';
+            $kind_counts[$kind] = isset($kind_counts[$kind]) ? $kind_counts[$kind] + intval($ks['cnt']) : intval($ks['cnt']);
         }
 
         ?>
@@ -2848,17 +4594,21 @@ class RT_Event_Manager {
                 <?php endforeach; ?>
             </div>
 
-            <?php if (!empty($combo_counts)) : ?>
-            <!-- Tickets per Combination -->
+            <?php if (!empty($kind_counts)) : ?>
+            <!-- Tickets per Type -->
             <div class="rti-overview-stats" style="display:flex;gap:15px;margin:0 0 20px;flex-wrap:wrap;">
                 <?php
-                $combo_color = '#8e44ad'; // Purple for combinations
-                foreach ($combo_counts as $cid => $ccount) :
-                    $clabel = isset($combo_labels[$cid]) ? $combo_labels[$cid] : '#' . $cid;
+                $kind_meta = array(
+                    'event'   => array(__('Event', 'rt-event-manager'), '#2271b1'),
+                    'pretour' => array(__('Pretour', 'rt-event-manager'), '#8e44ad'),
+                    'minor'   => array(__('Future member', 'rt-event-manager'), '#c0392b'),
+                );
+                foreach ($kind_meta as $kkey => $km) :
+                    $kcount = isset($kind_counts[$kkey]) ? $kind_counts[$kkey] : 0;
                 ?>
-                <div class="rti-stat-box" style="background:#fff;border:1px solid #c3c4c7;border-left:4px solid <?php echo esc_attr($combo_color); ?>;padding:12px 18px;border-radius:3px;min-width:120px;">
-                    <div style="font-size:28px;font-weight:600;color:<?php echo esc_attr($combo_color); ?>;"><?php echo intval($ccount); ?></div>
-                    <div style="color:#646970;font-size:13px;" title="<?php echo esc_attr($clabel); ?>"><?php echo esc_html($clabel); ?></div>
+                <div class="rti-stat-box" style="background:#fff;border:1px solid #c3c4c7;border-left:4px solid <?php echo esc_attr($km[1]); ?>;padding:12px 18px;border-radius:3px;min-width:120px;">
+                    <div style="font-size:28px;font-weight:600;color:<?php echo esc_attr($km[1]); ?>;"><?php echo intval($kcount); ?></div>
+                    <div style="color:#646970;font-size:13px;"><?php echo esc_html($km[0]); ?></div>
                 </div>
                 <?php endforeach; ?>
             </div>
@@ -2954,60 +4704,6 @@ class RT_Event_Manager {
                 ?>
             </p>
 
-            <?php
-            // Pre-load MTO combinations and attributes for dashboard display.
-            $overview_combos_cache = array();
-            $overview_attrs_cache = array();
-            $overview_all_attr_labels = array(); // attribute_id => label (ordered)
-            $overview_attr_short_labels = array(); // attribute_id => short label for table headers
-            $overview_first_options = array(); // attribute_id => first option_id ("Yes")
-
-            // Abbreviation map for attribute labels
-            $attr_abbrev_map = array(
-                'full weekend' => 'FW',
-                'friday'       => 'Fr',
-                'saturday'     => 'Sa',
-                'pretour'      => 'PT',
-                'pre-tour'     => 'PT',
-                'pre tour'     => 'PT',
-                'friday + saturday' => 'Fr+Sa',
-            );
-
-            if (class_exists('WC_MTO_Combinations') && class_exists('WC_MTO_Attributes')) {
-                // Collect unique product_ids from tickets.
-                $overview_product_ids = array_unique(array_column($tickets, 'product_id'));
-                foreach ($overview_product_ids as $opid) {
-                    $opid = absint($opid);
-                    $p = wc_get_product($opid);
-                    if ($p && 'make_to_order' === $p->get_type()) {
-                        $combos = WC_MTO_Combinations::get_all_for_product($opid);
-                        if (!empty($combos)) {
-                            $overview_combos_cache[$opid] = $combos;
-                        }
-                        $attrs = WC_MTO_Attributes::get_for_product($opid);
-                        if (!empty($attrs)) {
-                            $overview_attrs_cache[$opid] = $attrs;
-                            foreach ($attrs as $attr) {
-                                $aid = absint($attr->attribute_id);
-                                if (!isset($overview_all_attr_labels[$aid])) {
-                                    $overview_all_attr_labels[$aid] = $attr->attribute_label;
-                                    // Generate short label
-                                    $lbl_lower = strtolower(trim($attr->attribute_label));
-                                    $overview_attr_short_labels[$aid] = isset($attr_abbrev_map[$lbl_lower])
-                                        ? $attr_abbrev_map[$lbl_lower]
-                                        : mb_substr($attr->attribute_label, 0, 2);
-                                }
-                                if (!empty($attr->options) && !isset($overview_first_options[$aid])) {
-                                    $overview_first_options[$aid] = absint($attr->options[0]->option_id);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            $overview_attr_ids = array_keys($overview_all_attr_labels);
-            ?>
-
             <!-- Tickets table -->
             <table class="wp-list-table widefat fixed striped" id="rti-overview-table">
                 <thead>
@@ -3015,14 +4711,11 @@ class RT_Event_Manager {
                         <th style="width:70px;"><?php esc_html_e('Status', 'rt-event-manager'); ?></th>
                         <th style="width:60px;"><?php esc_html_e('Order', 'rt-event-manager'); ?></th>
                         <th style="width:40px;"><?php esc_html_e('#', 'rt-event-manager'); ?></th>
+                        <th><?php esc_html_e('Type', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Product', 'rt-event-manager'); ?></th>
-                        <?php foreach ($overview_all_attr_labels as $ov_aid => $ov_alabel) :
-                            $ov_short = isset($overview_attr_short_labels[$ov_aid]) ? $overview_attr_short_labels[$ov_aid] : $ov_alabel;
-                        ?>
-                            <th style="text-align:center;width:40px;" title="<?php echo esc_attr($ov_alabel); ?>"><?php echo esc_html($ov_short); ?></th>
-                        <?php endforeach; ?>
-                        <th style="width:70px;"><?php esc_html_e('Combo ID', 'rt-event-manager'); ?></th>
+                        <th><?php esc_html_e('Main ticket / Guardian', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Holder Name', 'rt-event-manager'); ?></th>
+                        <th><?php esc_html_e('Ticket Phone', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Country', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('RTI Family', 'rt-event-manager'); ?></th>
                         <th><?php esc_html_e('Club', 'rt-event-manager'); ?></th>
@@ -3040,7 +4733,7 @@ class RT_Event_Manager {
                 <tbody>
                     <?php if (empty($tickets)) : ?>
                         <tr>
-                            <td colspan="<?php echo intval(14 + count($overview_attr_ids) + (current_user_can('manage_options') ? 1 : 0)); ?>" style="text-align:center;color:#999;padding:20px;">
+                            <td colspan="<?php echo intval(17 + (current_user_can('manage_options') ? 1 : 0)); ?>" style="text-align:center;color:#999;padding:20px;">
                                 <?php esc_html_e('No tickets found.', 'rt-event-manager'); ?>
                             </td>
                         </tr>
@@ -3052,6 +4745,12 @@ class RT_Event_Manager {
                             $dietary_label = $ticket['dietary'] ?: '—';
                             if ($dietary_label === 'none') $dietary_label = 'None';
                             if ($dietary_label === 'vegetarian') $dietary_label = 'Vegetarian';
+                            if ($dietary_label === 'allergies') {
+                                $dietary_label = 'Allergies';
+                                if (!empty($ticket['allergy_details'])) {
+                                    $dietary_label .= ' (' . $ticket['allergy_details'] . ')';
+                                }
+                            }
 
                             $ticket_status = isset($ticket['status']) ? $ticket['status'] : 'draft';
                             $badge_color = isset($status_colors[$ticket_status]) ? $status_colors[$ticket_status] : '#999';
@@ -3089,42 +4788,10 @@ class RT_Event_Manager {
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo esc_html($ticket_num); ?></td>
+                                <td><?php echo esc_html(self::ticket_kind_label($ticket)); ?></td>
                                 <td><?php echo esc_html($product_name); ?></td>
-                                <?php
-                                $ov_pid = absint($ticket['product_id']);
-                                $ov_combo_id = isset($ticket['combination_id']) ? absint($ticket['combination_id']) : 0;
-                                // Build selections for this ticket's combination.
-                                $ov_combo_sels = array(); // attribute_id => option_id
-                                if (!empty($overview_combos_cache[$ov_pid]) && $ov_combo_id) {
-                                    foreach ($overview_combos_cache[$ov_pid] as $ov_combo) {
-                                        if ((int) $ov_combo->combination_id === $ov_combo_id && !empty($ov_combo->items)) {
-                                            foreach ($ov_combo->items as $ov_ci) {
-                                                $ov_combo_sels[absint($ov_ci->attribute_id)] = absint($ov_ci->option_id);
-                                            }
-                                            break;
-                                        }
-                                    }
-                                }
-                                // Render per-attribute cells.
-                                foreach ($overview_attr_ids as $ov_attr_id) :
-                                ?>
-                                <td style="text-align:center;">
-                                    <?php if (isset($ov_combo_sels[$ov_attr_id])) :
-                                        $ov_is_yes = isset($overview_first_options[$ov_attr_id]) && $ov_combo_sels[$ov_attr_id] === $overview_first_options[$ov_attr_id];
-                                    ?>
-                                        <?php echo $ov_is_yes ? '<span style="color:#00a32a;font-weight:bold;">✓</span>' : '<span style="color:#999;">—</span>'; ?>
-                                    <?php else : ?>
-                                        <span style="color:#ccc;">—</span>
-                                    <?php endif; ?>
-                                </td>
-                                <?php endforeach; ?>
-                                <td>
-                                    <?php if (!empty($overview_combos_cache[$ov_pid])) : ?>
-                                        <input type="number" class="rti-overview-combo-input" data-ticket-id="<?php echo esc_attr($ticket['id']); ?>" value="<?php echo esc_attr($ov_combo_id); ?>" style="width:60px;" min="0" />
-                                    <?php else : ?>
-                                        <span style="color:#999;">&mdash;</span>
-                                    <?php endif; ?>
-                                </td>
+                                <?php $ov_parent_label = self::ticket_parent_label($ticket); ?>
+                                <td><?php echo $ov_parent_label !== '' ? esc_html($ov_parent_label) : '<span style="color:#999;">&mdash;</span>'; ?></td>
                                 <td>
                                     <?php if (!empty($ticket['holder_name'])) : ?>
                                         <strong><?php echo esc_html($ticket['holder_name']); ?></strong>
@@ -3132,6 +4799,7 @@ class RT_Event_Manager {
                                         <span style="color:#999;">—</span>
                                     <?php endif; ?>
                                 </td>
+                                <td><?php echo esc_html(!empty($ticket['phone']) ? $ticket['phone'] : '—'); ?></td>
                                 <td><?php echo esc_html($billing_country ?: '—'); ?></td>
                                 <td><?php echo esc_html($family_label); ?></td>
                                 <td><?php echo esc_html($ticket['rti_club'] ?: '—'); ?></td>
@@ -3204,38 +4872,6 @@ class RT_Event_Manager {
             }
             ?>
         </div>
-
-        <?php if (!empty($overview_combos_cache)) : ?>
-        <script type="text/javascript">
-        jQuery(function($) {
-            var comboNonce = '<?php echo esc_js(wp_create_nonce('rti_overview_combination')); ?>';
-            $('#rti-overview-table').on('change', '.rti-overview-combo-input', function() {
-                var $inp = $(this);
-                var ticketId = $inp.data('ticket-id');
-                var combinationId = $inp.val();
-                $inp.css('opacity', '0.5');
-                $.post(ajaxurl, {
-                    action: 'rti_update_ticket_combination',
-                    nonce: comboNonce,
-                    ticket_id: ticketId,
-                    combination_id: combinationId
-                }, function(response) {
-                    $inp.css('opacity', '1');
-                    if (response.success) {
-                        // Reload to reflect updated ✓/— marks.
-                        location.reload();
-                    } else {
-                        alert(response.data || 'Error');
-                    }
-                }).fail(function() {
-                    $inp.css('opacity', '1');
-                    alert('Request failed.');
-                });
-            });
-        });
-        </script>
-        <?php endif; ?>
-
         <?php
     }
 
@@ -3413,28 +5049,41 @@ class RT_Event_Manager {
     // =============================================
 
     /**
-     * Add "Ticket Settings" section under WooCommerce > Settings > Advanced
-     *
-     * @param array $sections Existing sections
-     * @return array
+     * RT Event Manager → Settings admin page. Reuses WooCommerce's settings-field
+     * renderer/saver so the field definitions in get_settings_fields() work here.
      */
-    public function add_ticket_settings_section($sections) {
-        $sections['rti_tickets'] = __('Ticket Settings', 'rt-event-manager');
-        return $sections;
+    public function render_settings_page() {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
+        }
+        if (!class_exists('WC_Admin_Settings')) {
+            echo '<div class="wrap"><h1>' . esc_html__('RT Event Manager Settings', 'rt-event-manager') . '</h1><p>' . esc_html__('WooCommerce is required.', 'rt-event-manager') . '</p></div>';
+            return;
+        }
+
+        $fields = $this->get_settings_fields();
+
+        if (isset($_POST['rt_settings_save']) && check_admin_referer('rt_settings_save')) {
+            WC_Admin_Settings::save_fields($fields);
+            WC_Admin_Settings::add_message(__('Settings saved.', 'rt-event-manager'));
+        }
+
+        echo '<div class="wrap woocommerce"><h1>' . esc_html__('RT Event Manager Settings', 'rt-event-manager') . '</h1>';
+        WC_Admin_Settings::show_messages();
+        echo '<form method="post" action="">';
+        WC_Admin_Settings::output_fields($fields);
+        wp_nonce_field('rt_settings_save');
+        echo '<p class="submit"><button type="submit" name="rt_settings_save" value="1" class="button button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button></p>';
+        echo '</form></div>';
     }
 
     /**
-     * Get settings fields for the Ticket Settings section
+     * All plugin settings fields (WooCommerce settings-field format), rendered on
+     * the RT Event Manager → Settings admin page.
      *
-     * @param array  $settings Existing settings
-     * @param string $current_section Current section ID
      * @return array
      */
-    public function get_ticket_settings_fields($settings, $current_section) {
-        if ('rti_tickets' !== $current_section) {
-            return $settings;
-        }
-
+    public function get_settings_fields() {
         return array(
             array(
                 'title' => __('Ticket Edit Settings', 'rt-event-manager'),
@@ -3451,10 +5100,725 @@ class RT_Event_Manager {
                 'desc_tip' => true,
             ),
             array(
+                'title'    => __('Pretour Category', 'rt-event-manager'),
+                'desc'     => __('Ticket products in this category are treated as Pretour tickets (shown in the Pretour tab and linked to an Event ticket).', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_pretour_category',
+                'type'     => 'select',
+                'options'  => self::get_product_category_options(),
+                'default'  => '',
+                'desc_tip' => true,
+                'class'    => 'wc-enhanced-select',
+            ),
+            array(
+                'title'    => __('Future Member (Minor) Category', 'rt-event-manager'),
+                'desc'     => __('Ticket products in this category are treated as Future Tabler / Future Circler minor tickets — addable only as co-travellers linked to an existing Event or Pretour ticket.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_future_category',
+                'type'     => 'select',
+                'options'  => self::get_product_category_options(),
+                'default'  => '',
+                'desc_tip' => true,
+                'class'    => 'wc-enhanced-select',
+            ),
+            array(
+                'title'    => __('Day Tour Category', 'rt-event-manager'),
+                'desc'     => __('Ticket products in this category are shown as Day tours in the customer event calendar.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_daytour_category',
+                'type'     => 'select',
+                'options'  => self::get_product_category_options(),
+                'default'  => '',
+                'desc_tip' => true,
+                'class'    => 'wc-enhanced-select',
+            ),
+            array(
                 'type' => 'sectionend',
                 'id'   => 'rti_ticket_settings',
             ),
+
+            array(
+                'title' => __('Customer Account Tabs', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('Show or hide these sections in the customer account portal.', 'rt-event-manager'),
+                'id'    => 'rti_account_tabs',
+            ),
+            array(
+                'title'   => __('Pretour', 'rt-event-manager'),
+                'desc'    => __('Show the Pretour tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_pretour',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'title'   => __('Day Tours', 'rt-event-manager'),
+                'desc'    => __('Show the Day Tours tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_daytour',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'title'   => __('My Calendar', 'rt-event-manager'),
+                'desc'    => __('Show the My Calendar tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_calendar',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'title'   => __('Travel and Visa', 'rt-event-manager'),
+                'desc'    => __('Show the Travel and Visa tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_travel',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'title'   => __('Shop', 'rt-event-manager'),
+                'desc'    => __('Show the Shop tab', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_shop',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_account_tabs',
+            ),
+
+            array(
+                'title' => __('Shop Settings', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('Control the merchandise shown in the customer account Shop tab.', 'rt-event-manager'),
+                'id'    => 'rti_shop_settings',
+            ),
+            array(
+                'title'    => __('Merchandise Category', 'rt-event-manager'),
+                'desc'     => __('Products in this category (excluding ticket products) are shown in the account Shop tab. Leave empty to show all non-ticket products.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_merch_category',
+                'type'     => 'select',
+                'options'  => self::get_product_category_options(),
+                'default'  => '',
+                'desc_tip' => true,
+                'class'    => 'wc-enhanced-select',
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_shop_settings',
+            ),
+
+            array(
+                'title' => __('Event & Age Limits', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('Event dates for the customer calendar and visa letters, plus the Future member age range.', 'rt-event-manager'),
+                'id'    => 'rti_event_settings',
+            ),
+            array(
+                'title'    => __('Event start date', 'rt-event-manager'),
+                'desc'     => __('First day of the event (used in the calendar and visa letters).', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_event_start',
+                'type'     => 'date',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Event end date', 'rt-event-manager'),
+                'desc'     => __('Last day of the event (used in the calendar and visa letters).', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_event_end',
+                'type'     => 'date',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Age cutoff date', 'rt-event-manager'),
+                'desc'     => __('The date at which Future member ages are checked against the range below.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_event_date',
+                'type'     => 'date',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'             => __('Future member minimum age', 'rt-event-manager'),
+                'desc'              => __('years (at the event date)', 'rt-event-manager'),
+                'id'                => 'rt_event_manager_minor_min_age',
+                'type'              => 'number',
+                'default'           => 5,
+                'custom_attributes' => array('min' => '0', 'step' => '1'),
+            ),
+            array(
+                'title'             => __('Future member maximum age', 'rt-event-manager'),
+                'desc'              => __('years (at the event date)', 'rt-event-manager'),
+                'id'                => 'rt_event_manager_minor_max_age',
+                'type'              => 'number',
+                'default'           => 15,
+                'custom_attributes' => array('min' => '0', 'step' => '1'),
+            ),
+            array(
+                'title'    => __('FontAwesome Pro kit URL', 'rt-event-manager'),
+                'desc'     => __('Optional. Paste your FontAwesome Pro kit script URL (e.g. https://kit.fontawesome.com/abcd1234.js) to load Pro icons (enables the light style) in the member account. Leave blank to use the free icon set.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_fa_kit',
+                'type'     => 'text',
+                'default'  => '',
+                'css'      => 'min-width:360px;',
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_event_settings',
+            ),
+
+            array(
+                'title' => __('Member Profile', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('Controls for the Function / Role field in the customer account profile.', 'rt-event-manager'),
+                'id'    => 'rti_profile_settings',
+            ),
+            array(
+                'title'    => __('Function / Role suggestions', 'rt-event-manager'),
+                'desc'     => __('One suggestion per line. These appear as type-ahead options for the Function / Role field; members can still type a custom value.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_function_suggestions',
+                'type'     => 'textarea',
+                'css'      => 'min-width:400px;min-height:120px;',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Allergy suggestions', 'rt-event-manager'),
+                'desc'     => __('One suggestion per line. These appear as type-ahead options when "Allergies" is chosen for dietary; attendees can still type a custom value.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_allergy_suggestions',
+                'type'     => 'textarea',
+                'css'      => 'min-width:400px;min-height:120px;',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'   => __('Preselect a default Function / Role', 'rt-event-manager'),
+                'desc'    => __('Prefill the field with the default value below for members who have not set one.', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_function_preselect_enabled',
+                'type'    => 'checkbox',
+                'default' => 'no',
+            ),
+            array(
+                'title'    => __('Default Function / Role', 'rt-event-manager'),
+                'desc'     => __('Used only when the preselection option above is enabled.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_function_preselect_value',
+                'type'     => 'text',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_profile_settings',
+            ),
         );
+    }
+
+    /**
+     * Function / Role type-ahead suggestions (admin-maintained), as a list.
+     *
+     * @return string[]
+     */
+    public static function get_function_suggestions() {
+        $raw   = (string) get_option('rt_event_manager_function_suggestions', '');
+        $lines = preg_split('/\r\n|\r|\n/', $raw);
+        $out   = array();
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line !== '') {
+                $out[] = $line;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The default Function / Role to preselect, or '' when preselection is off.
+     *
+     * @return string
+     */
+    public static function get_function_preselect() {
+        if ('yes' !== get_option('rt_event_manager_function_preselect_enabled', 'no')) {
+            return '';
+        }
+        return (string) get_option('rt_event_manager_function_preselect_value', '');
+    }
+
+    /**
+     * Product category options for settings dropdowns: term_id => name.
+     * Includes a leading empty option meaning "no category filter".
+     *
+     * @return array
+     */
+    public static function get_product_category_options() {
+        $options = array('' => __('— All non-ticket products —', 'rt-event-manager'));
+
+        $terms = get_terms(array(
+            'taxonomy'   => 'product_cat',
+            'hide_empty' => false,
+        ));
+
+        if (!is_wp_error($terms)) {
+            foreach ($terms as $term) {
+                $options[$term->term_id] = $term->name;
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * Configured Pretour product category term id (0 if unset).
+     *
+     * @return int
+     */
+    public static function get_pretour_category_id() {
+        return absint(get_option('rt_event_manager_pretour_category', 0));
+    }
+
+    /**
+     * Configured Future/minor product category term id (0 if unset).
+     *
+     * @return int
+     */
+    public static function get_future_category_id() {
+        return absint(get_option('rt_event_manager_future_category', 0));
+    }
+
+    /**
+     * Configured Day Tour product category term id (0 if unset).
+     *
+     * @return int
+     */
+    public static function get_daytour_category_id() {
+        return absint(get_option('rt_event_manager_daytour_category', 0));
+    }
+
+    /**
+     * Calendar category for a product: 'pretour' | 'daytour' | 'event'.
+     *
+     * @param int $product_id
+     * @return string
+     */
+    public static function get_calendar_category($product_id) {
+        $product_id = absint($product_id);
+        $pretour = self::get_pretour_category_id();
+        $daytour = self::get_daytour_category_id();
+        if ($pretour && has_term($pretour, 'product_cat', $product_id)) {
+            return 'pretour';
+        }
+        if ($daytour && has_term($daytour, 'product_cat', $product_id)) {
+            return 'daytour';
+        }
+        return 'event';
+    }
+
+    /* ---------------------------------------------------------------------
+     * Official event agenda (backend-managed) for the customer calendar
+     * ------------------------------------------------------------------- */
+
+    /**
+     * The official agenda: an array of items, each
+     * array('id'=>string, 'title'=>string, 'start'=>'Y-m-d H:i', 'end'=>'Y-m-d H:i', 'location'=>string).
+     *
+     * @return array
+     */
+    public static function get_agenda() {
+        $items = get_option('rt_event_manager_agenda', array());
+        return is_array($items) ? $items : array();
+    }
+
+    public static function save_agenda($items) {
+        update_option('rt_event_manager_agenda', array_values((array) $items));
+    }
+
+    /** Admin page: manage the official agenda shown in the customer calendar. */
+    public function render_agenda_page() {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
+        }
+
+        $items = self::get_agenda();
+
+        if (isset($_POST['rt_agenda_add']) && check_admin_referer('rt_agenda_save')) {
+            $title = sanitize_text_field(wp_unslash($_POST['agenda_title'] ?? ''));
+            $start = sanitize_text_field(wp_unslash($_POST['agenda_start'] ?? ''));
+            $end   = sanitize_text_field(wp_unslash($_POST['agenda_end'] ?? ''));
+            $loc   = sanitize_text_field(wp_unslash($_POST['agenda_location'] ?? ''));
+            if ('' !== $title && '' !== $start) {
+                $items[] = array(
+                    'id'       => uniqid('ag_'),
+                    'title'    => $title,
+                    'start'    => $start,
+                    'end'      => $end,
+                    'location' => $loc,
+                );
+                self::save_agenda($items);
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Agenda item added.', 'rt-event-manager') . '</p></div>';
+            } else {
+                echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('A title and start time are required.', 'rt-event-manager') . '</p></div>';
+            }
+        }
+
+        if (!empty($_POST['rt_agenda_delete']) && check_admin_referer('rt_agenda_save')) {
+            $del   = sanitize_text_field(wp_unslash($_POST['rt_agenda_delete']));
+            $items = array_values(array_filter($items, function ($i) use ($del) {
+                return $i['id'] !== $del;
+            }));
+            self::save_agenda($items);
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Agenda item removed.', 'rt-event-manager') . '</p></div>';
+        }
+
+        // Sort by start for display.
+        usort($items, function ($a, $b) {
+            return strcmp($a['start'], $b['start']);
+        });
+
+        echo '<div class="wrap"><h1>' . esc_html__('Event Agenda', 'rt-event-manager') . '</h1>';
+        echo '<p class="description">' . esc_html__('These official agenda items appear in every attendee\'s event calendar.', 'rt-event-manager') . '</p>';
+
+        // Add form.
+        echo '<form method="post" style="margin:16px 0;padding:16px;background:#fff;border:1px solid #ccd0d4;max-width:640px;">';
+        wp_nonce_field('rt_agenda_save');
+        echo '<h2 style="margin-top:0;">' . esc_html__('Add an item', 'rt-event-manager') . '</h2>';
+        echo '<p><label>' . esc_html__('Title', 'rt-event-manager') . '<br><input type="text" name="agenda_title" class="regular-text" required /></label></p>';
+        echo '<p><label>' . esc_html__('Location', 'rt-event-manager') . '<br><input type="text" name="agenda_location" class="regular-text" /></label></p>';
+        echo '<p><label>' . esc_html__('Start', 'rt-event-manager') . '<br><input type="datetime-local" name="agenda_start" required /></label>';
+        echo ' &nbsp; <label>' . esc_html__('End', 'rt-event-manager') . '<br><input type="datetime-local" name="agenda_end" /></label></p>';
+        echo '<p><button type="submit" name="rt_agenda_add" value="1" class="button button-primary">' . esc_html__('Add item', 'rt-event-manager') . '</button></p>';
+        echo '</form>';
+
+        // List.
+        if (empty($items)) {
+            echo '<p>' . esc_html__('No agenda items yet.', 'rt-event-manager') . '</p></div>';
+            return;
+        }
+        echo '<table class="wp-list-table widefat fixed striped"><thead><tr>';
+        echo '<th>' . esc_html__('Title', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Location', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Start', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('End', 'rt-event-manager') . '</th>';
+        echo '<th></th></tr></thead><tbody>';
+        foreach ($items as $i) {
+            echo '<tr>';
+            echo '<td>' . esc_html($i['title']) . '</td>';
+            echo '<td>' . esc_html($i['location']) . '</td>';
+            echo '<td>' . esc_html(str_replace('T', ' ', $i['start'])) . '</td>';
+            echo '<td>' . esc_html(str_replace('T', ' ', $i['end'])) . '</td>';
+            echo '<td><form method="post" onsubmit="return confirm(\'' . esc_js(__('Remove this agenda item?', 'rt-event-manager')) . '\');" style="margin:0;">';
+            wp_nonce_field('rt_agenda_save');
+            echo '<input type="hidden" name="rt_agenda_delete" value="' . esc_attr($i['id']) . '" />';
+            echo '<button type="submit" class="button button-link-delete">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
+            echo '</form></td></tr>';
+        }
+        echo '</tbody></table></div>';
+    }
+
+    /**
+     * @param int $product_id
+     * @return bool True if the product is a Pretour ticket product.
+     */
+    public static function is_pretour_product($product_id) {
+        $cat = self::get_pretour_category_id();
+        return $cat && has_term($cat, 'product_cat', $product_id);
+    }
+
+    /**
+     * @param int $product_id
+     * @return bool True if the product is a Day Tour ticket product.
+     */
+    public static function is_daytour_product($product_id) {
+        $cat = self::get_daytour_category_id();
+        return $cat && has_term($cat, 'product_cat', $product_id);
+    }
+
+    /**
+     * @param int $product_id
+     * @return bool True if the product is a Future/minor ticket product.
+     */
+    public static function is_future_product($product_id) {
+        $cat = self::get_future_category_id();
+        return $cat && has_term($cat, 'product_cat', $product_id);
+    }
+
+    /**
+     * Classify a ticket product into its kind. Future (minor) takes precedence
+     * over Pretour, which takes precedence over the default Event ticket.
+     *
+     * @param int $product_id
+     * @return string 'minor' | 'pretour' | 'event'
+     */
+    public static function get_ticket_kind_for_product($product_id) {
+        if (self::is_future_product($product_id)) {
+            return 'minor';
+        }
+        if (self::is_pretour_product($product_id)) {
+            return 'pretour';
+        }
+        if (self::is_daytour_product($product_id)) {
+            return 'daytour';
+        }
+        return 'event';
+    }
+
+    /**
+     * Whether a product should create a ticket row. True when it is flagged as a
+     * ticket (_rti_is_ticket) OR it is a Pretour / Future product (identified by
+     * category) — those are ticket-generating even without the explicit flag.
+     *
+     * @param int $product_id
+     * @return bool
+     */
+    public static function is_ticket_product($product_id) {
+        if ('yes' === get_post_meta($product_id, '_rti_is_ticket', true)) {
+            return true;
+        }
+        return self::is_pretour_product($product_id) || self::is_future_product($product_id) || self::is_daytour_product($product_id);
+    }
+
+    /**
+     * Effective kind for a ticket row: prefer the stored ticket_kind, fall back
+     * to deriving from the product (handles rows created before kind existed).
+     *
+     * @param array $row Ticket row (ARRAY_A)
+     * @return string 'event' | 'pretour' | 'minor'
+     */
+    public static function get_ticket_kind($row) {
+        $k = isset($row['ticket_kind']) ? $row['ticket_kind'] : '';
+        if (in_array($k, array('pretour', 'daytour', 'minor'), true)) {
+            return $k;
+        }
+        return self::get_ticket_kind_for_product(isset($row['product_id']) ? $row['product_id'] : 0);
+    }
+
+    /**
+     * Human label for a ticket row's kind (minors show their gender).
+     *
+     * @param array $row
+     * @return string
+     */
+    public static function ticket_kind_label($row) {
+        $kind = self::get_ticket_kind($row);
+        if ('minor' === $kind) {
+            $mt = isset($row['minor_type']) ? $row['minor_type'] : '';
+            return ('circler' === $mt) ? __('Future Circler', 'rt-event-manager') : __('Future Tabler', 'rt-event-manager');
+        }
+        if ('pretour' === $kind) {
+            return __('Pretour', 'rt-event-manager');
+        }
+        if ('daytour' === $kind) {
+            return __('Day tour', 'rt-event-manager');
+        }
+        return __('Event', 'rt-event-manager');
+    }
+
+    /**
+     * Fetch a single ticket row by id, or null.
+     *
+     * @param int $ticket_id
+     * @return array|null
+     */
+    public static function get_ticket_by_id($ticket_id) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", absint($ticket_id)), ARRAY_A);
+        return $row ?: null;
+    }
+
+    /**
+     * Look up a ticket by its order id and 1-based ticket number (as encoded in
+     * the check-in QR token; ticket_index is number - 1).
+     *
+     * @param int $order_id
+     * @param int $number 1-based ticket number.
+     * @return array|null
+     */
+    public static function get_ticket_by_order_and_number($order_id, $number) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE order_id = %d AND ticket_index = %d",
+            absint($order_id),
+            absint($number) - 1
+        ), ARRAY_A);
+        return $row ?: null;
+    }
+
+    /**
+     * Whether an event/Future member ticket already hosts a pretour (one per
+     * ticket). Counts stored pretour rows whose parent is this ticket and which
+     * are not cancelled/invalid.
+     *
+     * @param int $ticket_id
+     * @return bool
+     */
+    public static function ticket_has_pretour($ticket_id) {
+        return self::ticket_has_tour($ticket_id, 'pretour');
+    }
+
+    /** Whether a host ticket already hosts a Day tour (one per ticket). */
+    public static function ticket_has_daytour($ticket_id) {
+        return self::ticket_has_tour($ticket_id, 'daytour');
+    }
+
+    /**
+     * Whether a host ticket already hosts a tour of the given kind (one per
+     * ticket per kind). Counts stored rows whose parent is this ticket and which
+     * are not invalid.
+     *
+     * @param int    $ticket_id
+     * @param string $kind 'pretour' | 'daytour'
+     * @return bool
+     */
+    public static function ticket_has_tour($ticket_id, $kind = 'pretour') {
+        global $wpdb;
+        $ticket_id = absint($ticket_id);
+        if (!$ticket_id) {
+            return false;
+        }
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $count = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table_name WHERE parent_ticket_id = %d AND ticket_kind = %s AND status <> %s",
+            $ticket_id,
+            $kind,
+            'invalid'
+        ));
+        return $count > 0;
+    }
+
+    /**
+     * The pretour tickets linked to a host ticket (event / Future member).
+     */
+    public static function get_child_pretours($ticket_id, $exclude_cancelled = true) {
+        return self::get_child_tours($ticket_id, 'pretour', $exclude_cancelled);
+    }
+
+    /** The Day tour tickets linked to a host ticket. */
+    public static function get_child_daytours($ticket_id, $exclude_cancelled = true) {
+        return self::get_child_tours($ticket_id, 'daytour', $exclude_cancelled);
+    }
+
+    /**
+     * Start / end timestamps for a tour product from its _rti_start/_rti_end
+     * meta. Returns [start, end] as Unix timestamps; 0 when unset. End defaults
+     * to start when missing and is never earlier than start.
+     *
+     * @param int $product_id
+     * @return array{0:int,1:int}
+     */
+    public static function tour_product_range($product_id) {
+        $s = get_post_meta($product_id, '_rti_start', true);
+        $e = get_post_meta($product_id, '_rti_end', true);
+        $s = ('' !== $s) ? (int) strtotime($s) : 0;
+        $e = ('' !== $e) ? (int) strtotime($e) : 0;
+        if (!$e) {
+            $e = $s;
+        }
+        if ($s && $e && $e < $s) {
+            $e = $s;
+        }
+        return array($s, $e);
+    }
+
+    /**
+     * Whether two day-tour products conflict for the same person: the same
+     * product twice, or overlapping time windows. Tours whose end equals the
+     * other's start (back to back) do NOT conflict. When either product has no
+     * times set, distinct products are allowed (only identical ones conflict).
+     *
+     * @param int $a Product id.
+     * @param int $b Product id.
+     * @return bool
+     */
+    public static function daytours_conflict($a, $b) {
+        if (absint($a) === absint($b)) {
+            return true;
+        }
+        list($as, $ae) = self::tour_product_range($a);
+        list($bs, $be) = self::tour_product_range($b);
+        if (!$as || !$bs) {
+            return false; // unknown times: allow distinct products
+        }
+        return ($as < $be) && ($bs < $ae);
+    }
+
+    /**
+     * Whether adding $new_product as a day tour for $host_id would conflict with
+     * the host's existing day tours (optionally plus extra pending product ids,
+     * e.g. items already in the cart).
+     *
+     * @param int   $host_id
+     * @param int   $new_product
+     * @param int[] $extra_products
+     * @return bool
+     */
+    public static function host_daytour_conflict($host_id, $new_product, $extra_products = array()) {
+        $products = array();
+        foreach (self::get_child_daytours($host_id) as $c) {
+            $products[] = absint($c['product_id']);
+        }
+        foreach ($extra_products as $p) {
+            $products[] = absint($p);
+        }
+        foreach ($products as $p) {
+            if (self::daytours_conflict($p, $new_product)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Tour tickets of a given kind linked to a host ticket.
+     *
+     * @param int    $ticket_id
+     * @param string $kind 'pretour' | 'daytour'
+     * @param bool   $exclude_cancelled
+     * @return array Ticket rows (ARRAY_A).
+     */
+    public static function get_child_tours($ticket_id, $kind = 'pretour', $exclude_cancelled = true) {
+        global $wpdb;
+        $ticket_id = absint($ticket_id);
+        if (!$ticket_id) {
+            return array();
+        }
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $sql = $wpdb->prepare("SELECT * FROM $table_name WHERE parent_ticket_id = %d AND ticket_kind = %s", $ticket_id, $kind);
+        if ($exclude_cancelled) {
+            $sql .= " AND status <> 'cancelled'";
+        }
+        return $wpdb->get_results($sql, ARRAY_A);
+    }
+
+    /**
+     * Look up a ticket by its pending transfer token.
+     *
+     * @param string $token
+     * @return array|null Ticket row or null.
+     */
+    public static function get_ticket_by_transfer_token($token) {
+        global $wpdb;
+        $token = sanitize_text_field($token);
+        if ('' === $token) {
+            return null;
+        }
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE transfer_token = %s",
+            $token
+        ), ARRAY_A);
+        return $row ?: null;
+    }
+
+    /**
+     * Short "parent" reference label for a ticket row, or '' if none.
+     * Resolves the parent ticket's holder name when available.
+     *
+     * @param array $row
+     * @return string
+     */
+    public static function ticket_parent_label($row) {
+        $parent_id = isset($row['parent_ticket_id']) ? absint($row['parent_ticket_id']) : 0;
+        if (!$parent_id) {
+            return '';
+        }
+        $parent = self::get_ticket_by_id($parent_id);
+        if ($parent && $parent['holder_name'] !== '') {
+            return sprintf('%s (#%d)', $parent['holder_name'], $parent_id);
+        }
+        return '#' . $parent_id;
     }
 
     /**
@@ -3584,6 +5948,7 @@ class RT_Event_Manager {
         echo '<th>' . esc_html__('#', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Product', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Holder Name', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Ticket Phone', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('RTI Family', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Club', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Dietary', 'rt-event-manager') . '</th>';
@@ -3613,6 +5978,12 @@ class RT_Event_Manager {
                 echo '<input type="text" class="rti-frontend-ticket-field" name="rti_ft[' . esc_attr($ticket['id']) . '][holder_name]" value="' . esc_attr($ticket['holder_name']) . '" />';
                 echo '</td>';
 
+                // Phone (editable, international format required)
+                $ticket_phone = isset($ticket['phone']) ? $ticket['phone'] : '';
+                echo '<td data-title="' . esc_attr__('Ticket Phone', 'rt-event-manager') . '">';
+                echo '<input type="tel" class="rti-frontend-ticket-field" name="rti_ft[' . esc_attr($ticket['id']) . '][phone]" value="' . esc_attr($ticket_phone) . '" required pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="' . esc_attr__('+41 79 123 45 67', 'rt-event-manager') . '" title="' . esc_attr__('Enter the number in international format, e.g. +41791234567', 'rt-event-manager') . '" />';
+                echo '</td>';
+
                 // RTI Family (editable)
                 echo '<td data-title="' . esc_attr__('RTI Family', 'rt-event-manager') . '">';
                 echo '<select class="rti-frontend-ticket-field" name="rti_ft[' . esc_attr($ticket['id']) . '][rti_family]">';
@@ -3630,7 +6001,7 @@ class RT_Event_Manager {
                 // Dietary (editable)
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '">';
                 echo '<select class="rti-frontend-ticket-field" name="rti_ft[' . esc_attr($ticket['id']) . '][dietary]">';
-                $dietary_options = array('' => '—', 'none' => 'None', 'vegetarian' => 'Vegetarian');
+                $dietary_options = self::get_dietary_options(true);
                 foreach ($dietary_options as $dkey => $dlabel) {
                     echo '<option value="' . esc_attr($dkey) . '" ' . selected($ticket['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
                 }
@@ -3644,6 +6015,8 @@ class RT_Event_Manager {
                 // Read-only display
                 echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '">' . esc_html($ticket['holder_name']) . '</td>';
 
+                echo '<td data-title="' . esc_attr__('Ticket Phone', 'rt-event-manager') . '">' . esc_html(!empty($ticket['phone']) ? $ticket['phone'] : '—') . '</td>';
+
                 $family_label = (isset($ticket['rti_family']) && $ticket['rti_family'] !== '') ? self::get_family_label($ticket['rti_family']) : '—';
                 echo '<td data-title="' . esc_attr__('RTI Family', 'rt-event-manager') . '">' . esc_html($family_label) . '</td>';
 
@@ -3652,6 +6025,12 @@ class RT_Event_Manager {
                 $dietary_label = $ticket['dietary'] ?: '—';
                 if ($dietary_label === 'none') $dietary_label = 'None';
                 if ($dietary_label === 'vegetarian') $dietary_label = 'Vegetarian';
+                if ($dietary_label === 'allergies') {
+                    $dietary_label = 'Allergies';
+                    if (!empty($ticket['allergy_details'])) {
+                        $dietary_label .= ' (' . $ticket['allergy_details'] . ')';
+                    }
+                }
                 echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '">' . esc_html($dietary_label) . '</td>';
 
                 // Buyer info columns (only on first ticket)
@@ -3771,17 +6150,33 @@ class RT_Event_Manager {
         $existing = self::get_tickets_for_order($order_id);
         $valid_ids = array_map('intval', array_column($existing, 'id'));
 
+        // Map ticket id => ticket_index for human-friendly validation messages.
+        $existing_index_map = array();
+        foreach ($existing as $ex_row) {
+            $existing_index_map[intval($ex_row['id'])] = intval($ex_row['ticket_index']);
+        }
+
         foreach ($tickets as $ticket_id => $data) {
             $ticket_id = absint($ticket_id);
             if (!in_array($ticket_id, $valid_ids, true)) {
                 continue;
             }
 
-            // Customers can only edit: holder_name, rti_family, rti_club, dietary
+            // Customers can only edit: holder_name, phone, rti_family, rti_club, dietary
             // .WORLD ID is NOT editable by customers
             $allowed_data = array();
             if (isset($data['holder_name'])) {
                 $allowed_data['holder_name'] = $data['holder_name'];
+            }
+            if (isset($data['phone'])) {
+                $phone_raw = wp_unslash($data['phone']);
+                if (trim($phone_raw) === '' || !self::is_valid_intl_phone($phone_raw)) {
+                    wp_send_json_error(sprintf(
+                        __('Please enter the phone number for Ticket %d in international format, e.g. +41791234567.', 'rt-event-manager'),
+                        intval($existing_index_map[$ticket_id]) + 1
+                    ));
+                }
+                $allowed_data['phone'] = $phone_raw;
             }
             if (isset($data['rti_family'])) {
                 $allowed_data['rti_family'] = $data['rti_family'];
