@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: RT Event Manager
- * Plugin URI: https://example.com/rt-event-manager
+ * Plugin URI: https://www.staub.ee
  * Description: Round Table International event management — tickets, attendee registration, and organization fields for WooCommerce
- * Version: 1.6.0
- * Author: Your Name
- * Author URI: https://example.com
+ * Version: 2.0.0
+ * Author: Kenneth Staub, RT Switzerland
+ * Author URI: https://www.staub.ee
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: rt-event-manager
@@ -19,7 +19,7 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('RT_EVENT_MANAGER_VERSION', '1.6.0');
+define('RT_EVENT_MANAGER_VERSION', '2.0.0');
 define('RT_EVENT_MANAGER_DB_VERSION', '2.4.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
