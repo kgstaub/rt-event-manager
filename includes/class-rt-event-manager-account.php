@@ -2085,9 +2085,11 @@ class RT_Event_Manager_Account {
             // The account owner's own ticket holds their personal details, managed
             // in My Profile — its holder fields are read-only here.
             $row_editable = $can_edit && !$is_locked && ($id !== $this->own_event_id);
-            // Dietary restrictions, however, are the holder's own to set — editable
-            // on every ticket the user may edit, including their own (unless locked).
+            // Dietary restrictions and phone, however, are the holder's own to set
+            // — editable on every ticket the user may edit, including their own
+            // (unless locked).
             $dietary_editable = $can_edit && !$is_locked;
+            $phone_editable   = $can_edit && !$is_locked;
 
             echo '<tr data-ticket-id="' . esc_attr($id) . '" class="rtacc-trow-' . esc_attr($kind) . '">';
 
@@ -2105,8 +2107,8 @@ class RT_Event_Manager_Account {
             }
 
             if (!$minor_block) {
-                // Phone.
-                if ($row_editable) {
+                // Phone (editable on the owner's own ticket too).
+                if ($phone_editable) {
                     echo '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '"><input type="tel" class="rtacc-ticket-field uk-input" name="tickets[' . esc_attr($id) . '][phone]" value="' . esc_attr($phone) . '" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" /></td>';
                 } else {
                     echo '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '">' . esc_html($phone ?: '—') . '</td>';
