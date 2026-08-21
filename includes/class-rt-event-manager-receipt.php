@@ -94,9 +94,21 @@ class RT_Event_Manager_Receipt {
 
     /** Wrap body content in the document shell (doctype, head, styles). */
     private function wrap_html($body) {
+        // Optional full-page A4 letterhead background (shared visa/receipt setting).
+        $bg_html = '';
+        $bg_img  = absint(get_option('rt_event_manager_receipt_bg_img', 0));
+        if ($bg_img) {
+            $bg_path = get_attached_file($bg_img);
+            if ($bg_path && file_exists($bg_path)) {
+                // position:fixed repeats on every page; the negative offsets cancel
+                // the @page margins so the letterhead bleeds full A4 edge-to-edge.
+                $bg_html = '<div style="position:fixed;top:-24mm;left:-18mm;width:210mm;height:297mm;z-index:0;"><img src="' . esc_attr($bg_path) . '" style="width:210mm;height:297mm;" /></div>';
+            }
+        }
         $styles = '
             @page { margin: 24mm 18mm; }
             body { font-family: \'DejaVu Sans\', sans-serif; font-size: 12px; color: #222; }
+            .rti-doc-body { position: relative; z-index: 1; }
             h1 { font-size: 20px; margin: 0 0 4px; }
             .muted { color: #666; }
             .header { border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 16px; }
@@ -113,7 +125,7 @@ class RT_Event_Manager_Receipt {
             .totals tr.grand td { font-weight: bold; border-top: 2px solid #333; }
             .footer { margin-top: 28px; font-size: 10px; color: #888; text-align: center; }
         ';
-        return '<!DOCTYPE html><html><head><meta charset="utf-8" /><style>' . $styles . '</style></head><body>' . $body . '</body></html>';
+        return '<!DOCTYPE html><html><head><meta charset="utf-8" /><style>' . $styles . '</style></head><body>' . $bg_html . '<div class="rti-doc-body">' . $body . '</div></body></html>';
     }
 
     /**

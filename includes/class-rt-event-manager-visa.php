@@ -275,6 +275,7 @@ class RT_Event_Manager_Visa {
             update_option('rt_event_manager_visa_sig1_img', absint($_POST['visa_sig1_img'] ?? 0));
             update_option('rt_event_manager_visa_sig2_img', absint($_POST['visa_sig2_img'] ?? 0));
             update_option('rt_event_manager_visa_bg_img', absint($_POST['visa_bg_img'] ?? 0));
+            update_option('rt_event_manager_receipt_bg_img', absint($_POST['receipt_bg_img'] ?? 0));
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Visa settings saved.', 'rt-event-manager') . '</p></div>';
         }
 
@@ -331,6 +332,16 @@ class RT_Event_Manager_Visa {
             . '<button type="button" class="button rt-visa-upload" data-target="visa_bg_img">' . esc_html__('Select background image', 'rt-event-manager') . '</button> '
             . '<button type="button" class="button rt-visa-clear" data-target="visa_bg_img">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
         $row(__('Letter background (A4)', 'rt-event-manager'), $bg_html, __('Full-page A4 background (letterhead) drawn behind the letter text.', 'rt-event-manager'));
+
+        // Optional letterhead background for the order receipt / invoice PDFs.
+        $rbg     = absint(get_option('rt_event_manager_receipt_bg_img', 0));
+        $rbg_src = $rbg ? wp_get_attachment_image_url($rbg, 'medium') : '';
+        $rbg_preview = '<div class="rt-visa-sig-preview" style="margin:6px 0;">' . ($rbg_src ? '<img src="' . esc_url($rbg_src) . '" style="max-height:160px;border:1px solid #ddd;" />' : '') . '</div>';
+        $rbg_html = $rbg_preview
+            . '<input type="hidden" name="receipt_bg_img" id="receipt_bg_img" value="' . esc_attr($rbg) . '" /> '
+            . '<button type="button" class="button rt-visa-upload" data-target="receipt_bg_img">' . esc_html__('Select background image', 'rt-event-manager') . '</button> '
+            . '<button type="button" class="button rt-visa-clear" data-target="receipt_bg_img">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
+        $row(__('Invoice / receipt background (A4)', 'rt-event-manager'), $rbg_html, __('Full-page A4 background (letterhead) drawn behind the order receipt / invoice PDFs. Leave empty for a plain white page.', 'rt-event-manager'));
 
         $row(
             __('Guardian note (under-6 child)', 'rt-event-manager'),
