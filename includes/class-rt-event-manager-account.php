@@ -43,10 +43,6 @@ class RT_Event_Manager_Account {
         add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_assets'));
         add_filter('script_loader_tag', array($this, 'fa_kit_script_tag'), 10, 2);
 
-        // Show the merged ".WORLD" SSO login buttons above the WooCommerce
-        // registration form (WC uses its own form, which the SSO module's
-        // WP-core register_form hook does not reach).
-        add_action('woocommerce_register_form_start', array($this, 'render_sso_login_buttons'));
 
         // "Add more to your booking" controls on the cart page.
         add_action('woocommerce_after_cart_table', array($this, 'render_cart_add_tickets'));
@@ -325,14 +321,105 @@ class RT_Event_Manager_Account {
     }
 
     /**
-     * Render the merged .WORLD SSO login buttons (via the module's shortcode)
-     * at the top of the WooCommerce registration form. No-op if the SSO module
-     * is unavailable.
+     * Logged-out login/register page: .WORLD SSO on the left, local login and
+     * registration on the right. WC login/register submissions are still
+     * handled by WooCommerce's form handler (matching field names + nonces).
      */
-    public function render_sso_login_buttons() {
-        if (shortcode_exists('world_sso_login')) {
-            echo do_shortcode('[world_sso_login]');
+    private function render_auth_page() {
+        $this->enqueue_assets();
+        $sso         = shortcode_exists('world_sso_login') ? do_shortcode('[world_sso_login hide_local="1"]') : '';
+        $reg_enabled = 'yes' === get_option('woocommerce_enable_myaccount_registration');
+
+        ob_start();
+        echo '<div class="rtacc-auth">';
+
+        // Left: .WORLD SSO.
+        if ('' !== $sso) {
+            echo '<section class="rtacc-auth-col rtacc-auth-col--sso">';
+            echo '<h2 class="rtacc-auth-title">' . esc_html__('Login or Register with .WORLD', 'rt-event-manager') . '</h2>';
+            echo $sso; // phpcs:ignore — module output
+            echo '<div class="rtacc-auth-note">';
+            echo '<p><strong>' . esc_html__('New here?', 'rt-event-manager') . '</strong> ' . esc_html__('Signing in with .WORLD creates your event account automatically on your first login — no separate registration needed.', 'rt-event-manager') . '</p>';
+            echo '<p>' . esc_html__('Your name, club and contact details stay in sync with your .WORLD profile, so you never have to keep them up to date here.', 'rt-event-manager') . '</p>';
+            echo '</div>';
+            echo '</section>';
         }
+
+        // Right: local login (+ registration when enabled).
+        echo '<section class="rtacc-auth-col rtacc-auth-col--local">';
+        echo '<h2 class="rtacc-auth-title">' . esc_html__('Login / Register with local account', 'rt-event-manager') . '</h2>';
+        $this->render_wc_login_form();
+        if ($reg_enabled) {
+            $this->render_wc_register_form();
+        }
+        echo '</section>';
+
+        echo '</div>';
+        return ob_get_clean();
+    }
+
+    /** WooCommerce my-account login form (standalone). */
+    private function render_wc_login_form() {
+        ?>
+        <form class="woocommerce-form woocommerce-form-login login rtacc-auth-form" method="post">
+            <?php do_action('woocommerce_login_form_start'); ?>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-username"><?php esc_html_e('Username or email address', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input type="text" class="woocommerce-Input woocommerce-Input--text input-text" name="username" id="rtacc-username" autocomplete="username" value="<?php echo (!empty($_POST['username'])) ? esc_attr(wp_unslash($_POST['username'])) : ''; ?>" />
+            </p>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-password"><?php esc_html_e('Password', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input class="woocommerce-Input woocommerce-Input--text input-text" type="password" name="password" id="rtacc-password" autocomplete="current-password" />
+            </p>
+            <?php do_action('woocommerce_login_form'); ?>
+            <p class="form-row">
+                <label class="woocommerce-form__label woocommerce-form__label-for-checkbox woocommerce-form-login__rememberme">
+                    <input class="woocommerce-form__input woocommerce-form__input-checkbox" name="rememberme" type="checkbox" id="rtacc-rememberme" value="forever" /> <span><?php esc_html_e('Remember me', 'rt-event-manager'); ?></span>
+                </label>
+                <?php wp_nonce_field('woocommerce-login', 'woocommerce-login-nonce'); ?>
+                <button type="submit" class="woocommerce-button button woocommerce-form-login__submit" name="login" value="<?php esc_attr_e('Log in', 'rt-event-manager'); ?>"><?php esc_html_e('Log in', 'rt-event-manager'); ?></button>
+            </p>
+            <p class="woocommerce-LostPassword lost_password">
+                <a href="<?php echo esc_url(wp_lostpassword_url()); ?>"><?php esc_html_e('Lost your password?', 'rt-event-manager'); ?></a>
+            </p>
+            <?php do_action('woocommerce_login_form_end'); ?>
+        </form>
+        <?php
+    }
+
+    /** WooCommerce my-account registration form (standalone, local account). */
+    private function render_wc_register_form() {
+        $gen_user = 'yes' === get_option('woocommerce_registration_generate_username');
+        $gen_pass = 'yes' === get_option('woocommerce_registration_generate_password');
+        ?>
+        <form method="post" class="woocommerce-form woocommerce-form-register register rtacc-auth-form" <?php do_action('woocommerce_register_form_tag'); ?>>
+            <?php do_action('woocommerce_register_form_start'); ?>
+            <?php if (!$gen_user) : ?>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-reg-username"><?php esc_html_e('Username', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input type="text" class="woocommerce-Input woocommerce-Input--text input-text" name="username" id="rtacc-reg-username" autocomplete="username" value="<?php echo (!empty($_POST['username'])) ? esc_attr(wp_unslash($_POST['username'])) : ''; ?>" />
+            </p>
+            <?php endif; ?>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-reg-email"><?php esc_html_e('Email address', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input type="email" class="woocommerce-Input woocommerce-Input--text input-text" name="email" id="rtacc-reg-email" autocomplete="email" value="<?php echo (!empty($_POST['email'])) ? esc_attr(wp_unslash($_POST['email'])) : ''; ?>" />
+            </p>
+            <?php if (!$gen_pass) : ?>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-reg-password"><?php esc_html_e('Password', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input type="password" class="woocommerce-Input woocommerce-Input--text input-text" name="password" id="rtacc-reg-password" autocomplete="new-password" />
+            </p>
+            <?php else : ?>
+            <p><?php esc_html_e('A link to set a new password will be sent to your email address.', 'rt-event-manager'); ?></p>
+            <?php endif; ?>
+            <?php do_action('woocommerce_register_form'); ?>
+            <p class="woocommerce-FormRow form-row">
+                <?php wp_nonce_field('woocommerce-register', 'woocommerce-register-nonce'); ?>
+                <button type="submit" class="woocommerce-Button woocommerce-button button woocommerce-form-register__submit" name="register" value="<?php esc_attr_e('Register', 'rt-event-manager'); ?>"><?php esc_html_e('Register', 'rt-event-manager'); ?></button>
+            </p>
+            <?php do_action('woocommerce_register_form_end'); ?>
+        </form>
+        <?php
     }
 
     /**
@@ -466,12 +553,17 @@ class RT_Event_Manager_Account {
         // transfer link brought them here, keep the token and return to it after
         // they log in or register.
         if (!is_user_logged_in()) {
+            // WC endpoints while logged out (lost-password, reset-password, …)
+            // must keep working — defer to WooCommerce for those.
+            if (function_exists('is_wc_endpoint_url') && is_wc_endpoint_url()) {
+                return do_shortcode('[woocommerce_my_account]');
+            }
+            $notice = '';
             if ('' !== $transfer_token) {
                 $this->prepare_transfer_login_redirect($transfer_token);
                 $notice = '<div class="woocommerce-info">' . esc_html__('Please log in or create an account to accept this ticket transfer.', 'rt-event-manager') . '</div>';
-                return $notice . do_shortcode('[woocommerce_my_account]');
             }
-            return do_shortcode('[woocommerce_my_account]');
+            return $notice . $this->render_auth_page();
         }
 
         // Active WC endpoint (view-order, order-pay, lost-password, add-payment

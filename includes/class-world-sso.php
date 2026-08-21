@@ -470,7 +470,7 @@ class Multi_OAuth_SSO {
         <?php
     }
 
-    public function add_login_buttons() {
+    public function add_login_buttons($hide_local = false) {
         $clients = $this->get_enabled_clients();
         $has_local_registration = get_option('world_sso_local_registration', false);
 
@@ -589,7 +589,7 @@ class Multi_OAuth_SSO {
 
         // Show "Register Local Account" button on login page only (not on registration page)
         // Controlled by admin option: .WORLD SSO > Local Registration
-        if (!$is_registration && get_option('world_sso_local_registration', false)) {
+        if (!$is_registration && !$hide_local && get_option('world_sso_local_registration', false)) {
             $register_url = wp_registration_url();
             echo '<div style="text-align: center; margin: 20px 0 5px; position: relative;">';
             echo '<span style="padding: 0 15px; position: relative; z-index: 1; color: #666; font-size: 14px;">' . esc_html__('No .WORLD account?', 'world-sso') . '</span>';
@@ -643,8 +643,10 @@ class Multi_OAuth_SSO {
             return '';
         }
 
+        $a = shortcode_atts(array('hide_local' => ''), $atts, 'world_sso_login');
+
         ob_start();
-        $this->add_login_buttons();
+        $this->add_login_buttons(!empty($a['hide_local']));
         return ob_get_clean();
     }
 

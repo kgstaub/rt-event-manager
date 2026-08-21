@@ -4064,7 +4064,7 @@ class RT_Event_Manager {
     public function add_admin_menu() {
         add_menu_page(
             __('RT Event Manager', 'rt-event-manager'),
-            __('RT Event Manager', 'rt-event-manager'),
+            __('RT Event', 'rt-event-manager'),
             'edit_shop_orders',
             'rt-event-manager',
             array($this, 'render_tickets_overview_page'),

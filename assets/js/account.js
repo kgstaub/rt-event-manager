@@ -351,7 +351,50 @@
         return data;
     }
 
-    function saveTickets($form, tickets, $status) {
+    // Show a dismissable green alert directly under the edited ticket row and
+    // auto-close it after 3s. Falls back gracefully when UIkit JS is absent.
+    function showRowAlert($row, message, isError) {
+        if (!$row || !$row.length) {
+            return;
+        }
+        // Remove any lingering alert for this row first.
+        $row.next('tr.rtacc-row-alert').remove();
+        var cols  = $row.children('td, th').length || 1;
+        var cls   = isError ? 'uk-alert-danger' : 'uk-alert-success';
+        var $tr   = $('<tr class="rtacc-row-alert" aria-hidden="false"></tr>');
+        var $td   = $('<td></td>').attr('colspan', cols);
+        var $alert = $(
+            '<div class="' + cls + '" uk-alert>' +
+                '<a class="uk-alert-close" uk-close></a>' +
+                '<p></p>' +
+            '</div>'
+        );
+        $alert.find('p').text(message);
+        $td.append($alert);
+        $tr.append($td);
+        $row.after($tr);
+
+        if (window.UIkit && UIkit.alert) {
+            UIkit.alert($alert.get(0));
+        }
+        // Manual close removes the wrapper row too.
+        $alert.on('hide beforehide', function () {
+            $tr.remove();
+        });
+        // Auto-close after 3s.
+        setTimeout(function () {
+            if (!$tr.parent().length) {
+                return;
+            }
+            if (window.UIkit && UIkit.alert) {
+                UIkit.alert($alert.get(0)).close();
+            } else {
+                $alert.fadeOut(200, function () { $tr.remove(); });
+            }
+        }, 3000);
+    }
+
+    function saveTickets($form, tickets, $status, $row) {
         setStatus($status, i18n.saving || 'Saving…', null);
         return $.post(cfg.ajaxUrl, {
             action:  'rt_event_manager_account_save_tickets',
@@ -359,12 +402,27 @@
             tickets: tickets
         }, function (response) {
             if (response && response.success) {
-                setStatus($status, i18n.saved || 'Saved!', 'success');
+                if ($row && $row.length) {
+                    if ($status && $status.length) { $status.hide().text(''); }
+                    showRowAlert($row, i18n.saved || 'Saved!', false);
+                } else {
+                    setStatus($status, i18n.saved || 'Saved!', 'success');
+                }
             } else {
-                setStatus($status, (response && response.data) || i18n.error || 'Error', 'error');
+                var msg = (response && response.data) || i18n.error || 'Error';
+                if ($row && $row.length) {
+                    if ($status && $status.length) { $status.hide().text(''); }
+                    showRowAlert($row, msg, true);
+                } else {
+                    setStatus($status, msg, 'error');
+                }
             }
         }).fail(function () {
-            setStatus($status, i18n.requestFail || 'Request failed.', 'error');
+            if ($row && $row.length) {
+                showRowAlert($row, i18n.requestFail || 'Request failed.', true);
+            } else {
+                setStatus($status, i18n.requestFail || 'Request failed.', 'error');
+            }
         });
     }
 
@@ -377,7 +435,7 @@
         }
         var tickets = {};
         tickets[$row.data('ticket-id')] = collectTicketRow($row);
-        saveTickets($form, tickets, $form.find('.rtacc-status'));
+        saveTickets($form, tickets, $form.find('.rtacc-status'), $row);
     });
 
     // Manual "Save" button still saves every row at once.
