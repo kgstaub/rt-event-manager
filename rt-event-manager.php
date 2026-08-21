@@ -2,7 +2,7 @@
 /**
  * Plugin Name: RT Event Manager
  * Plugin URI: https://www.staub.ee
- * Description: Round Table International event management — tickets, attendee registration, and organization fields for WooCommerce
+ * Description: Round Table International event management for WooCommerce — attendee tickets with a full member account portal (dashboard, profile, tours, calendar, visa letters, shop), pretours &amp; day tours, ticket transfers &amp; refunds, Apple &amp; Google Wallet passes with live push updates, and a staff QR check-in web app.
  * Version: 2.0.0
  * Author: Kenneth Staub, RT Switzerland
  * Author URI: https://www.staub.ee
