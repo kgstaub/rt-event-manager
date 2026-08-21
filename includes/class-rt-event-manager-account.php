@@ -1484,12 +1484,17 @@ class RT_Event_Manager_Account {
         }
 
         // Snap to the Monday of the start week and the Sunday of the end week.
+        // Compare on day granularity: 'monday/sunday this week' return midnight,
+        // so a range end later that same Sunday (e.g. 11:30) must not push an
+        // extra empty week.
+        $range_start_day = strtotime('midnight', $range_start);
+        $range_end_day   = strtotime('midnight', $range_end);
         $day_start = strtotime('monday this week', $range_start);
-        if ($day_start > $range_start) {
+        if ($day_start > $range_start_day) {
             $day_start = strtotime('-7 days', $day_start);
         }
         $day_end = strtotime('sunday this week', $range_end);
-        if ($day_end < $range_end) {
+        if ($day_end < $range_end_day) {
             $day_end = strtotime('+7 days', $day_end);
         }
 
