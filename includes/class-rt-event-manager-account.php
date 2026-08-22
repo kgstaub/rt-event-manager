@@ -976,6 +976,13 @@ class RT_Event_Manager_Account {
 
         echo '<div class="rtacc-ticket' . ($voided ? ' rtacc-ticket--void' : '') . '">';
 
+        // Holographic foil overlay across the whole ticket (body + stub):
+        // repeating, staggered micro-printed event text that shimmers red as the
+        // page scrolls. Skipped on voided tickets, which are greyed out.
+        if (!$voided) {
+            echo '<div class="rtacc-ticket-holo" aria-hidden="true"></div>';
+        }
+
         echo '<div class="rtacc-ticket-body">';
         // Event title sits at the top (where the "Ticket" kicker used to be).
         echo '<div class="rtacc-ticket-event">';

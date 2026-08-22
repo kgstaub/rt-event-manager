@@ -851,6 +851,60 @@
     }
     initTicketRows();
 
+    // ---- Holographic ticket: the shimmer sweeps as the page scrolls ----
+    (function initTicketHolo() {
+        var holos = $('.rtacc-ticket-holo').toArray();
+        if (!holos.length) { return; }
+        var ticking = false;
+        function update() {
+            ticking = false;
+            var vh = window.innerHeight || document.documentElement.clientHeight;
+            holos.forEach(function (holo) {
+                var host = holo.parentNode; // .rtacc-ticket
+                if (!host) { return; }
+                var r = host.getBoundingClientRect();
+                if (!r.height) { return; }
+                // 0 as the ticket enters the bottom of the viewport, 1 as it
+                // leaves the top — so scrolling drags the sheen across it.
+                var p = (vh - r.top) / (vh + r.height);
+                p = Math.max(0, Math.min(1, p));
+                var pct = (p * 100).toFixed(1) + '%';
+                holo.style.setProperty('--rtx', pct);
+                holo.style.setProperty('--rty', pct);
+            });
+        }
+        function onScroll() {
+            if (!ticking) { ticking = true; window.requestAnimationFrame(update); }
+        }
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll, { passive: true });
+        update();
+    })();
+
+    // ---- Holographic ticket: mouse "heavy weight" tilt (dips inward) ----
+    (function initTicketTilt() {
+        // Only on devices with a real hovering pointer.
+        if (window.matchMedia && !window.matchMedia('(hover: hover)').matches) { return; }
+        var MAX = 7; // max tilt in degrees
+        $('.rtacc-ticket').each(function () {
+            var card = this;
+            $(card).on('pointermove', function (e) {
+                var r = card.getBoundingClientRect();
+                if (!r.width || !r.height) { return; }
+                var px = (e.clientX - r.left) / r.width - 0.5;  // -0.5 … 0.5
+                var py = (e.clientY - r.top) / r.height - 0.5;
+                // The side under the pointer sinks inward, like a pressed weight.
+                card.style.setProperty('--rt-ry', (px * 2 * MAX).toFixed(2) + 'deg');
+                card.style.setProperty('--rt-rx', (-py * 2 * MAX).toFixed(2) + 'deg');
+                card.style.setProperty('--rt-scale', '0.985');
+            }).on('pointerleave', function () {
+                card.style.setProperty('--rt-ry', '0deg');
+                card.style.setProperty('--rt-rx', '0deg');
+                card.style.setProperty('--rt-scale', '1');
+            });
+        });
+    })();
+
     // Use .hide()/.show() (inline display) rather than the [hidden] attribute:
     // the edit buttons carry a CSS `display: inline-flex` rule that would
     // otherwise override [hidden] and leave the row looking stuck in edit mode.

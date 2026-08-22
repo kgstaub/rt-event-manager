@@ -1321,6 +1321,15 @@
     border-radius: 14px;
     overflow: hidden;
     position: relative;
+    /* Mouse "heavy weight" tilt: the ticket dips inward toward the pointer.
+     * Kept a flat plane (no preserve-3d) so the inner z-index layering — foil,
+     * mascot, QR — stays intact; only the whole card tilts. */
+    --rt-rx: 0deg;
+    --rt-ry: 0deg;
+    --rt-scale: 1;
+    transform: perspective(900px) rotateX(var(--rt-rx)) rotateY(var(--rt-ry)) scale(var(--rt-scale));
+    transition: transform 0.18s ease;
+    will-change: transform;
 }
 .rtacc-ticket-body {
     position: relative;
@@ -1374,7 +1383,7 @@
     height: 120px;
     max-height: 62%;
     pointer-events: none;
-    z-index: 0;
+    z-index: 4; /* sits above the holographic foil */
 }
 /* Perforated stub — holds the kicker, QR, ticket no. and wallet buttons. */
 .rtacc-ticket-stub {
@@ -1433,6 +1442,8 @@
     text-align: center;
     color: var(--rtacc-primary, #CC0B24);
     font-weight: 700;
+    position: relative;
+    z-index: 4; /* above the holographic foil */
 }
 .rtacc-ticket-stub-id { color: #FFF0C4; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
 /* Semicircular cutout in the stub's outer (right) edge — the ticket's
@@ -1449,7 +1460,54 @@
     pointer-events: none;
 }
 .rtacc-ticket--void { opacity: 0.6; filter: grayscale(0.4); }
-.rtacc-ticket-wallet { margin: -2px 0 2px; }
+.rtacc-ticket-wallet { margin: -2px 0 2px; position: relative; z-index: 4; }
+
+/* ---- Holographic foil overlay ----
+ * A repeating micro-print of the event text ("R T I H Y M 2 0 2 7 H O S T E D
+ * B Y R T S W I T Z E R L A N D"), staggered row to row, masks a dark red
+ * shimmer that sweeps across the whole ticket as the page scrolls. The overlay
+ * blend keeps the QR stub legible (white stays white, black stays black).
+ * Registered custom properties let the sweep position interpolate smoothly. */
+@property --rtx { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
+@property --rty { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
+.rtacc-ticket-holo {
+    --rtx: 50%;
+    --rty: 50%;
+    /* Two rows: the second is shifted left so the text is offset per row. */
+    --holo-mask: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221600%22%20height=%2264%22%3E%3Ctext%20x=%220%22%20y=%2224%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2218%22%20font-weight=%22800%22%20letter-spacing=%222%22%20fill=%22%23fff%22%3ER%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20%3C/text%3E%3Ctext%20x=%22-180%22%20y=%2254%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2218%22%20font-weight=%22800%22%20letter-spacing=%222%22%20fill=%22%23fff%22%3EA%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20%3C/text%3E%3C/svg%3E");
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at var(--rtx) var(--rty),
+            rgba(255, 150, 160, 0.55) 0%,
+            rgba(150, 10, 35, 0.30) 26%,
+            rgba(60, 0, 15, 0.10) 52%,
+            rgba(60, 0, 15, 0) 70%),
+        repeating-linear-gradient(112deg,
+            rgba(20, 0, 6, 0.65) 0%,
+            rgba(150, 15, 40, 0.75) 6%,
+            rgba(230, 80, 110, 0.70) 10%,
+            rgba(150, 15, 40, 0.75) 14%,
+            rgba(20, 0, 6, 0.65) 20%);
+    background-size: 100% 100%, 300% 300%;
+    background-position: var(--rtx) var(--rty), var(--rtx) var(--rty);
+    background-blend-mode: screen;
+    mix-blend-mode: overlay;
+    opacity: 0.8;
+    -webkit-mask-image: var(--holo-mask);
+            mask-image: var(--holo-mask);
+    -webkit-mask-repeat: repeat;
+            mask-repeat: repeat;
+    -webkit-mask-size: 440px 47px;
+            mask-size: 440px 47px;
+    transition: --rtx 0.12s linear, --rty 0.12s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+    .rtacc-ticket-holo { transition: none; }
+    .rtacc-ticket { transform: none; transition: none; }
+}
 
 /* Smaller displays: turn the ticket 90° into a portrait pass (stub below the
  * body) that reads like the Apple Wallet ticket — big centred QR at the bottom. */
@@ -1474,17 +1532,18 @@
         flex-wrap: wrap;
         justify-content: center;
     }
-    /* Gianni sits in the bottom-right of the whole ticket, behind the content.
-     * (body goes static so the mascot positions against the ticket; the stub
-     * keeps a higher stacking level so the QR/buttons stay on top.) */
+    /* Gianni sits in the bottom-right of the whole ticket. Body goes static so
+     * the mascot positions against the ticket; the stub, mascot, QR and wallet
+     * buttons stay above the holographic foil (which shows through the stub's
+     * transparent background). */
     .rtacc-ticket-body { position: static; }
-    .rtacc-ticket-stub { z-index: 1; }
+    .rtacc-ticket-stub { z-index: 4; }
     .rtacc-ticket-mascot {
         top: auto;
         bottom: 0;
         right: 8px;
         height: 132px;
-        z-index: 0;
+        z-index: 4;
     }
 }
 

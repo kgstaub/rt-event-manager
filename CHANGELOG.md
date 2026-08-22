@@ -3,14 +3,21 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
-## [2.1.6] — 2026-08-22
+## [2.1.7] — 2026-08-22
 
-Admin-usability and checkout fixes. Backward compatible — no data migrations.
-(Patch number reflects the count of individual changes since 2.1.0.)
+Admin-usability, checkout and dashboard fixes. Backward compatible — no data
+migrations. (Patch number reflects the count of individual changes since 2.1.0.)
 
 ### Added
 - **Own-ticket phone prefill at checkout**: the buyer's own event ticket now
   prefills its phone number from their billing phone.
+- **Holographic dashboard ticket**: a repeating, staggered micro-print of the
+  event name ("ROUND TABLE INTERNATIONAL HALF YEAR MEETING 2027 HOSTED BY ROUND
+  TABLE SWITZERLAND") and the motto ("ADOPT. ADAPT. IMPROVE.") masks a dark-red
+  foil shimmer that sweeps across the whole ticket as the page scrolls; the
+  ticket also tilts inward toward the mouse like a pressed weight. The mascot,
+  QR code and Add-to-Wallet buttons stay crisp above the foil, and the QR blend
+  keeps it scannable.
 
 ### Changed
 - **Admin menu grouped into its own section**: RT Event and .WORLD SSO now sit
