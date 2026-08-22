@@ -470,7 +470,7 @@ class Multi_OAuth_SSO {
         <?php
     }
 
-    public function add_login_buttons($hide_local = false) {
+    public function add_login_buttons($hide_local = false, $hide_heading = false) {
         $clients = $this->get_enabled_clients();
         $has_local_registration = get_option('world_sso_local_registration', false);
 
@@ -494,9 +494,11 @@ class Multi_OAuth_SSO {
         echo '<div class="world-sso-buttons" style="margin: 20px auto; max-width: 450px; display: flex; flex-direction: column; align-items: center;">';
 
         if (!empty($clients)) {
-        echo '<div style="text-align: center; margin: 15px 0; position: relative;">';
-        echo '<span style="padding: 0 15px; position: relative; z-index: 1; color: #666; font-size: 14px;">' . esc_html($section_text) . '</span>';
-        echo '</div>';
+        if (!$hide_heading) {
+            echo '<div style="text-align: center; margin: 15px 0; position: relative;">';
+            echo '<span style="padding: 0 15px; position: relative; z-index: 1; color: #666; font-size: 14px;">' . esc_html($section_text) . '</span>';
+            echo '</div>';
+        }
 
         // Add inline styles for buttons
         echo '<style>';
@@ -643,10 +645,10 @@ class Multi_OAuth_SSO {
             return '';
         }
 
-        $a = shortcode_atts(array('hide_local' => ''), $atts, 'world_sso_login');
+        $a = shortcode_atts(array('hide_local' => '', 'hide_heading' => ''), $atts, 'world_sso_login');
 
         ob_start();
-        $this->add_login_buttons(!empty($a['hide_local']));
+        $this->add_login_buttons(!empty($a['hide_local']), !empty($a['hide_heading']));
         return ob_get_clean();
     }
 

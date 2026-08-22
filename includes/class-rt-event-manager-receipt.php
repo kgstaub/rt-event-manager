@@ -68,6 +68,20 @@ class RT_Event_Manager_Receipt {
         return $this->render_pdf($html);
     }
 
+    /** Human date range (compact when start/end share a day). */
+    private function fmt_range($start, $end) {
+        $s = $start ? strtotime($start) : 0;
+        $e = $end ? strtotime($end) : 0;
+        if ($s && $e) {
+            if (date('Y-m-d', $s) === date('Y-m-d', $e)) {
+                return date_i18n('j M Y', $s);
+            }
+            return date_i18n('j M Y', $s) . ' – ' . date_i18n('j M Y', $e);
+        }
+        $ts = $s ? $s : $e;
+        return $ts ? date_i18n('j M Y', $ts) : '';
+    }
+
     /** Render an HTML string to A4 PDF bytes via DomPDF. */
     private function render_pdf($html) {
         if (!class_exists('Dompdf\\Dompdf')) {
@@ -102,11 +116,36 @@ class RT_Event_Manager_Receipt {
             if ($bg_path && file_exists($bg_path)) {
                 // position:fixed repeats on every page; the negative offsets cancel
                 // the @page margins so the letterhead bleeds full A4 edge-to-edge.
-                $bg_html = '<div style="position:fixed;top:-24mm;left:-18mm;width:210mm;height:297mm;z-index:0;"><img src="' . esc_attr($bg_path) . '" style="width:210mm;height:297mm;" /></div>';
+                $bg_html = '<div style="position:fixed;top:-45mm;left:-30mm;width:210mm;height:297mm;z-index:0;"><img src="' . esc_attr($bg_path) . '" style="width:210mm;height:297mm;" /></div>';
             }
         }
+
+        // Fixed footer in the lower page margin (shop address + generated date),
+        // repeated on every page like the letterhead.
+        $shop_address = '';
+        if (function_exists('WC') && WC()->countries) {
+            $c     = WC()->countries;
+            $ccode = $c->get_base_country();
+            $parts = array_filter(array(
+                get_bloginfo('name'),
+                $c->get_base_address(),
+                $c->get_base_address_2(),
+                trim($c->get_base_postcode() . ' ' . $c->get_base_city()),
+                isset($c->countries[$ccode]) ? $c->countries[$ccode] : $ccode,
+            ));
+            if ($parts) {
+                $shop_address = implode(' · ', $parts);
+            }
+        }
+        $footer_html = '<div class="rti-doc-footer">';
+        if ('' !== $shop_address) {
+            $footer_html .= '<div class="footer-address">' . esc_html($shop_address) . '</div>';
+        }
+        $footer_html .= esc_html(sprintf(__('Generated on %s', 'rt-event-manager'), wc_format_datetime(new WC_DateTime())));
+        $footer_html .= '</div>';
+
         $styles = '
-            @page { margin: 24mm 18mm; }
+            @page { margin: 45mm 15mm 20mm 30mm; }
             body { font-family: \'DejaVu Sans\', sans-serif; font-size: 12px; color: #222; }
             .rti-doc-body { position: relative; z-index: 1; }
             h1 { font-size: 20px; margin: 0 0 4px; }
@@ -116,16 +155,20 @@ class RT_Event_Manager_Receipt {
             .meta td { vertical-align: top; padding: 2px 0; }
             .meta .label { color: #666; width: 120px; }
             table.items { width: 100%; border-collapse: collapse; margin-top: 8px; }
-            table.items th, table.items td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ddd; }
+            table.items th, table.items td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
             table.items th { background: #f2f2f2; }
+            table.items .item-dates { font-size: 10px; color: #666; margin-top: 2px; }
+            table.items .item-tickets { margin-top: 3px; font-size: 10px; color: #666; }
+            table.items .item-ticket-link { color: #888; }
             table.items td.num, table.items th.num { text-align: right; }
             .totals { width: 40%; margin-left: 60%; margin-top: 12px; }
             .totals td { padding: 3px 8px; }
             .totals td.num { text-align: right; }
             .totals tr.grand td { font-weight: bold; border-top: 2px solid #333; }
-            .footer { margin-top: 28px; font-size: 10px; color: #888; text-align: center; }
+            .rti-doc-footer { position: fixed; left: -30mm; right: -15mm; bottom: -12mm; text-align: center; font-size: 10px; color: #888; z-index: 1; }
+            .rti-doc-footer .footer-address { margin-bottom: 4px; }
         ';
-        return '<!DOCTYPE html><html><head><meta charset="utf-8" /><style>' . $styles . '</style></head><body>' . $bg_html . '<div class="rti-doc-body">' . $body . '</div></body></html>';
+        return '<!DOCTYPE html><html><head><meta charset="utf-8" /><style>' . $styles . '</style></head><body>' . $bg_html . $footer_html . '<div class="rti-doc-body">' . $body . '</div></body></html>';
     }
 
     /**
@@ -145,10 +188,38 @@ class RT_Event_Manager_Receipt {
         $status     = wc_get_order_status_name($order->get_status());
         $payment    = $order->get_payment_method_title();
 
-        $billing_address = $order->get_formatted_billing_address();
-        if (!$billing_address) {
+        // Billed-to: Name / Family Club, then the postal address. Function/role
+        // is intentionally omitted (it was duplicated by the formatted address).
+        $name    = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
+        $family  = class_exists('RT_Event_Manager') ? RT_Event_Manager::get_family_label($order->get_meta('_rti_family')) : '';
+        $club    = (string) $order->get_meta('_rti_club');
+        $famclub = trim($family . ' ' . $club);
+
+        $country = '';
+        if (function_exists('WC') && WC()->countries) {
+            $cc = $order->get_billing_country();
+            $country = isset(WC()->countries->countries[$cc]) ? WC()->countries->countries[$cc] : $cc;
+        }
+
+        $group_id   = array_filter(array($name, $famclub));
+        $group_addr = array_filter(array(
+            $order->get_billing_address_1(),
+            $order->get_billing_address_2(),
+            trim($order->get_billing_postcode() . ' ' . $order->get_billing_city()),
+            $country,
+        ));
+        $billing_address = implode('<br>', array_map('esc_html', $group_id));
+        if ($group_id && $group_addr) {
+            $billing_address .= '<br><br>';
+        }
+        $billing_address .= implode('<br>', array_map('esc_html', $group_addr));
+        if ('' === $billing_address) {
             $billing_address = '&mdash;';
         }
+
+        // Tickets on this order, to list the holder + number under each line item.
+        $order_tickets = class_exists('RT_Event_Manager') ? RT_Event_Manager::get_tickets_for_order($order->get_id()) : array();
+        $used_tickets  = array();
 
         ob_start();
         ?>
@@ -185,9 +256,62 @@ class RT_Event_Manager_Receipt {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($order->get_items() as $item) : ?>
+                    <?php foreach ($order->get_items() as $item) :
+                        $pid = absint($item->get_product_id());
+                        $qty = (int) $item->get_quantity();
+                        $tk_lines = array();
+                        $item_is_event = false;
+                        foreach ($order_tickets as $t) {
+                            if (in_array($t['id'], $used_tickets, true) || absint($t['product_id']) !== $pid) {
+                                continue;
+                            }
+                            $num    = '#' . absint($t['order_id']) . ' · ' . (absint($t['ticket_index']) + 1);
+                            $holder = ('' !== $t['holder_name']) ? $t['holder_name'] : __('Unassigned', 'rt-event-manager');
+                            $line   = esc_html($num . ' — ' . $holder);
+                            // Pretours / day tours: also show the event ticket they
+                            // are linked to (may be from a different order).
+                            $kind = class_exists('RT_Event_Manager') ? RT_Event_Manager::get_ticket_kind($t) : '';
+                            if (in_array($kind, array('event', 'minor'), true)) {
+                                $item_is_event = true;
+                            }
+                            $ppid = absint($t['parent_ticket_id']);
+                            if ($ppid && in_array($kind, array('pretour', 'daytour'), true)) {
+                                $p = RT_Event_Manager::get_ticket_by_id($ppid);
+                                if ($p) {
+                                    $pnum  = '#' . absint($p['order_id']) . ' · ' . (absint($p['ticket_index']) + 1);
+                                    $line .= ' <span class="item-ticket-link">' . esc_html(sprintf(__('→ Event ticket %s', 'rt-event-manager'), $pnum)) . '</span>';
+                                }
+                            }
+                            $tk_lines[]     = $line;
+                            $used_tickets[] = $t['id'];
+                            if (count($tk_lines) >= $qty) {
+                                break;
+                            }
+                        }
+                        // Start / end date of the ticket (event options for the
+                        // main ticket; product meta for tours).
+                        $d_start = get_post_meta($pid, '_rti_start', true);
+                        $d_end   = get_post_meta($pid, '_rti_end', true);
+                        if ('' === $d_start && $item_is_event) {
+                            $d_start = get_option('rt_event_manager_event_start', '');
+                            $d_end   = get_option('rt_event_manager_event_end', '');
+                        }
+                        $date_range = $this->fmt_range($d_start, $d_end);
+                    ?>
                         <tr>
-                            <td><?php echo esc_html($item->get_name()); ?></td>
+                            <td>
+                                <?php echo esc_html($item->get_name()); ?>
+                                <?php if ('' !== $date_range) : ?>
+                                    <div class="item-dates"><?php echo esc_html($date_range); ?></div>
+                                <?php endif; ?>
+                                <?php if (!empty($tk_lines)) : ?>
+                                    <div class="item-tickets">
+                                        <?php foreach ($tk_lines as $l) : ?>
+                                            <div><?php echo wp_kses_post($l); ?></div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
                             <td class="num"><?php echo esc_html($item->get_quantity()); ?></td>
                             <td class="num"><?php echo wp_kses_post(wc_price($item->get_total(), array('currency' => $order->get_currency()))); ?></td>
                         </tr>
@@ -204,9 +328,6 @@ class RT_Event_Manager_Receipt {
                 <?php endforeach; ?>
             </table>
 
-            <div class="footer">
-                <?php echo esc_html(sprintf(__('Generated on %s', 'rt-event-manager'), wc_format_datetime(new WC_DateTime()))); ?>
-            </div>
         <?php
         return ob_get_clean();
     }

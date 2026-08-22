@@ -26,6 +26,31 @@
         $el.show();
     }
 
+    // Confirm a saved field inline: green (theme uk-form-success) border plus a
+    // checkmark at the right edge. Fades back after a few seconds.
+    function markFieldSaved($field) {
+        if (!$field || !$field.length) {
+            return;
+        }
+        $field.each(function () {
+            var $f = $(this);
+            // Enhanced selects are hidden; flag their visible toggle instead.
+            var $target = $f;
+            if ($f.is('select') && $f.closest('.rtacc-select').length) {
+                $target = $f.closest('.rtacc-select').find('.rtacc-select-toggle');
+            }
+            if (!$target.length) { return; }
+            if ($target.data('rtaccSavedTimer')) {
+                clearTimeout($target.data('rtaccSavedTimer'));
+            }
+            $target.removeClass('uk-form-danger').addClass('uk-form-success rtacc-field-saved');
+            var t = setTimeout(function () {
+                $target.removeClass('uk-form-success rtacc-field-saved');
+            }, 3000);
+            $target.data('rtaccSavedTimer', t);
+        });
+    }
+
     function copyText(text) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             return navigator.clipboard.writeText(text);
@@ -65,6 +90,10 @@
         var id = $(this).data('visa-form');
         if (id) { $('#' + id).toggle(); }
     });
+    // Cancel closes (hides) the visa form.
+    $(document).on('click', '.rtacc-visa-cancel', function () {
+        $(this).closest('.rtacc-visa-form').hide();
+    });
 
     // Message for a too-old child — personalised with their name when entered.
     function childTooOldMsg($form) {
@@ -93,6 +122,32 @@
         }
     });
 
+    // Flag empty required fields in the visa form in red (danger). Enhanced
+    // selects are hidden, so their wrapper carries the danger state.
+    function validateVisaForm($form) {
+        var ok = true;
+        $form.find('[required]').each(function () {
+            var $f      = $(this);
+            var invalid = $.trim($f.val() || '') === '';
+            var $wrap   = $f.closest('.rtacc-select');
+            if ($wrap.length) {
+                $wrap.toggleClass('rtacc-select-danger', invalid);
+            } else {
+                $f.toggleClass('uk-form-danger', invalid);
+            }
+            if (invalid) { ok = false; }
+        });
+        return ok;
+    }
+    // Clear a field's danger state as soon as it's filled.
+    $(document).on('input change', '.rtacc-visa-form [required]', function () {
+        var $f = $(this);
+        if ($.trim($f.val() || '') !== '') {
+            $f.removeClass('uk-form-danger');
+            $f.closest('.rtacc-select').removeClass('rtacc-select-danger');
+        }
+    });
+
     // ---- Visa letter: generate (spinner in-place, then inline download) ----
     $(document).on('submit', '.rtacc-visa-form', function (e) {
         e.preventDefault();
@@ -106,6 +161,12 @@
         if ($form.find('input[name="for_child"]').length && childTooOld($form)) {
             $form.find('.rtacc-visa-child-warn p').text(childTooOldMsg($form));
             $form.find('.rtacc-visa-child-warn').show();
+            return;
+        }
+
+        // Highlight any empty required field in red before submitting.
+        if (!validateVisaForm($form)) {
+            $err.text(i18n.fillRequired || 'Please fill in all the required fields.').show();
             return;
         }
 
@@ -231,6 +292,27 @@
         });
     });
 
+    // ---- Privacy policy re-consent ----
+    $(document).on('click', '.rtacc-pp-accept', function () {
+        var $btn = $(this);
+        var $err = $btn.closest('.rtacc-modal-dialog').find('.rtacc-modal-error');
+        $btn.prop('disabled', true);
+        $.post(cfg.ajaxUrl, {
+            action: 'rt_event_manager_pp_accept',
+            nonce:  cfg.ppAcceptNonce
+        }, function (response) {
+            if (response && response.success) {
+                $('.rtacc-pp-modal').attr('hidden', 'hidden').remove();
+            } else {
+                $btn.prop('disabled', false);
+                $err.text((response && response.data) || i18n.error || 'Error').show();
+            }
+        }).fail(function () {
+            $btn.prop('disabled', false);
+            $err.text(i18n.requestFail || 'Request failed.').show();
+        });
+    });
+
     // ---- Profile save ----
     $(document).on('submit', '#rtacc-profile-form', function (e) {
         e.preventDefault();
@@ -260,9 +342,332 @@
         });
     });
 
+    // ---- My Profile: auto-save on field exit + live nav badge ----
+    // Profile is incomplete (badge shown) while Function / Role is empty.
+    function refreshProfileBadge($form) {
+        var $fn = ($form && $form.length) ? $form.find('[name="function"]') : $('[name="function"]');
+        var missing = $.trim($fn.val() || '') === '';
+        toggleNavAttention('.rtacc-nav-item-profile', missing);
+        markRequiredMissing($fn, missing);
+    }
+    // Set the initial required-field highlights for whichever section is shown.
+    $(function () {
+        refreshTicketsBadge();
+        var $pf = $('.rtacc-profile-autosave');
+        if ($pf.length) { refreshProfileBadge($pf); }
+        var $ef = $('.rtacc-emergency-form');
+        if ($ef.length) { refreshEmergencyDot($ef); }
+    });
+    function saveProfile($form, $field) {
+        var $status = $('#rtacc-profile-status');
+        // Validate any email field before saving.
+        var $invalid = null;
+        $form.find('input[type="email"]').each(function () {
+            var $f = $(this);
+            var v  = $.trim($f.val() || '');
+            if (v !== '' && !isValidEmail(v)) {
+                $f.removeClass('uk-form-success rtacc-field-saved').addClass('uk-form-danger');
+                if (!$invalid) { $invalid = $f; }
+            } else {
+                $f.removeClass('uk-form-danger');
+            }
+        });
+        if ($invalid) {
+            setStatus($status, i18n.invalidEmail || 'Please enter a valid email address.', 'error');
+            $invalid.trigger('focus');
+            return;
+        }
+        var data = $form.serializeArray();
+        data.push({ name: 'action', value: 'rt_event_manager_save_profile' });
+        data.push({ name: 'nonce', value: cfg.profileNonce });
+        $.post(cfg.ajaxUrl, $.param(data), function (response) {
+            if (response && response.success) {
+                if ($status.length) { $status.hide().text(''); }
+                markFieldSaved($field);
+                refreshProfileBadge($form);
+            } else {
+                if ($field) { $field.addClass('uk-form-danger'); }
+                setStatus($status, (response && response.data) || i18n.error || 'Error', 'error');
+            }
+        }).fail(function () {
+            setStatus($status, i18n.requestFail || 'Request failed.', 'error');
+        });
+    }
+    $(document).on('change', '.rtacc-profile-autosave input, .rtacc-profile-autosave select', function () {
+        saveProfile($(this).closest('form'), $(this));
+    });
+    // Live badge update as Function / Role is typed or cleared.
+    $(document).on('input change', '.rtacc-profile-autosave [name="function"]', function () {
+        refreshProfileBadge($(this).closest('form'));
+    });
+
+    // ---- Emergency contact ----
+    var emergencyNote = null; // active UIkit notification instance, if any.
+
+    // Bottom-centre prompt shown when the tab loads with an incomplete contact.
+    (function showEmergencyPrompt() {
+        var $prompt = $('.rtacc-emergency-prompt');
+        if (!$prompt.length || !window.UIkit || !UIkit.notification) {
+            return;
+        }
+        emergencyNote = UIkit.notification({
+            message: $prompt.data('message'),
+            pos:     'bottom-right',
+            timeout: 0 // stays until dismissed or the contact is completed
+        });
+    })();
+
+    // Auto-save when a field is left / changed. Toggle the nav notification dot
+    // live: the primary contact (block 1) needs name, relationship, email and
+    // phone before it counts as complete.
+    function primaryEmergencyComplete($form) {
+        return ['emergency1_name', 'emergency1_relationship', 'emergency1_email', 'emergency1_phone'].every(function (n) {
+            var v = $form.find('[name="' + n + '"]').val();
+            return v != null && $.trim(v) !== '';
+        });
+    }
+    // Lock/unlock the second contact block based on the primary contact.
+    function toggleSecondaryEmergency(complete) {
+        var $sec = $('.rtacc-emergency-secondary');
+        if (!$sec.length) {
+            return;
+        }
+        $sec.toggleClass('rtacc-locked', !complete);
+        $sec.find('input, select').prop('disabled', !complete);
+        $sec.find('.rtacc-emergency-secondary-hint').prop('hidden', complete);
+    }
+    // Toggle a nav item's attention state (light-blue bg + swap to the alert icon)
+    // live, using the data-icon-normal / data-icon-alert attributes on its icon.
+    function toggleNavAttention(selector, incomplete) {
+        $(selector).each(function () {
+            var $li = $(this);
+            var $i  = $li.find('.rtacc-nav-icon');
+            if (incomplete) {
+                $li.addClass('rtacc-nav-attention');
+                var a = $i.attr('data-icon-alert');
+                if (a) { $i.attr('class', a + ' rtacc-nav-icon'); }
+            } else {
+                $li.removeClass('rtacc-nav-attention');
+                var n = $i.attr('data-icon-normal');
+                if (n) { $i.attr('class', n + ' rtacc-nav-icon'); }
+            }
+        });
+    }
+    // Outline a required-but-empty field (or its themed-select toggle) in red,
+    // so members can see exactly what the nav notification refers to.
+    function markRequiredMissing($field, missing) {
+        $field.each(function () {
+            var $f = $(this);
+            var $target = ($f.is('select') && $f.closest('.rtacc-select').length)
+                ? $f.closest('.rtacc-select').find('.rtacc-select-toggle')
+                : $f;
+            $target.toggleClass('rtacc-required-missing', !!missing);
+        });
+    }
+    function refreshEmergencyDot($form) {
+        var complete = primaryEmergencyComplete($form);
+        toggleSecondaryEmergency(complete);
+        toggleNavAttention('.rtacc-nav-item-emergency', !complete);
+        ['emergency1_name', 'emergency1_relationship', 'emergency1_email', 'emergency1_phone'].forEach(function (n) {
+            var $f = $form.find('[name="' + n + '"]');
+            markRequiredMissing($f, $.trim($f.val() || '') === '');
+        });
+        if (complete && emergencyNote) {
+            emergencyNote.close();
+            emergencyNote = null;
+        }
+    }
+    // Event Tickets badge: flagged while any editable holder-name field is empty.
+    function refreshTicketsBadge() {
+        var $names = $('.rtacc-tickets-form .rtacc-ticket-field[name$="[holder_name]"]');
+        if (!$names.length) {
+            return;
+        }
+        var incomplete = false;
+        $names.each(function () {
+            var empty = $.trim($(this).val() || '') === '';
+            if (empty) { incomplete = true; }
+            markRequiredMissing($(this), empty);
+        });
+        toggleNavAttention('.rtacc-nav-item-tickets', incomplete);
+    }
+    $(document).on('input change', '.rtacc-tickets-form .rtacc-ticket-field[name$="[holder_name]"]', function () {
+        refreshTicketsBadge();
+    });
+    function isValidEmail(v) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+    }
+    function saveEmergency($form, $field) {
+        var $intro = $('.rtacc-emergency-intro').first();
+
+        // Validate email fields before saving: any filled email must be a valid
+        // address (the primary contact's email is required to complete it).
+        var $invalid = null;
+        $form.find('input[type="email"]').each(function () {
+            var $f = $(this);
+            var v  = $.trim($f.val());
+            if (v !== '' && !isValidEmail(v)) {
+                $f.removeClass('uk-form-success rtacc-field-saved').addClass('uk-form-danger');
+                if (!$invalid) { $invalid = $f; }
+            } else {
+                $f.removeClass('uk-form-danger');
+            }
+        });
+        if ($invalid) {
+            showRowAlert($intro, i18n.invalidEmail || 'Please enter a valid email address.', true);
+            $invalid.trigger('focus');
+            return $.Deferred().reject().promise();
+        }
+
+        var data = $form.serializeArray();
+        data.push({ name: 'action', value: 'rt_event_manager_save_profile' });
+        data.push({ name: 'nonce', value: cfg.profileNonce });
+        return $.post(cfg.ajaxUrl, $.param(data), function (response) {
+            if (response && response.success) {
+                markFieldSaved($field);
+                refreshEmergencyDot($form);
+            } else {
+                if ($field) { $field.addClass('uk-form-danger'); }
+                showRowAlert($intro, (response && response.data) || i18n.error || 'Error', true);
+            }
+        }).fail(function () {
+            showRowAlert($intro, i18n.requestFail || 'Request failed.', true);
+        });
+    }
+    $(document).on('change', '.rtacc-emergency-form input, .rtacc-emergency-form select', function () {
+        saveEmergency($(this).closest('form'), $(this));
+    });
+
     // ---- Toggle allergy details when dietary = Allergies ----
     $(document).on('change', '.rtacc-dietary-select', function () {
-        $(this).closest('tr').find('.rtacc-allergy-input').toggle($(this).val() === 'allergies');
+        var show = $(this).val() === 'allergies';
+        var $row = $(this).closest('tr');
+        // Toggle the themed combo wrapper (falls back to the bare input).
+        var $combo = $row.find('.rtacc-combo');
+        if ($combo.length) { $combo.toggle(show); } else { $row.find('.rtacc-allergy-input').toggle(show); }
+        if (show) { $row.find('.rtacc-allergy-input').trigger('focus'); }
+    });
+
+    // ---- Themed autocomplete for the allergy details field ----
+    function comboSuggestions($input) {
+        var s = $input.data('suggestions');
+        if (typeof s === 'string') { try { s = JSON.parse(s); } catch (e) { s = []; } }
+        return $.isArray(s) ? s : [];
+    }
+    function renderCombo($input) {
+        var $combo = $input.closest('.rtacc-combo');
+        var q = $.trim($input.val()).toLowerCase();
+        var matches = comboSuggestions($input).filter(function (s) {
+            return String(s).toLowerCase().indexOf(q) !== -1;
+        });
+        var $list = $combo.find('.rtacc-combo-list');
+        if (!matches.length) { $list.remove(); return; }
+        if (!$list.length) { $list = $('<ul class="rtacc-combo-list"></ul>'); $combo.append($list); }
+        $list.empty();
+        matches.forEach(function (s) { $('<li></li>').text(s).appendTo($list); });
+    }
+    $(document).on('focus input', '.rtacc-combo-input', function () { renderCombo($(this)); });
+    $(document).on('mousedown', '.rtacc-combo-list li', function (e) {
+        e.preventDefault(); // keep focus so blur cleanup doesn't fire first
+        var $li    = $(this);
+        var $combo = $li.closest('.rtacc-combo');
+        var $input = $combo.find('.rtacc-combo-input');
+        $input.val($li.text());
+        $combo.find('.rtacc-combo-list').remove();
+        $input.trigger('change'); // details now filled → row can save
+    });
+    $(document).on('blur', '.rtacc-combo-input', function () {
+        var $combo = $(this).closest('.rtacc-combo');
+        setTimeout(function () { $combo.find('.rtacc-combo-list').remove(); }, 150);
+    });
+
+    // ---- Themed select: enhance native <select>s into themed dropdowns ----
+    // Keeps the native <select> in the DOM as the value source, so existing
+    // change handlers / form serialization / value reads keep working.
+    function enhanceSelect(sel) {
+        var $sel = $(sel);
+        if ($sel.data('rtaccEnhanced')) { return; }
+        if ($sel.closest('.rtacc-select').length) { $sel.data('rtaccEnhanced', true); return; }
+        if ($sel.find('option').length > 500) { return; } // safety cap only
+        $sel.data('rtaccEnhanced', true);
+        var $wrap = $('<div class="rtacc-select"></div>');
+        $sel.after($wrap);
+        $wrap.append($sel); // move the native select inside the wrapper
+        var $toggle = $('<button type="button" class="uk-input rtacc-select-toggle" aria-haspopup="listbox"></button>');
+        var $list   = $('<ul class="rtacc-select-list" role="listbox" hidden></ul>');
+        // Long lists (e.g. countries) get a type-to-filter search box.
+        if ($sel.find('option').length > 12) {
+            $('<li class="rtacc-select-search"></li>')
+                .append('<input type="text" class="uk-input rtacc-select-filter" placeholder="' + (i18n.searchPlaceholder || 'Search…') + '" autocomplete="off" />')
+                .appendTo($list);
+        }
+        $sel.find('option').each(function () {
+            var $o  = $(this);
+            var $li = $('<li></li>').attr('data-value', $o.attr('value') || '').text($o.text());
+            if ($o.is(':selected')) { $li.addClass('rtacc-combo-active'); }
+            $list.append($li);
+        });
+        $toggle.text($sel.find('option:selected').text() || '');
+        $wrap.append($toggle).append($list);
+    }
+    function enhanceSelects(root) {
+        $(root || document).find('.rtacc select.uk-select, .rtacc-modal select.uk-select').each(function () {
+            enhanceSelect(this);
+        });
+    }
+    enhanceSelects(document);
+
+    $(document).on('click', '.rtacc-select-toggle', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // A disabled underlying <select> (e.g. a ticket row not in edit mode)
+        // must not open.
+        if ($(this).closest('.rtacc-select').children('select').prop('disabled')) {
+            return;
+        }
+        var $list = $(this).closest('.rtacc-select').find('.rtacc-select-list');
+        var willOpen = $list.prop('hidden');
+        $('.rtacc-select-list').prop('hidden', true); // close any others
+        $list.prop('hidden', !willOpen);
+        if (willOpen) {
+            var $filter = $list.find('.rtacc-select-filter');
+            if ($filter.length) {
+                $filter.val('');
+                $list.find('li[data-value]').show();
+                setTimeout(function () { $filter.trigger('focus'); }, 0);
+            }
+        }
+    });
+    // Filter long lists as the user types.
+    $(document).on('input', '.rtacc-select-filter', function (e) {
+        e.stopPropagation();
+        var q = $.trim($(this).val()).toLowerCase();
+        $(this).closest('.rtacc-select-list').find('li[data-value]').each(function () {
+            $(this).toggle($(this).text().toLowerCase().indexOf(q) !== -1);
+        });
+    });
+    $(document).on('click', '.rtacc-select-search', function (e) { e.stopPropagation(); });
+    // Only actual option rows (with data-value) are selectable.
+    $(document).on('click', '.rtacc-select-list li[data-value]', function (e) {
+        e.stopPropagation();
+        var $li   = $(this);
+        var $wrap = $li.closest('.rtacc-select');
+        var val   = $li.attr('data-value') || '';
+        var $sel  = $wrap.children('select');
+        if ($sel.length) {
+            $sel.val(val).trigger('change');
+        } else {
+            $wrap.find('.rtacc-select-value').val(val).trigger('change');
+        }
+        $wrap.find('.rtacc-select-toggle').text($li.text());
+        $wrap.find('.rtacc-select-list li').removeClass('rtacc-combo-active');
+        $li.addClass('rtacc-combo-active');
+        $wrap.find('.rtacc-select-list').prop('hidden', true);
+    });
+    $(document).on('click', function (e) {
+        if (!$(e.target).closest('.rtacc-select').length) {
+            $('.rtacc-select-list').prop('hidden', true);
+        }
     });
 
     // ---- Add-ticket modal (customize the ticket before checkout) ----
@@ -357,59 +762,74 @@
         if (!$row || !$row.length) {
             return;
         }
-        // Remove any lingering alert for this row first.
-        $row.next('tr.rtacc-row-alert').remove();
-        var cols  = $row.children('td, th').length || 1;
+        // Remove any lingering alert floating over this row first.
+        $row.children('.rtacc-row-alert').remove();
         var cls   = isError ? 'uk-alert-danger' : 'uk-alert-success';
-        var $tr   = $('<tr class="rtacc-row-alert" aria-hidden="false"></tr>');
-        var $td   = $('<td></td>').attr('colspan', cols);
+        var lead  = isError ? (i18n.errorLead || 'Error') : (i18n.successLead || 'Success!');
+        // Floating overlay anchored to the (position:relative) ticket box.
+        var $float = $('<div class="rtacc-row-alert" aria-hidden="false"></div>');
+        // Match the theme's UIkit alert markup exactly (including the close
+        // icon SVG) so it renders correctly with or without UIkit JS decoration.
         var $alert = $(
-            '<div class="' + cls + '" uk-alert>' +
-                '<a class="uk-alert-close" uk-close></a>' +
-                '<p></p>' +
+            '<div class="' + cls + ' uk-alert" uk-alert="">' +
+                '<a href="#" class="uk-alert-close uk-icon uk-close" uk-close="" role="button" aria-label="Close">' +
+                    '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">' +
+                        '<line fill="none" stroke="#000" stroke-width="1.1" x1="1" y1="1" x2="13" y2="13"></line>' +
+                        '<line fill="none" stroke="#000" stroke-width="1.1" x1="13" y1="1" x2="1" y2="13"></line>' +
+                    '</svg>' +
+                '</a>' +
+                '<p><strong></strong> <span></span></p>' +
             '</div>'
         );
-        $alert.find('p').text(message);
-        $td.append($alert);
-        $tr.append($td);
-        $row.after($tr);
+        $alert.find('strong').text(lead);
+        $alert.find('span').text(message);
+        $float.append($alert);
+        $row.addClass('rtacc-row-has-alert').append($float);
 
         if (window.UIkit && UIkit.alert) {
             UIkit.alert($alert.get(0));
         }
-        // Manual close removes the wrapper row too.
-        $alert.on('hide beforehide', function () {
-            $tr.remove();
-        });
+        var cleanup = function () {
+            $float.remove();
+            if (!$row.children('.rtacc-row-alert').length) {
+                $row.removeClass('rtacc-row-has-alert');
+            }
+        };
+        // Manual close removes the floating wrapper too.
+        $alert.on('hide beforehide', cleanup);
         // Auto-close after 3s.
         setTimeout(function () {
-            if (!$tr.parent().length) {
+            if (!$float.parent().length) {
                 return;
             }
             if (window.UIkit && UIkit.alert) {
                 UIkit.alert($alert.get(0)).close();
             } else {
-                $alert.fadeOut(200, function () { $tr.remove(); });
+                $alert.fadeOut(200, cleanup);
             }
         }, 3000);
     }
 
-    function saveTickets($form, tickets, $status, $row) {
-        setStatus($status, i18n.saving || 'Saving…', null);
+    function saveTickets($form, tickets, $status, $row, $field) {
+        if (!$field) { setStatus($status, i18n.saving || 'Saving…', null); }
         return $.post(cfg.ajaxUrl, {
             action:  'rt_event_manager_account_save_tickets',
             nonce:   cfg.ticketsNonce,
             tickets: tickets
         }, function (response) {
             if (response && response.success) {
-                if ($row && $row.length) {
+                if ($field && $field.length) {
                     if ($status && $status.length) { $status.hide().text(''); }
-                    showRowAlert($row, i18n.saved || 'Saved!', false);
+                    markFieldSaved($field);
+                } else if ($row && $row.length) {
+                    if ($status && $status.length) { $status.hide().text(''); }
+                    showRowAlert($row, i18n.savedMsg || 'Your changes have been saved.', false);
                 } else {
                     setStatus($status, i18n.saved || 'Saved!', 'success');
                 }
             } else {
                 var msg = (response && response.data) || i18n.error || 'Error';
+                if ($field && $field.length) { $field.addClass('uk-form-danger'); }
                 if ($row && $row.length) {
                     if ($status && $status.length) { $status.hide().text(''); }
                     showRowAlert($row, msg, true);
@@ -426,34 +846,78 @@
         });
     }
 
-    // Auto-save the edited ticket row when the field is left / changed.
-    $(document).on('change', '.rtacc-tickets-form .rtacc-ticket-field', function () {
+    // Ticket rows are read-only until the pencil is clicked. Fields start
+    // disabled; entering edit mode enables them (locked fields render as plain
+    // text and are never inputs, so they stay uneditable).
+    function initTicketRows() {
+        $('.rtacc-tickets-form tr[data-editable] .rtacc-ticket-field').each(function () {
+            if (!$(this).closest('tr').hasClass('rtacc-row-editing')) {
+                $(this).prop('disabled', true);
+            }
+        });
+    }
+    initTicketRows();
+
+    function enterTicketEdit($row) {
+        $row.addClass('rtacc-row-editing');
+        $row.find('.rtacc-ticket-field').prop('disabled', false);
+        $row.find('.rtacc-edit-toggle').attr('hidden', 'hidden');
+        $row.find('.rtacc-edit-save').removeAttr('hidden');
+        $row.find('.rtacc-ticket-field').first().trigger('focus');
+    }
+    function exitTicketEdit($row) {
+        $row.removeClass('rtacc-row-editing');
+        $row.find('.rtacc-ticket-field').prop('disabled', true);
+        $row.find('.rtacc-edit-save').attr('hidden', 'hidden');
+        $row.find('.rtacc-edit-toggle').removeAttr('hidden');
+    }
+    // Validate a row before saving. Blocks only when Dietary = Allergies but the
+    // details are empty; family is flagged (non-blocking) if left unselected.
+    function validateTicketRow($row) {
+        var $diet    = $row.find('.rtacc-dietary-select');
+        var $details = $row.find('.rtacc-allergy-input');
+        if ($diet.length && $diet.val() === 'allergies' && $details.length && $.trim($details.val()) === '') {
+            $details.addClass('uk-form-danger').trigger('focus');
+            return false;
+        }
+        if ($details.length) { $details.removeClass('uk-form-danger'); }
+        var $fam     = $row.find('.rtacc-ticket-field[name$="[rti_family]"]');
+        var $famWrap = $fam.closest('.rtacc-select');
+        if ($fam.length && $.trim($fam.val() || '') === '') {
+            $famWrap.addClass('rtacc-select-danger');
+        } else {
+            $famWrap.removeClass('rtacc-select-danger');
+        }
+        return true;
+    }
+
+    // Never submit the tickets form directly (e.g. Enter key) — saving is per row.
+    $(document).on('submit', '.rtacc-tickets-form', function (e) { e.preventDefault(); });
+
+    // Pencil → edit mode.
+    $(document).on('click', '.rtacc-edit-toggle', function () {
+        enterTicketEdit($(this).closest('tr[data-ticket-id]'));
+    });
+    // Save icon → validate, save, exit edit mode.
+    $(document).on('click', '.rtacc-edit-save', function () {
         var $row  = $(this).closest('tr[data-ticket-id]');
-        var $form = $(this).closest('.rtacc-tickets-form');
-        if (!$row.length) {
+        var $form = $row.closest('.rtacc-tickets-form');
+        if (!validateTicketRow($row)) {
             return;
         }
+        var $save = $row.find('.rtacc-edit-save').prop('disabled', true);
         var tickets = {};
         tickets[$row.data('ticket-id')] = collectTicketRow($row);
-        saveTickets($form, tickets, $form.find('.rtacc-status'), $row);
-    });
-
-    // Manual "Save" button still saves every row at once.
-    $(document).on('submit', '.rtacc-tickets-form', function (e) {
-        e.preventDefault();
-        var $form   = $(this);
-        var $btn    = $form.find('button[type="submit"]');
-        var $status = $form.find('.rtacc-status');
-
-        var tickets = {};
-        $form.find('tr[data-ticket-id]').each(function () {
-            tickets[$(this).data('ticket-id')] = collectTicketRow($(this));
-        });
-
-        $btn.prop('disabled', true);
-        saveTickets($form, tickets, $status).always(function () {
-            $btn.prop('disabled', false);
-        });
+        saveTickets($form, tickets, $form.find('.rtacc-status'), null, null)
+            .done(function (response) {
+                if (response && response.success) {
+                    var $fields = $row.find('.rtacc-ticket-field');
+                    exitTicketEdit($row);
+                    markFieldSaved($fields);
+                    refreshTicketsBadge();
+                }
+            })
+            .always(function () { $save.prop('disabled', false); });
     });
 
     // ---- Add a linked co-traveller / pretour (parent chosen at add-to-cart) ----

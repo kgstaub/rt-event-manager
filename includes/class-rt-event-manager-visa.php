@@ -447,23 +447,54 @@ class RT_Event_Manager_Visa {
         $user_id = get_current_user_id();
         $tickets = RT_Event_Manager::get_tickets_for_user($user_id);
 
-        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Travel and Visa', 'rt-event-manager') . '</h2>';
-        echo '<div class="rtacc-alert-secondary">'
-            . '<p>' . esc_html__('If you need a visa for Switzerland, generate a letter of invitation for each attendee below. Citizens of EU/EFTA or other Schengen countries do not need a visa or a letter.', 'rt-event-manager') . '</p>'
-            . '</div>';
-
         $visa_tickets = array_filter($tickets, function ($t) {
             return in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true);
         });
+        $has_letter = !empty($visa_tickets) && $this->user_has_any_letter(get_current_user_id());
+
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Travel and Visa', 'rt-event-manager') . '</h2>';
+        echo '<div class="rtacc-alert-secondary">'
+            . '<p style="margin-bottom:0;">' . esc_html__('If you need a visa for Switzerland, request a letter of invitation for each attendee. Citizens and permanent residents of EU/EFTA or other Schengen countries do not need a visa or an invitation.', 'rt-event-manager') . '</p>'
+            . '</div>';
+        echo '<p class="rtacc-actions">'
+            . '<a class="uk-button uk-button-default" href="https://www.sem.admin.ch/sem/en/home/overview-einreise.html" target="_blank" rel="noopener noreferrer">' . esc_html__('Swiss entry requirements', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a>';
+        if (!empty($visa_tickets)) {
+            $letter_label = $has_letter ? __('Download / view letter of invitation', 'rt-event-manager') : __('Request letter of invitation', 'rt-event-manager');
+            echo ' <button type="button" class="uk-button uk-button-default" data-rtacc-modal="visa"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> ' . esc_html($letter_label) . '</button>';
+        }
+        echo '</p>';
+
+        echo '<div class="rtacc-alert-secondary">'
+            . '<p style="margin-bottom:0;"><strong>' . esc_html__('Swiss customs:', 'rt-event-manager') . '</strong> ' . esc_html__('Swiss customs is very strict. The duty-free allowance is only CHF 150 worth of goods per person, and there are separate limits on how much alcohol and tobacco you may bring in. Anything above these limits must be declared and taxed.', 'rt-event-manager') . '</p>'
+            . '</div>';
+        echo '<p class="rtacc-actions"><a class="uk-button uk-button-default" href="https://www.bazg.admin.ch/en/declare-goods-import-individuals" target="_blank" rel="noopener noreferrer">' . esc_html__('Swiss customs requirements', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a></p>';
+
+        echo '<div class="rtacc-alert-secondary">'
+            . '<p><strong>' . esc_html__('New EU border systems (EES & ETIAS):', 'rt-event-manager') . '</strong> ' . esc_html__('The EU is introducing two new systems for non-EU travellers. Both may be in effect by the time of the event, so check the official pages before you travel.', 'rt-event-manager') . '</p>'
+            . '<p style="margin-bottom:0;">' . esc_html__('The Entry/Exit System (EES) replaces passport stamping with a digital record of entries and exits, including a photo and fingerprints taken at the Schengen border. The European Travel Information and Authorisation System (ETIAS) is a travel authorisation that visa-exempt non-EU nationals must apply for online before travelling; it is not yet in operation.', 'rt-event-manager') . '</p>'
+            . '</div>';
+        echo '<p class="rtacc-actions">'
+            . '<a class="uk-button uk-button-default" href="https://travel-europe.europa.eu/ees" target="_blank" rel="noopener noreferrer">' . esc_html__('About EES', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a> '
+            . '<a class="uk-button uk-button-default" href="https://travel-europe.europa.eu/etias" target="_blank" rel="noopener noreferrer">' . esc_html__('About ETIAS', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a>'
+            . '</p>';
 
         if (empty($visa_tickets)) {
-            echo '<p>' . esc_html__('Once you have purchased a ticket for the event, you can generate a letter of invitation for each attendee here.', 'rt-event-manager') . '</p>';
+            echo '<p>' . esc_html__('Once you have purchased a ticket for the event, you can request a letter of invitation for each attendee here.', 'rt-event-manager') . '</p>';
             return;
         }
 
+        // Letter-of-invitation generation lives in a modal opened from the button
+        // above. Each attendee ticket has its own card (existing letters + forms).
+        echo '<div class="rtacc-modal rtacc-modal--wide" id="rtacc-modal-visa" hidden>';
+        echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
+        echo '<div class="rtacc-modal-dialog">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html__('Letters of invitation', 'rt-event-manager') . '</h3>';
         foreach ($visa_tickets as $t) {
             $this->render_ticket_visa_card($t);
         }
+        echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-default" data-rtacc-close>' . esc_html__('Close', 'rt-event-manager') . '</button></p>';
+        echo '</div>';
+        echo '</div>';
     }
 
     /**
@@ -573,6 +604,14 @@ class RT_Event_Manager_Visa {
         $is_event     = ('event' === $kind);
         $child_max    = self::child_letter_max_age();
 
+        // A visa letter names the traveller, so the ticket must be personalised
+        // (holder name set) before a letter can be generated.
+        if ('' === trim((string) $t['holder_name'])) {
+            echo '<div class="rtacc-alert-secondary" uk-alert><p>' . esc_html__('Please personalise this ticket first — add the holder\'s name on the Event Tickets page — before requesting a letter of invitation.', 'rt-event-manager') . '</p></div>';
+            echo '</section>';
+            return;
+        }
+
         // Toggle buttons, inline on one row.
         echo '<div class="rtacc-visa-actions">';
         if ($has_attendee) {
@@ -591,7 +630,7 @@ class RT_Event_Manager_Visa {
             echo '<div class="rtacc-visa-result uk-alert" uk-alert style="display:none;"></div>';
             echo $this->visa_fields_html($b, $dob_prefill, $is_event);
             echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
-            echo '<p class="rtacc-actions"><button type="submit" class="uk-button uk-button-primary">' . esc_html__('Generate letter', 'rt-event-manager') . '</button><span class="rtacc-status" aria-live="polite"></span></p>';
+            echo '<p class="rtacc-actions"><button type="submit" class="uk-button uk-button-primary">' . esc_html__('Generate letter', 'rt-event-manager') . '</button> <button type="button" class="uk-button uk-button-default rtacc-visa-cancel">' . esc_html__('Cancel', 'rt-event-manager') . '</button><span class="rtacc-status" aria-live="polite"></span></p>';
             echo '</form>';
         }
 
@@ -606,11 +645,18 @@ class RT_Event_Manager_Visa {
             echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Child\'s name', 'rt-event-manager') . '</label><input type="text" class="uk-input" name="child_name" required /></p>';
             echo $this->visa_fields_html($b, '', false);
             echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
-            echo '<p class="rtacc-actions"><button type="submit" class="uk-button uk-button-primary">' . esc_html__('Generate letter', 'rt-event-manager') . '</button><span class="rtacc-status" aria-live="polite"></span></p>';
+            echo '<p class="rtacc-actions"><button type="submit" class="uk-button uk-button-primary">' . esc_html__('Generate letter', 'rt-event-manager') . '</button> <button type="button" class="uk-button uk-button-default rtacc-visa-cancel">' . esc_html__('Cancel', 'rt-event-manager') . '</button><span class="rtacc-status" aria-live="polite"></span></p>';
             echo '</form>';
         }
 
         echo '</section>';
+    }
+
+    /** Whether the member has generated any letter of invitation. */
+    private function user_has_any_letter($user_id) {
+        global $wpdb;
+        $table = self::table();
+        return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE user_id = %d", absint($user_id))) > 0;
     }
 
     private function letters_for_ticket($ticket_id, $user_id) {
@@ -677,6 +723,11 @@ class RT_Event_Manager_Visa {
         $kind = RT_Event_Manager::get_ticket_kind($t);
         if (!in_array($kind, array('event', 'minor'), true)) {
             wp_send_json_error(__('Letters of invitation are issued per event or Future member ticket.', 'rt-event-manager'));
+        }
+        // The ticket must be personalised (holder name set) before a letter can
+        // be issued — it names the traveller (or the child's guardian).
+        if ('' === trim((string) $t['holder_name'])) {
+            wp_send_json_error(__('Please personalise this ticket first — add the holder\'s name on the Event Tickets page — before requesting a letter of invitation.', 'rt-event-manager'));
         }
 
         $for_child   = !empty($_POST['for_child']);
