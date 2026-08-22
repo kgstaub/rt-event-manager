@@ -11,13 +11,14 @@ migrations. (Patch number reflects the count of individual changes since 2.1.0.)
 ### Added
 - **Own-ticket phone prefill at checkout**: the buyer's own event ticket now
   prefills its phone number from their billing phone.
-- **Holographic dashboard ticket**: a repeating, staggered micro-print of the
+- **Holographic dashboard ticket**: a diagonally-cascading micro-print of the
   event name ("ROUND TABLE INTERNATIONAL HALF YEAR MEETING 2027 HOSTED BY ROUND
-  TABLE SWITZERLAND") and the motto ("ADOPT. ADAPT. IMPROVE.") masks a subtle,
-  slow dark-red foil shimmer across the whole ticket; the ticket also tilts
-  gently inward toward the mouse like a pressed weight. The mascot, QR code and
-  Add-to-Wallet buttons stay crisp above the foil, and the QR blend keeps it
-  scannable.
+  TABLE SWITZERLAND") and the motto ("ADOPT. ADAPT. IMPROVE.") covers the whole
+  ticket as a dark foil; a red highlight band drifts across it on its own and
+  follows the mouse, so the foil catches the light as you move over it. The
+  ticket also tilts gently inward toward the pointer like a pressed weight. The
+  mascot, QR code and Add-to-Wallet buttons stay crisp above the foil, and the
+  QR stays scannable.
 - **"Disable motion effects" toggle** beneath the ticket (theme checkbox,
   off by default, remembered per browser): turns off the tilt and hides the
   holographic foil for anyone who prefers a static ticket. `prefers-reduced-
