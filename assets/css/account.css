@@ -1476,21 +1476,21 @@
     --rty: 50%;
     --sheen: 0%;
     /* Two rows: the second is shifted left so the text is offset per row. */
-    --holo-mask: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221600%22%20height=%2264%22%3E%3Ctext%20x=%220%22%20y=%2224%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2218%22%20font-weight=%22800%22%20letter-spacing=%222%22%20fill=%22%23fff%22%3ER%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20%3C/text%3E%3Ctext%20x=%22-180%22%20y=%2254%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2218%22%20font-weight=%22800%22%20letter-spacing=%222%22%20fill=%22%23fff%22%3EA%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20%3C/text%3E%3C/svg%3E");
+    --holo-mask: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221800%22%20height=%2256%22%3E%3Ctext%20x=%220%22%20y=%2224%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%225%22%20fill=%22%23fff%22%3ER%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20%3C/text%3E%3Ctext%20x=%22-200%22%20y=%2248%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%225%22%20fill=%22%23fff%22%3EA%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20%3C/text%3E%3C/svg%3E");
     position: absolute;
     inset: 0;
     z-index: 3;
     pointer-events: none;
     background:
         radial-gradient(circle at var(--rtx) var(--rty),
-            rgba(230, 120, 145, 0.38) 0%,
-            rgba(150, 20, 50, 0.18) 26%,
+            rgba(240, 135, 160, 0.5) 0%,
+            rgba(160, 25, 55, 0.24) 26%,
             rgba(40, 0, 12, 0) 62%),
         repeating-linear-gradient(112deg,
             rgba(10, 0, 4, 0.85) 0%,
-            rgba(120, 15, 40, 0.5) 5%,
-            rgba(205, 70, 95, 0.6) 9%,
-            rgba(120, 15, 40, 0.5) 13%,
+            rgba(135, 18, 45, 0.6) 5%,
+            rgba(235, 95, 125, 0.82) 9%,
+            rgba(135, 18, 45, 0.6) 13%,
             rgba(10, 0, 4, 0.85) 18%);
     background-size: 150% 150%, 260% 260%;
     /* Glare tracks the pointer/scroll (--rtx/--rty); the spectrum sweeps on
@@ -1498,13 +1498,13 @@
     background-position: var(--rtx) var(--rty), var(--sheen) 50%;
     background-blend-mode: screen;
     mix-blend-mode: color-dodge; /* a soft band catches the light on the foil */
-    opacity: 0.35;
+    opacity: 0.5;
     -webkit-mask-image: var(--holo-mask);
             mask-image: var(--holo-mask);
     -webkit-mask-repeat: repeat;
             mask-repeat: repeat;
-    -webkit-mask-size: 440px 47px;
-            mask-size: 440px 47px;
+    -webkit-mask-size: 620px 19.3px;
+            mask-size: 620px 19.3px;
     animation: rtacc-holo-sheen 16s linear infinite;
     transition: --rtx 0.4s linear, --rty 0.4s linear, --sheen 0.4s linear;
 }
