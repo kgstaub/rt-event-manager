@@ -13,6 +13,11 @@ defined('ABSPATH') || exit;
 class RT_Event_Manager {
 
     /**
+     * Slug used for the admin menu separator that opens the plugin's section.
+     */
+    const MENU_SEPARATOR_SLUG = 'rti-menu-separator';
+
+    /**
      * Single instance of the class
      *
      * @var RT_Event_Manager
@@ -174,6 +179,14 @@ class RT_Event_Manager {
 
         // Admin side menu — RT Event Manager
         add_action('admin_menu', array($this, 'add_admin_menu'));
+        // Place the .WORLD SSO top-level menu directly under RT Event.
+        add_filter('custom_menu_order', '__return_true');
+        add_filter('menu_order', array($this, 'order_admin_menu'));
+        // Process self-POST admin forms before any output so we can redirect
+        // afterwards (Post/Redirect/Get) — this stops the browser's "resubmit
+        // form?" prompt when the settings/agenda/refunds/transfers page is
+        // refreshed after a save.
+        add_action('admin_init', array($this, 'handle_admin_post_redirects'));
 
         // Update ticket statuses when order status changes
         add_action('woocommerce_order_status_changed', array($this, 'on_order_status_changed'), 10, 4);
@@ -523,6 +536,15 @@ class RT_Event_Manager {
             }
         }
 
+        // Prefill the buyer's own ticket phone from their billing phone.
+        $default_phone = '';
+        if ($current_user->ID) {
+            $default_phone = get_user_meta($current_user->ID, 'billing_phone', true);
+        }
+        if (empty($default_phone) && function_exists('WC') && WC()->customer) {
+            $default_phone = WC()->customer->get_billing_phone();
+        }
+
         // If the buyer already holds their own event ticket, every ticket in this
         // new order is for someone else — request full details for all of them.
         $buyer_has_ticket = $current_user->ID && self::user_has_own_event_ticket($current_user->ID);
@@ -700,6 +722,8 @@ class RT_Event_Manager {
                         }
                     }
                 } else {
+                    // The buyer's own ticket prefills the phone from billing.
+                    $phone_value = (!$is_additional) ? $default_phone : '';
                     woocommerce_form_field($field_prefix . '_phone', array(
                         'type'              => 'tel',
                         'label'             => __('Phone Number', 'rt-event-manager'),
@@ -712,7 +736,7 @@ class RT_Event_Manager {
                             'inputmode' => 'tel',
                             'title'     => __('Enter the number in international format, e.g. +41791234567', 'rt-event-manager'),
                         ),
-                    ), '');
+                    ), $phone_value);
                 }
 
                 // Additional travellers carry their OWN organization details (they
@@ -4205,6 +4229,225 @@ class RT_Event_Manager {
             'rt-event-badge-template',
             array($this, 'render_badge_template_page')
         );
+
+        // Register a menu separator that opens the plugin's own section. The
+        // section is placed right after Dashboard by order_admin_menu(); this
+        // separator gives it a gap above (the core separator before "Posts"
+        // closes it below), matching the spacing WordPress uses elsewhere.
+        global $menu;
+        if (is_array($menu)) {
+            $menu[] = array('', 'read', self::MENU_SEPARATOR_SLUG, '', 'wp-menu-separator');
+        }
+    }
+
+    /**
+     * Reorder top-level admin menus so the plugin's menus (RT Event followed by
+     * .WORLD SSO) form their own section directly beneath Dashboard, set apart
+     * by a separator above and the core "Posts" separator below.
+     *
+     * @param array $order Current top-level menu slug order.
+     * @return array
+     */
+    public function order_admin_menu($order) {
+        if (!is_array($order)) {
+            return $order;
+        }
+        // Our section, in order: separator, RT Event, .WORLD SSO.
+        $group = array(self::MENU_SEPARATOR_SLUG, 'rt-event-manager', 'world-sso');
+        // Pull the group out of the incoming order so we can re-place it.
+        $rest = array_values(array_filter($order, function ($slug) use ($group) {
+            return !in_array($slug, $group, true);
+        }));
+        $out = array();
+        $placed = false;
+        foreach ($rest as $slug) {
+            $out[] = $slug;
+            if ('index.php' === $slug) { // Dashboard — insert our section after it.
+                foreach ($group as $g) {
+                    $out[] = $g;
+                }
+                $placed = true;
+            }
+        }
+        if (!$placed) { // Dashboard not present (unusual) — append at the end.
+            foreach ($group as $g) {
+                $out[] = $g;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Store a one-time admin notice to display after a Post/Redirect/Get save.
+     *
+     * @param string $message Human-readable message.
+     * @param string $type    'success' | 'error' | 'warning' | 'info'.
+     */
+    private function set_admin_flash($message, $type = 'success') {
+        set_transient('rtem_admin_flash_' . get_current_user_id(), array('m' => $message, 't' => $type), 60);
+    }
+
+    /**
+     * Queue an admin notice to display after a Post/Redirect/Get save (supports
+     * several notices per redirect). Plain-text messages only.
+     *
+     * @param string $message
+     * @param string $type 'success' | 'error' | 'warning' | 'info'.
+     */
+    public static function push_admin_notice($message, $type = 'success') {
+        $key = 'rtem_admin_notices_' . get_current_user_id();
+        $all = get_transient($key);
+        if (!is_array($all)) {
+            $all = array();
+        }
+        $all[] = array('m' => (string) $message, 't' => (string) $type);
+        set_transient($key, $all, 60);
+    }
+
+    /**
+     * Print (and clear) any queued admin notices.
+     */
+    public static function flush_admin_notices() {
+        $key = 'rtem_admin_notices_' . get_current_user_id();
+        $all = get_transient($key);
+        if (empty($all) || !is_array($all)) {
+            return;
+        }
+        delete_transient($key);
+        foreach ($all as $n) {
+            printf(
+                '<div class="notice notice-%s is-dismissible"><p>%s</p></div>',
+                esc_attr(isset($n['t']) ? $n['t'] : 'success'),
+                esc_html(isset($n['m']) ? $n['m'] : '')
+            );
+        }
+    }
+
+    /**
+     * Print (and clear) a pending PRG flash notice, if any.
+     */
+    public function render_admin_flash() {
+        $key   = 'rtem_admin_flash_' . get_current_user_id();
+        $flash = get_transient($key);
+        if (!$flash || empty($flash['m'])) {
+            return;
+        }
+        delete_transient($key);
+        $type = isset($flash['t']) ? $flash['t'] : 'success';
+        printf(
+            '<div class="notice notice-%s is-dismissible"><p>%s</p></div>',
+            esc_attr($type),
+            esc_html($flash['m'])
+        );
+    }
+
+    /**
+     * Process the plugin's self-POSTing admin forms on admin_init (before any
+     * output), then redirect back to the same page so a browser refresh issues
+     * a plain GET instead of re-submitting the form.
+     */
+    public function handle_admin_post_redirects() {
+        if (!is_admin()) {
+            return;
+        }
+
+        // --- Settings page ---
+        if (isset($_POST['rt_settings_save'])) {
+            if (!current_user_can('manage_woocommerce')) {
+                return;
+            }
+            check_admin_referer('rt_settings_save');
+            if (class_exists('WC_Admin_Settings')) {
+                WC_Admin_Settings::save_fields($this->get_settings_fields());
+                $this->save_receipt_bg_setting();
+                $message = __('Settings saved.', 'rt-event-manager');
+                // "Require re-consent" is a one-shot trigger: bump the policy
+                // version (invalidating stored acceptances) and clear the box.
+                if ('yes' === get_option('rt_event_manager_pp_bump')) {
+                    update_option('rt_event_manager_pp_version', (int) get_option('rt_event_manager_pp_version', 1) + 1);
+                    update_option('rt_event_manager_pp_bump', 'no');
+                    $message = __('Settings saved. Privacy policy marked as updated — all members will be asked to accept it again on their next visit.', 'rt-event-manager');
+                }
+                $this->set_admin_flash($message, 'success');
+            }
+            $this->redirect_admin_page('rt-event-manager-settings');
+        }
+
+        // --- Event Agenda page ---
+        if (isset($_POST['rt_agenda_add'])) {
+            if (!current_user_can('manage_options')) {
+                return;
+            }
+            check_admin_referer('rt_agenda_save');
+            $items = self::get_agenda();
+            $title = sanitize_text_field(wp_unslash($_POST['agenda_title'] ?? ''));
+            $start = sanitize_text_field(wp_unslash($_POST['agenda_start'] ?? ''));
+            $end   = sanitize_text_field(wp_unslash($_POST['agenda_end'] ?? ''));
+            $loc   = sanitize_text_field(wp_unslash($_POST['agenda_location'] ?? ''));
+            if ('' !== $title && '' !== $start) {
+                $items[] = array(
+                    'id'       => uniqid('ag_'),
+                    'title'    => $title,
+                    'start'    => $start,
+                    'end'      => $end,
+                    'location' => $loc,
+                );
+                self::save_agenda($items);
+                $this->set_admin_flash(__('Agenda item added.', 'rt-event-manager'), 'success');
+            } else {
+                $this->set_admin_flash(__('A title and start time are required.', 'rt-event-manager'), 'error');
+            }
+            $this->redirect_admin_page('rt-event-manager-agenda');
+        }
+        if (!empty($_POST['rt_agenda_delete'])) {
+            if (!current_user_can('manage_options')) {
+                return;
+            }
+            check_admin_referer('rt_agenda_save');
+            $del   = sanitize_text_field(wp_unslash($_POST['rt_agenda_delete']));
+            $items = array_values(array_filter(self::get_agenda(), function ($i) use ($del) {
+                return $i['id'] !== $del;
+            }));
+            self::save_agenda($items);
+            $this->set_admin_flash(__('Agenda item removed.', 'rt-event-manager'), 'success');
+            $this->redirect_admin_page('rt-event-manager-agenda');
+        }
+
+        // --- Refunds page (Confirm/Decline decision) ---
+        if (isset($_POST['rti_refund_action'], $_POST['rti_ticket_id'])) {
+            if (!current_user_can('edit_shop_orders')) {
+                return;
+            }
+            $this->process_refund_decision_post();
+            $this->redirect_admin_page('rt-event-manager-refunds');
+        }
+
+        // --- Transfers page (withdraw offer) ---
+        if (isset($_POST['rti_withdraw_transfer'], $_POST['rti_ticket_id'])) {
+            if (!current_user_can('edit_shop_orders')) {
+                return;
+            }
+            check_admin_referer('rti_withdraw_transfer');
+            $tid = absint($_POST['rti_ticket_id']);
+            if ($tid) {
+                $this->update_ticket($tid, array(
+                    'transfer_token' => '',
+                    'transfer_email' => '',
+                ));
+                $this->set_admin_flash(sprintf(__('Transfer offer withdrawn for ticket #%d.', 'rt-event-manager'), $tid), 'success');
+            }
+            $this->redirect_admin_page('rt-event-manager-transfers');
+        }
+    }
+
+    /**
+     * Redirect to one of the plugin's admin pages (used for Post/Redirect/Get).
+     *
+     * @param string $page Admin page slug.
+     */
+    private function redirect_admin_page($page) {
+        wp_safe_redirect(add_query_arg('page', $page, admin_url('admin.php')));
+        exit;
     }
 
     /**
@@ -4218,7 +4461,7 @@ class RT_Event_Manager {
         global $wpdb;
         $table = $wpdb->prefix . 'rti_tickets';
 
-        $this->process_refund_decision_post();
+        // The Confirm/Decline decision is handled on admin_init (with a redirect).
 
         $rows = $wpdb->get_results(
             "SELECT t.*, p.post_title AS product_name
@@ -4240,6 +4483,7 @@ class RT_Event_Manager {
 
         echo '<div class="wrap">';
         echo '<h1>' . esc_html__('Refunds & Cancellations', 'rt-event-manager') . '</h1>';
+        $this->render_admin_flash();
         echo '<p class="description">' . esc_html__('Confirm or decline records the decision here for your reference. Process the actual payment refund in the WooCommerce order.', 'rt-event-manager') . '</p>';
 
         echo '<h2>' . esc_html(sprintf(__('Open refund requests (%d)', 'rt-event-manager'), count($open))) . '</h2>';
@@ -4266,12 +4510,12 @@ class RT_Event_Manager {
                 ? sanitize_text_field(wp_unslash($_POST['rti_refund_note'] ?? ''))
                 : '';
             $this->update_ticket($tid, array('refund_status' => $new, 'refund_note' => $note));
-            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf(
+            $this->set_admin_flash(sprintf(
                 'confirm' === $decision
                     ? __('Refund marked as confirmed for ticket #%d.', 'rt-event-manager')
                     : __('Refund marked as declined for ticket #%d.', 'rt-event-manager'),
                 $tid
-            )) . '</p></div>';
+            ), 'success');
         }
     }
 
@@ -4347,17 +4591,7 @@ class RT_Event_Manager {
         global $wpdb;
         $table = $wpdb->prefix . 'rti_tickets';
 
-        if (isset($_POST['rti_withdraw_transfer'], $_POST['rti_ticket_id'])) {
-            check_admin_referer('rti_withdraw_transfer');
-            $tid = absint($_POST['rti_ticket_id']);
-            if ($tid) {
-                $this->update_ticket($tid, array(
-                    'transfer_token' => '',
-                    'transfer_email' => '',
-                ));
-                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf(__('Transfer offer withdrawn for ticket #%d.', 'rt-event-manager'), $tid)) . '</p></div>';
-            }
-        }
+        // Withdrawing a transfer is handled on admin_init (with a redirect).
 
         $rows = $wpdb->get_results(
             "SELECT t.*, p.post_title AS product_name
@@ -4369,6 +4603,7 @@ class RT_Event_Manager {
 
         echo '<div class="wrap">';
         echo '<h1>' . esc_html__('Transfers', 'rt-event-manager') . '</h1>';
+        $this->render_admin_flash();
 
         echo '<h2>' . esc_html(sprintf(__('Open transfers (%d)', 'rt-event-manager'), count($rows))) . '</h2>';
         echo '<p class="description">' . esc_html__('Event tickets with a pending transfer offer that the invited person has not yet accepted.', 'rt-event-manager') . '</p>';
@@ -5141,26 +5376,75 @@ class RT_Event_Manager {
         }
 
         $fields = $this->get_settings_fields();
+        wp_enqueue_media(); // for the invoice / receipt background image picker
 
-        if (isset($_POST['rt_settings_save']) && check_admin_referer('rt_settings_save')) {
-            WC_Admin_Settings::save_fields($fields);
-            // "Require re-consent" is a one-shot trigger: bump the policy version
-            // (invalidating every member's stored acceptance) and clear the box.
-            if ('yes' === get_option('rt_event_manager_pp_bump')) {
-                update_option('rt_event_manager_pp_version', (int) get_option('rt_event_manager_pp_version', 1) + 1);
-                update_option('rt_event_manager_pp_bump', 'no');
-                WC_Admin_Settings::add_message(__('Privacy policy marked as updated — all members will be asked to accept it again on their next visit.', 'rt-event-manager'));
-            }
-            WC_Admin_Settings::add_message(__('Settings saved.', 'rt-event-manager'));
-        }
-
+        // Saving is handled on admin_init (handle_admin_post_redirects) so we can
+        // redirect afterwards; here we only render the form + any flash notice.
         echo '<div class="wrap woocommerce"><h1>' . esc_html__('RT Event Manager Settings', 'rt-event-manager') . '</h1>';
-        WC_Admin_Settings::show_messages();
+        $this->render_admin_flash();
         echo '<form method="post" action="">';
         WC_Admin_Settings::output_fields($fields);
+        $this->render_receipt_bg_field();
         wp_nonce_field('rt_settings_save');
         echo '<p class="submit"><button type="submit" name="rt_settings_save" value="1" class="button button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button></p>';
         echo '</form></div>';
+    }
+
+    /**
+     * Render the invoice / receipt background image picker on the Settings page.
+     * (A media-attachment field, which WooCommerce's settings API has no native
+     * type for — so it is rendered and saved by hand.)
+     */
+    public function render_receipt_bg_field() {
+        $rbg     = absint(get_option('rt_event_manager_receipt_bg_img', 0));
+        $rbg_src = $rbg ? wp_get_attachment_image_url($rbg, 'medium') : '';
+        $preview = '<div class="rti-media-preview" style="margin:6px 0;">'
+            . ($rbg_src ? '<img src="' . esc_url($rbg_src) . '" style="max-height:160px;border:1px solid #ddd;" />' : '')
+            . '</div>';
+
+        echo '<h2>' . esc_html__('Invoice / Receipt', 'rt-event-manager') . '</h2>';
+        echo '<table class="form-table" role="presentation"><tr><th scope="row">'
+            . esc_html__('Invoice / receipt background (A4)', 'rt-event-manager')
+            . '</th><td>';
+        echo $preview;
+        echo '<input type="hidden" name="receipt_bg_img" id="receipt_bg_img" value="' . esc_attr($rbg) . '" /> ';
+        echo '<button type="button" class="button rti-media-upload" data-target="receipt_bg_img">' . esc_html__('Select background image', 'rt-event-manager') . '</button> ';
+        echo '<button type="button" class="button rti-media-clear" data-target="receipt_bg_img">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
+        echo '<p class="description">' . esc_html__('Full-page A4 background (letterhead) drawn behind the order receipt / invoice PDFs. Leave empty for a plain white page.', 'rt-event-manager') . '</p>';
+        echo '</td></tr></table>';
+        ?>
+        <script>
+        jQuery(function ($) {
+            var frame;
+            $('.rti-media-upload').on('click', function (e) {
+                e.preventDefault();
+                var target = $(this).data('target');
+                frame = wp.media({ title: 'Background image', library: { type: 'image' }, button: { text: 'Use image' }, multiple: false });
+                frame.on('select', function () {
+                    var att = frame.state().get('selection').first().toJSON();
+                    $('#' + target).val(att.id);
+                    var url = (att.sizes && att.sizes.medium) ? att.sizes.medium.url : att.url;
+                    $('#' + target).closest('td').find('.rti-media-preview').html('<img src="' + url + '" style="max-height:160px;border:1px solid #ddd;" />');
+                });
+                frame.open();
+            });
+            $('.rti-media-clear').on('click', function (e) {
+                e.preventDefault();
+                var target = $(this).data('target');
+                $('#' + target).val('');
+                $('#' + target).closest('td').find('.rti-media-preview').empty();
+            });
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * Persist the invoice / receipt background image id (custom field saved
+     * alongside the WooCommerce settings on the RT Event → Settings page).
+     */
+    public function save_receipt_bg_setting() {
+        update_option('rt_event_manager_receipt_bg_img', absint($_POST['receipt_bg_img'] ?? 0));
     }
 
     /**
@@ -5590,36 +5874,9 @@ class RT_Event_Manager {
             wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
         }
 
+        // Add/delete are handled on admin_init (handle_admin_post_redirects) so
+        // we can redirect afterwards; here we only render the list + flash.
         $items = self::get_agenda();
-
-        if (isset($_POST['rt_agenda_add']) && check_admin_referer('rt_agenda_save')) {
-            $title = sanitize_text_field(wp_unslash($_POST['agenda_title'] ?? ''));
-            $start = sanitize_text_field(wp_unslash($_POST['agenda_start'] ?? ''));
-            $end   = sanitize_text_field(wp_unslash($_POST['agenda_end'] ?? ''));
-            $loc   = sanitize_text_field(wp_unslash($_POST['agenda_location'] ?? ''));
-            if ('' !== $title && '' !== $start) {
-                $items[] = array(
-                    'id'       => uniqid('ag_'),
-                    'title'    => $title,
-                    'start'    => $start,
-                    'end'      => $end,
-                    'location' => $loc,
-                );
-                self::save_agenda($items);
-                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Agenda item added.', 'rt-event-manager') . '</p></div>';
-            } else {
-                echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('A title and start time are required.', 'rt-event-manager') . '</p></div>';
-            }
-        }
-
-        if (!empty($_POST['rt_agenda_delete']) && check_admin_referer('rt_agenda_save')) {
-            $del   = sanitize_text_field(wp_unslash($_POST['rt_agenda_delete']));
-            $items = array_values(array_filter($items, function ($i) use ($del) {
-                return $i['id'] !== $del;
-            }));
-            self::save_agenda($items);
-            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Agenda item removed.', 'rt-event-manager') . '</p></div>';
-        }
 
         // Sort by start for display.
         usort($items, function ($a, $b) {
@@ -5627,6 +5884,7 @@ class RT_Event_Manager {
         });
 
         echo '<div class="wrap"><h1>' . esc_html__('Event Agenda', 'rt-event-manager') . '</h1>';
+        $this->render_admin_flash();
         echo '<p class="description">' . esc_html__('These official agenda items appear in every attendee\'s event calendar.', 'rt-event-manager') . '</p>';
 
         // Add form.

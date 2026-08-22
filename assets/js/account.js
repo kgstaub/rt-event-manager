@@ -28,29 +28,6 @@
 
     // Confirm a saved field inline: green (theme uk-form-success) border plus a
     // checkmark at the right edge. Fades back after a few seconds.
-    function markFieldSaved($field) {
-        if (!$field || !$field.length) {
-            return;
-        }
-        $field.each(function () {
-            var $f = $(this);
-            // Enhanced selects are hidden; flag their visible toggle instead.
-            var $target = $f;
-            if ($f.is('select') && $f.closest('.rtacc-select').length) {
-                $target = $f.closest('.rtacc-select').find('.rtacc-select-toggle');
-            }
-            if (!$target.length) { return; }
-            if ($target.data('rtaccSavedTimer')) {
-                clearTimeout($target.data('rtaccSavedTimer'));
-            }
-            $target.removeClass('uk-form-danger').addClass('uk-form-success rtacc-field-saved');
-            var t = setTimeout(function () {
-                $target.removeClass('uk-form-success rtacc-field-saved');
-            }, 3000);
-            $target.data('rtaccSavedTimer', t);
-        });
-    }
-
     function copyText(text) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             return navigator.clipboard.writeText(text);
@@ -383,7 +360,7 @@
         $.post(cfg.ajaxUrl, $.param(data), function (response) {
             if (response && response.success) {
                 if ($status.length) { $status.hide().text(''); }
-                markFieldSaved($field);
+                if ($field) { $field.removeClass('uk-form-danger'); }
                 refreshProfileBadge($form);
             } else {
                 if ($field) { $field.addClass('uk-form-danger'); }
@@ -524,7 +501,7 @@
         data.push({ name: 'nonce', value: cfg.profileNonce });
         return $.post(cfg.ajaxUrl, $.param(data), function (response) {
             if (response && response.success) {
-                markFieldSaved($field);
+                if ($field) { $field.removeClass('uk-form-danger'); }
                 refreshEmergencyDot($form);
             } else {
                 if ($field) { $field.addClass('uk-form-danger'); }
@@ -737,9 +714,13 @@
                 $btn.prop('disabled', false);
                 $err.text((response && response.data) || i18n.error || 'Error').show();
             }
-        }).fail(function () {
+        }).fail(function (xhr) {
             $btn.prop('disabled', false);
-            $err.text(i18n.requestFail || 'Request failed.').show();
+            // Prefer the server's message (e.g. an "already have a tour" notice)
+            // over the generic failure text, even on a non-2xx response.
+            var msg = (xhr && xhr.responseJSON && xhr.responseJSON.data)
+                || i18n.requestFail || 'Request failed.';
+            $err.text(msg).show();
         });
     });
 
@@ -820,7 +801,7 @@
             if (response && response.success) {
                 if ($field && $field.length) {
                     if ($status && $status.length) { $status.hide().text(''); }
-                    markFieldSaved($field);
+                    $field.removeClass('uk-form-danger');
                 } else if ($row && $row.length) {
                     if ($status && $status.length) { $status.hide().text(''); }
                     showRowAlert($row, i18n.savedMsg || 'Your changes have been saved.', false);
@@ -855,21 +836,36 @@
                 $(this).prop('disabled', true);
             }
         });
+        // Force the initial button state with inline display (the [hidden] attr
+        // in the markup is overridden by the buttons' CSS display rule).
+        $('.rtacc-tickets-form tr[data-ticket-id]').each(function () {
+            var $r = $(this);
+            if ($r.hasClass('rtacc-row-editing')) {
+                $r.find('.rtacc-edit-toggle').hide();
+                $r.find('.rtacc-edit-save').show();
+            } else {
+                $r.find('.rtacc-edit-save').hide();
+                $r.find('.rtacc-edit-toggle').show();
+            }
+        });
     }
     initTicketRows();
 
+    // Use .hide()/.show() (inline display) rather than the [hidden] attribute:
+    // the edit buttons carry a CSS `display: inline-flex` rule that would
+    // otherwise override [hidden] and leave the row looking stuck in edit mode.
     function enterTicketEdit($row) {
         $row.addClass('rtacc-row-editing');
         $row.find('.rtacc-ticket-field').prop('disabled', false);
-        $row.find('.rtacc-edit-toggle').attr('hidden', 'hidden');
-        $row.find('.rtacc-edit-save').removeAttr('hidden');
+        $row.find('.rtacc-edit-toggle').hide();
+        $row.find('.rtacc-edit-save').show();
         $row.find('.rtacc-ticket-field').first().trigger('focus');
     }
     function exitTicketEdit($row) {
         $row.removeClass('rtacc-row-editing');
         $row.find('.rtacc-ticket-field').prop('disabled', true);
-        $row.find('.rtacc-edit-save').attr('hidden', 'hidden');
-        $row.find('.rtacc-edit-toggle').removeAttr('hidden');
+        $row.find('.rtacc-edit-save').hide();
+        $row.find('.rtacc-edit-toggle').show();
     }
     // Validate a row before saving. Blocks only when Dietary = Allergies but the
     // details are empty; family is flagged (non-blocking) if left unselected.
@@ -911,9 +907,7 @@
         saveTickets($form, tickets, $form.find('.rtacc-status'), null, null)
             .done(function (response) {
                 if (response && response.success) {
-                    var $fields = $row.find('.rtacc-ticket-field');
                     exitTicketEdit($row);
-                    markFieldSaved($fields);
                     refreshTicketsBadge();
                 }
             })

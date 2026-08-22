@@ -4231,6 +4231,7 @@ class RT_Event_Manager_Account {
 
         $tour_kind = $kind; // 'pretour' | 'daytour' (loop reuses $kind for members)
         $added = 0;
+        $skipped_existing = false; // a member was skipped for already having this tour
         foreach ($members as $mid) {
             if (!isset($by_id[$mid])) {
                 continue; // not the user's ticket
@@ -4248,9 +4249,11 @@ class RT_Event_Manager_Account {
                     }
                 }
                 if ($conflict) {
+                    $skipped_existing = true;
                     continue; // overlaps an existing day tour for this member
                 }
             } elseif (isset($has_pretour[$mid])) {
+                $skipped_existing = true;
                 continue; // already has a pretour (one per person)
             }
             $m    = $by_id[$mid];
@@ -4294,6 +4297,13 @@ class RT_Event_Manager_Account {
         }
 
         if (!$added) {
+            if ($skipped_existing) {
+                // Every selected member already has a tour in this slot.
+                $msg = ('daytour' === $tour_kind)
+                    ? __('You already have a day tour booked for this time slot.', 'rt-event-manager')
+                    : __('You already have a pretour booked — only one pretour per person is allowed.', 'rt-event-manager');
+                wp_send_json_error($msg);
+            }
             wp_send_json_error(sprintf(__('Could not add any %s to your cart.', 'rt-event-manager'), $word));
         }
 

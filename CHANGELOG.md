@@ -3,6 +3,36 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.1.6] — 2026-08-22
+
+Admin-usability and checkout fixes. Backward compatible — no data migrations.
+(Patch number reflects the count of individual changes since 2.1.0.)
+
+### Added
+- **Own-ticket phone prefill at checkout**: the buyer's own event ticket now
+  prefills its phone number from their billing phone.
+
+### Changed
+- **Admin menu grouped into its own section**: RT Event and .WORLD SSO now sit
+  together directly under Dashboard, set apart by a separator (like the gap
+  before WooCommerce), with .WORLD SSO immediately beneath RT Event.
+- **Invoice / receipt background image setting moved** from *Visa Settings* to
+  *RT Event → Settings* (option unchanged: `rt_event_manager_receipt_bg_img`).
+
+### Fixed
+- **No more "resubmit this form?" prompt** when refreshing an admin page after a
+  save: every self-posting plugin admin page (Settings, Event Agenda, Refunds,
+  Transfers, Visa Settings, Apple Wallet, Google Wallet) now follows the
+  Post/Redirect/Get pattern.
+- **Ticket edit mode now returns to view mode on Save** instead of staying open
+  until a manual refresh (the Save/edit buttons were kept visible by a CSS rule
+  overriding the `[hidden]` attribute). Removed the green "saved" checkmark /
+  text shown on field exit.
+- **Clear error when a tour slot is already booked**: adding a pretour / day
+  tour for a slot you already hold now shows a specific message instead of the
+  generic "Request failed. Please try again." (the modal also surfaces the
+  server's message on non-2xx responses).
+
 ## [2.1.0] — 2026-08-22
 
 Large customer-portal, privacy and ticketing update. Backward compatible — no
