@@ -26,31 +26,6 @@
         $el.show();
     }
 
-    // Confirm a saved field inline: green (theme uk-form-success) border plus a
-    // checkmark at the right edge. Fades back after a few seconds.
-    function markFieldSaved($field) {
-        if (!$field || !$field.length) {
-            return;
-        }
-        $field.each(function () {
-            var $f = $(this);
-            // Enhanced selects are hidden; flag their visible toggle instead.
-            var $target = $f;
-            if ($f.is('select') && $f.closest('.rtacc-select').length) {
-                $target = $f.closest('.rtacc-select').find('.rtacc-select-toggle');
-            }
-            if (!$target.length) { return; }
-            if ($target.data('rtaccSavedTimer')) {
-                clearTimeout($target.data('rtaccSavedTimer'));
-            }
-            $target.removeClass('uk-form-danger').addClass('uk-form-success rtacc-field-saved');
-            var t = setTimeout(function () {
-                $target.removeClass('uk-form-success rtacc-field-saved');
-            }, 3000);
-            $target.data('rtaccSavedTimer', t);
-        });
-    }
-
     function copyText(text) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             return navigator.clipboard.writeText(text);
@@ -383,7 +358,6 @@
         $.post(cfg.ajaxUrl, $.param(data), function (response) {
             if (response && response.success) {
                 if ($status.length) { $status.hide().text(''); }
-                markFieldSaved($field);
                 refreshProfileBadge($form);
             } else {
                 if ($field) { $field.addClass('uk-form-danger'); }
@@ -524,7 +498,6 @@
         data.push({ name: 'nonce', value: cfg.profileNonce });
         return $.post(cfg.ajaxUrl, $.param(data), function (response) {
             if (response && response.success) {
-                markFieldSaved($field);
                 refreshEmergencyDot($form);
             } else {
                 if ($field) { $field.addClass('uk-form-danger'); }
@@ -810,50 +783,20 @@
         }, 3000);
     }
 
-    function saveTickets($form, tickets, $status, $row, $field) {
-        if (!$field) { setStatus($status, i18n.saving || 'Saving…', null); }
-        return $.post(cfg.ajaxUrl, {
-            action:  'rt_event_manager_account_save_tickets',
-            nonce:   cfg.ticketsNonce,
-            tickets: tickets
-        }, function (response) {
-            if (response && response.success) {
-                if ($field && $field.length) {
-                    if ($status && $status.length) { $status.hide().text(''); }
-                    markFieldSaved($field);
-                } else if ($row && $row.length) {
-                    if ($status && $status.length) { $status.hide().text(''); }
-                    showRowAlert($row, i18n.savedMsg || 'Your changes have been saved.', false);
-                } else {
-                    setStatus($status, i18n.saved || 'Saved!', 'success');
-                }
-            } else {
-                var msg = (response && response.data) || i18n.error || 'Error';
-                if ($field && $field.length) { $field.addClass('uk-form-danger'); }
-                if ($row && $row.length) {
-                    if ($status && $status.length) { $status.hide().text(''); }
-                    showRowAlert($row, msg, true);
-                } else {
-                    setStatus($status, msg, 'error');
-                }
-            }
-        }).fail(function () {
-            if ($row && $row.length) {
-                showRowAlert($row, i18n.requestFail || 'Request failed.', true);
-            } else {
-                setStatus($status, i18n.requestFail || 'Request failed.', 'error');
-            }
-        });
-    }
-
     // Ticket rows are read-only until the pencil is clicked. Fields start
     // disabled; entering edit mode enables them (locked fields render as plain
     // text and are never inputs, so they stay uneditable).
     function initTicketRows() {
-        $('.rtacc-tickets-form tr[data-editable] .rtacc-ticket-field').each(function () {
-            if (!$(this).closest('tr').hasClass('rtacc-row-editing')) {
-                $(this).prop('disabled', true);
+        $('.rtacc-tickets-form tr[data-editable]').each(function () {
+            var $tr = $(this);
+            if ($tr.hasClass('rtacc-row-editing')) {
+                return;
             }
+            $tr.find('.rtacc-ticket-field').prop('disabled', true);
+            // Establish a consistent view-mode baseline (pencil shown, save hidden)
+            // via inline display, independent of the [hidden] attribute.
+            $tr.find('.rtacc-edit-save').removeAttr('hidden').hide();
+            $tr.find('.rtacc-edit-toggle').removeAttr('hidden').show();
         });
     }
     initTicketRows();
@@ -861,15 +804,17 @@
     function enterTicketEdit($row) {
         $row.addClass('rtacc-row-editing');
         $row.find('.rtacc-ticket-field').prop('disabled', false);
-        $row.find('.rtacc-edit-toggle').attr('hidden', 'hidden');
-        $row.find('.rtacc-edit-save').removeAttr('hidden');
+        // Use hide()/show() (inline display) so the toggle is independent of the
+        // [hidden] attribute vs. the button's CSS display rule.
+        $row.find('.rtacc-edit-toggle').removeAttr('hidden').hide();
+        $row.find('.rtacc-edit-save').removeAttr('hidden').show();
         $row.find('.rtacc-ticket-field').first().trigger('focus');
     }
     function exitTicketEdit($row) {
         $row.removeClass('rtacc-row-editing');
         $row.find('.rtacc-ticket-field').prop('disabled', true);
-        $row.find('.rtacc-edit-save').attr('hidden', 'hidden');
-        $row.find('.rtacc-edit-toggle').removeAttr('hidden');
+        $row.find('.rtacc-edit-save').removeAttr('hidden').hide();
+        $row.find('.rtacc-edit-toggle').removeAttr('hidden').show();
     }
     // Validate a row before saving. Blocks only when Dietary = Allergies but the
     // details are empty; family is flagged (non-blocking) if left unselected.
@@ -900,24 +845,33 @@
     });
     // Save icon → validate, save, exit edit mode.
     $(document).on('click', '.rtacc-edit-save', function () {
-        var $row  = $(this).closest('tr[data-ticket-id]');
-        var $form = $row.closest('.rtacc-tickets-form');
+        var $row    = $(this).closest('tr[data-ticket-id]');
+        var $form   = $row.closest('.rtacc-tickets-form');
+        var $status = $form.find('.rtacc-status');
         if (!validateTicketRow($row)) {
             return;
         }
         var $save = $row.find('.rtacc-edit-save').prop('disabled', true);
         var tickets = {};
         tickets[$row.data('ticket-id')] = collectTicketRow($row);
-        saveTickets($form, tickets, $form.find('.rtacc-status'), null, null)
-            .done(function (response) {
-                if (response && response.success) {
-                    var $fields = $row.find('.rtacc-ticket-field');
-                    exitTicketEdit($row);
-                    markFieldSaved($fields);
-                    refreshTicketsBadge();
-                }
-            })
-            .always(function () { $save.prop('disabled', false); });
+        setStatus($status, i18n.saving || 'Saving…', null);
+        $.post(cfg.ajaxUrl, {
+            action:  'rt_event_manager_account_save_tickets',
+            nonce:   cfg.ticketsNonce,
+            tickets: tickets
+        }).done(function (response) {
+            if (response && response.success) {
+                if ($status && $status.length) { $status.hide().text(''); }
+                exitTicketEdit($row);
+                refreshTicketsBadge();
+            } else {
+                setStatus($status, (response && response.data) || i18n.error || 'Error', 'error');
+            }
+        }).fail(function () {
+            setStatus($status, i18n.requestFail || 'Request failed.', 'error');
+        }).always(function () {
+            $save.prop('disabled', false);
+        });
     });
 
     // ---- Add a linked co-traveller / pretour (parent chosen at add-to-cart) ----
