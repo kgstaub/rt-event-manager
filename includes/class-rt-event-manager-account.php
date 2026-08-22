@@ -887,6 +887,8 @@ class RT_Event_Manager_Account {
                         $this->render_ticket_visual($t);
                     }
                     echo '</div>';
+                    // Motion preference (unchecked = effects on; persisted in JS).
+                    echo '<label class="rtacc-motion-toggle"><input type="checkbox" id="rtacc-motion-toggle" class="uk-checkbox" /> ' . esc_html__('Disable motion effects', 'rt-event-manager') . '</label>';
                 }
                 if (!empty($tours)) {
                     echo '<table class="rtacc-table rtacc-tickets rtacc-dashboard-table uk-table uk-table-divider uk-table-middle uk-table-small">';
@@ -975,6 +977,13 @@ class RT_Event_Manager_Account {
         $lbl = function ($text) { return '<span class="rtacc-ticket-lbl">' . esc_html($text) . '</span>'; };
 
         echo '<div class="rtacc-ticket' . ($voided ? ' rtacc-ticket--void' : '') . '">';
+
+        // Holographic foil overlay across the whole ticket (body + stub):
+        // repeating, staggered micro-printed event text that shimmers red as the
+        // page scrolls. Skipped on voided tickets, which are greyed out.
+        if (!$voided) {
+            echo '<div class="rtacc-ticket-holo" aria-hidden="true"></div>';
+        }
 
         echo '<div class="rtacc-ticket-body">';
         // Event title sits at the top (where the "Ticket" kicker used to be).
@@ -4231,6 +4240,7 @@ class RT_Event_Manager_Account {
 
         $tour_kind = $kind; // 'pretour' | 'daytour' (loop reuses $kind for members)
         $added = 0;
+        $skipped_existing = false; // a member was skipped for already having this tour
         foreach ($members as $mid) {
             if (!isset($by_id[$mid])) {
                 continue; // not the user's ticket
@@ -4248,9 +4258,11 @@ class RT_Event_Manager_Account {
                     }
                 }
                 if ($conflict) {
+                    $skipped_existing = true;
                     continue; // overlaps an existing day tour for this member
                 }
             } elseif (isset($has_pretour[$mid])) {
+                $skipped_existing = true;
                 continue; // already has a pretour (one per person)
             }
             $m    = $by_id[$mid];
@@ -4294,6 +4306,13 @@ class RT_Event_Manager_Account {
         }
 
         if (!$added) {
+            if ($skipped_existing) {
+                // Every selected member already has a tour in this slot.
+                $msg = ('daytour' === $tour_kind)
+                    ? __('You already have a day tour booked for this time slot.', 'rt-event-manager')
+                    : __('You already have a pretour booked — only one pretour per person is allowed.', 'rt-event-manager');
+                wp_send_json_error($msg);
+            }
             wp_send_json_error(sprintf(__('Could not add any %s to your cart.', 'rt-event-manager'), $word));
         }
 

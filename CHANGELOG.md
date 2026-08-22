@@ -3,6 +3,48 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.1.8] — 2026-08-22
+
+Admin-usability, checkout and dashboard fixes. Backward compatible — no data
+migrations. (Patch number reflects the count of individual changes since 2.1.0.)
+
+### Added
+- **Own-ticket phone prefill at checkout**: the buyer's own event ticket now
+  prefills its phone number from their billing phone.
+- **Holographic dashboard ticket**: a diagonally-cascading micro-print of the
+  event name ("ROUND TABLE INTERNATIONAL HALF YEAR MEETING 2027 HOSTED BY ROUND
+  TABLE SWITZERLAND") and the motto ("ADOPT. ADAPT. IMPROVE.") covers the whole
+  ticket as a dark foil; a red highlight band drifts across it on its own and
+  follows the mouse, so the foil catches the light as you move over it. The
+  ticket also tilts gently inward toward the pointer like a pressed weight. The
+  mascot, QR code and Add-to-Wallet buttons stay crisp above the foil, and the
+  QR stays scannable.
+- **"Disable motion effects" toggle** beneath the ticket (theme checkbox,
+  off by default, remembered per browser): turns off the tilt and hides the
+  holographic foil for anyone who prefers a static ticket. `prefers-reduced-
+  motion` is honoured automatically.
+
+### Changed
+- **Admin menu grouped into its own section**: RT Event and .WORLD SSO now sit
+  together directly under Dashboard, set apart by a separator (like the gap
+  before WooCommerce), with .WORLD SSO immediately beneath RT Event.
+- **Invoice / receipt background image setting moved** from *Visa Settings* to
+  *RT Event → Settings* (option unchanged: `rt_event_manager_receipt_bg_img`).
+
+### Fixed
+- **No more "resubmit this form?" prompt** when refreshing an admin page after a
+  save: every self-posting plugin admin page (Settings, Event Agenda, Refunds,
+  Transfers, Visa Settings, Apple Wallet, Google Wallet) now follows the
+  Post/Redirect/Get pattern.
+- **Ticket edit mode now returns to view mode on Save** instead of staying open
+  until a manual refresh (the Save/edit buttons were kept visible by a CSS rule
+  overriding the `[hidden]` attribute). Removed the green "saved" checkmark /
+  text shown on field exit.
+- **Clear error when a tour slot is already booked**: adding a pretour / day
+  tour for a slot you already hold now shows a specific message instead of the
+  generic "Request failed. Please try again." (the modal also surfaces the
+  server's message on non-2xx responses).
+
 ## [2.1.0] — 2026-08-22
 
 Large customer-portal, privacy and ticketing update. Backward compatible — no

@@ -28,29 +28,6 @@
 
     // Confirm a saved field inline: green (theme uk-form-success) border plus a
     // checkmark at the right edge. Fades back after a few seconds.
-    function markFieldSaved($field) {
-        if (!$field || !$field.length) {
-            return;
-        }
-        $field.each(function () {
-            var $f = $(this);
-            // Enhanced selects are hidden; flag their visible toggle instead.
-            var $target = $f;
-            if ($f.is('select') && $f.closest('.rtacc-select').length) {
-                $target = $f.closest('.rtacc-select').find('.rtacc-select-toggle');
-            }
-            if (!$target.length) { return; }
-            if ($target.data('rtaccSavedTimer')) {
-                clearTimeout($target.data('rtaccSavedTimer'));
-            }
-            $target.removeClass('uk-form-danger').addClass('uk-form-success rtacc-field-saved');
-            var t = setTimeout(function () {
-                $target.removeClass('uk-form-success rtacc-field-saved');
-            }, 3000);
-            $target.data('rtaccSavedTimer', t);
-        });
-    }
-
     function copyText(text) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             return navigator.clipboard.writeText(text);
@@ -383,7 +360,7 @@
         $.post(cfg.ajaxUrl, $.param(data), function (response) {
             if (response && response.success) {
                 if ($status.length) { $status.hide().text(''); }
-                markFieldSaved($field);
+                if ($field) { $field.removeClass('uk-form-danger'); }
                 refreshProfileBadge($form);
             } else {
                 if ($field) { $field.addClass('uk-form-danger'); }
@@ -524,7 +501,7 @@
         data.push({ name: 'nonce', value: cfg.profileNonce });
         return $.post(cfg.ajaxUrl, $.param(data), function (response) {
             if (response && response.success) {
-                markFieldSaved($field);
+                if ($field) { $field.removeClass('uk-form-danger'); }
                 refreshEmergencyDot($form);
             } else {
                 if ($field) { $field.addClass('uk-form-danger'); }
@@ -737,9 +714,13 @@
                 $btn.prop('disabled', false);
                 $err.text((response && response.data) || i18n.error || 'Error').show();
             }
-        }).fail(function () {
+        }).fail(function (xhr) {
             $btn.prop('disabled', false);
-            $err.text(i18n.requestFail || 'Request failed.').show();
+            // Prefer the server's message (e.g. an "already have a tour" notice)
+            // over the generic failure text, even on a non-2xx response.
+            var msg = (xhr && xhr.responseJSON && xhr.responseJSON.data)
+                || i18n.requestFail || 'Request failed.';
+            $err.text(msg).show();
         });
     });
 
@@ -820,7 +801,7 @@
             if (response && response.success) {
                 if ($field && $field.length) {
                     if ($status && $status.length) { $status.hide().text(''); }
-                    markFieldSaved($field);
+                    $field.removeClass('uk-form-danger');
                 } else if ($row && $row.length) {
                     if ($status && $status.length) { $status.hide().text(''); }
                     showRowAlert($row, i18n.savedMsg || 'Your changes have been saved.', false);
@@ -855,21 +836,129 @@
                 $(this).prop('disabled', true);
             }
         });
+        // Force the initial button state with inline display (the [hidden] attr
+        // in the markup is overridden by the buttons' CSS display rule).
+        $('.rtacc-tickets-form tr[data-ticket-id]').each(function () {
+            var $r = $(this);
+            if ($r.hasClass('rtacc-row-editing')) {
+                $r.find('.rtacc-edit-toggle').hide();
+                $r.find('.rtacc-edit-save').show();
+            } else {
+                $r.find('.rtacc-edit-save').hide();
+                $r.find('.rtacc-edit-toggle').show();
+            }
+        });
     }
     initTicketRows();
 
+    // ---- Holographic ticket: shimmer + mouse "heavy weight" tilt ----
+    (function initTicketHolo() {
+        var $tickets = $('.rtacc-ticket');
+        if (!$tickets.length) { return; }
+
+        // Motion preference (persisted; OFF by default → motion enabled).
+        var motionOff = false;
+        try { motionOff = localStorage.getItem('rtacc_motion_off') === '1'; } catch (e) {}
+        var reduce   = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var canHover = !window.matchMedia || window.matchMedia('(hover: hover)').matches;
+
+        function motionOn() { return !motionOff && !reduce; }
+        function resetTransforms() {
+            $tickets.each(function () {
+                this.style.setProperty('--rt-rx', '0deg');
+                this.style.setProperty('--rt-ry', '0deg');
+                this.style.setProperty('--rt-scale', '1');
+            });
+        }
+        function applyMotionState() {
+            $('.rtacc').toggleClass('rtacc-no-motion', motionOff);
+            if (motionOff) { resetTransforms(); }
+        }
+
+        // Toggle control (a checkbox rendered on the dashboard).
+        var $toggle = $('#rtacc-motion-toggle');
+        $toggle.prop('checked', motionOff);
+        $toggle.on('change', function () {
+            motionOff = this.checked;
+            try { localStorage.setItem('rtacc_motion_off', motionOff ? '1' : '0'); } catch (e) {}
+            applyMotionState();
+        });
+        applyMotionState();
+
+        // Scroll sweeps the glare (keeps the foil alive with no pointer).
+        var holos = $('.rtacc-ticket-holo').toArray();
+        var ticking = false;
+        function updateScroll() {
+            ticking = false;
+            if (!motionOn()) { return; }
+            var vh = window.innerHeight || document.documentElement.clientHeight;
+            holos.forEach(function (holo) {
+                var host = holo.parentNode;
+                if (!host) { return; }
+                var r = host.getBoundingClientRect();
+                if (!r.height) { return; }
+                var p = Math.max(0, Math.min(1, (vh - r.top) / (vh + r.height)));
+                var pct = (p * 100).toFixed(1) + '%';
+                holo.style.setProperty('--rtx', pct);
+                holo.style.setProperty('--rty', pct);
+            });
+        }
+        function onScroll() { if (!ticking) { ticking = true; window.requestAnimationFrame(updateScroll); } }
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll, { passive: true });
+        updateScroll();
+
+        // Pointer sweeps the light and tilts the ticket inward (real pointers).
+        if (canHover) {
+            var MAX = 4; // max tilt in degrees (subtle)
+            $tickets.each(function () {
+                var card = this;
+                var holo = card.querySelector('.rtacc-ticket-holo');
+                $(card).on('pointermove', function (e) {
+                    if (!motionOn()) { return; }
+                    var r = card.getBoundingClientRect();
+                    if (!r.width || !r.height) { return; }
+                    var nx = (e.clientX - r.left) / r.width;   // 0 … 1
+                    var ny = (e.clientY - r.top) / r.height;
+                    if (holo) {
+                        holo.style.setProperty('--rtx', (nx * 100).toFixed(1) + '%');
+                        holo.style.setProperty('--rty', (ny * 100).toFixed(1) + '%');
+                        holo.style.setProperty('--sheen', (nx * 200).toFixed(1) + '%');
+                    }
+                    // The side under the pointer sinks inward, like a pressed weight.
+                    card.style.setProperty('--rt-ry', ((nx - 0.5) * 2 * MAX).toFixed(2) + 'deg');
+                    card.style.setProperty('--rt-rx', ((0.5 - ny) * 2 * MAX).toFixed(2) + 'deg');
+                    card.style.setProperty('--rt-scale', '0.99');
+                }).on('pointerleave', function () {
+                    card.style.setProperty('--rt-ry', '0deg');
+                    card.style.setProperty('--rt-rx', '0deg');
+                    card.style.setProperty('--rt-scale', '1');
+                    if (holo) {
+                        // Let the ambient drift + scroll take back over.
+                        holo.style.removeProperty('--sheen');
+                        holo.style.removeProperty('--rtx');
+                        holo.style.removeProperty('--rty');
+                    }
+                });
+            });
+        }
+    })();
+
+    // Use .hide()/.show() (inline display) rather than the [hidden] attribute:
+    // the edit buttons carry a CSS `display: inline-flex` rule that would
+    // otherwise override [hidden] and leave the row looking stuck in edit mode.
     function enterTicketEdit($row) {
         $row.addClass('rtacc-row-editing');
         $row.find('.rtacc-ticket-field').prop('disabled', false);
-        $row.find('.rtacc-edit-toggle').attr('hidden', 'hidden');
-        $row.find('.rtacc-edit-save').removeAttr('hidden');
+        $row.find('.rtacc-edit-toggle').hide();
+        $row.find('.rtacc-edit-save').show();
         $row.find('.rtacc-ticket-field').first().trigger('focus');
     }
     function exitTicketEdit($row) {
         $row.removeClass('rtacc-row-editing');
         $row.find('.rtacc-ticket-field').prop('disabled', true);
-        $row.find('.rtacc-edit-save').attr('hidden', 'hidden');
-        $row.find('.rtacc-edit-toggle').removeAttr('hidden');
+        $row.find('.rtacc-edit-save').hide();
+        $row.find('.rtacc-edit-toggle').show();
     }
     // Validate a row before saving. Blocks only when Dietary = Allergies but the
     // details are empty; family is flagged (non-blocking) if left unselected.
@@ -911,9 +1000,7 @@
         saveTickets($form, tickets, $form.find('.rtacc-status'), null, null)
             .done(function (response) {
                 if (response && response.success) {
-                    var $fields = $row.find('.rtacc-ticket-field');
                     exitTicketEdit($row);
-                    markFieldSaved($fields);
                     refreshTicketsBadge();
                 }
             })

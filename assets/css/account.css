@@ -1127,20 +1127,6 @@
     pointer-events: auto;
 }
 
-/* Inline "saved" confirmation on a field: green via uk-form-success, plus a
- * checkmark at the right edge with a little padding. Selects keep their native
- * arrow (no checkmark), showing only the green border. */
-.rtacc-field-saved {
-    transition: border-color 0.2s ease, color 0.2s ease;
-}
-input.rtacc-field-saved,
-textarea.rtacc-field-saved {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%232E9500' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    padding-right: 34px !important;
-}
-
 /* Secondary emergency contact locked until the primary contact is complete. */
 .rtacc-emergency-secondary.rtacc-locked {
     opacity: 0.55;
@@ -1335,6 +1321,15 @@ textarea.rtacc-field-saved {
     border-radius: 14px;
     overflow: hidden;
     position: relative;
+    /* Mouse "heavy weight" tilt: the ticket dips inward toward the pointer.
+     * Kept a flat plane (no preserve-3d) so the inner z-index layering — foil,
+     * mascot, QR — stays intact; only the whole card tilts. */
+    --rt-rx: 0deg;
+    --rt-ry: 0deg;
+    --rt-scale: 1;
+    transform: perspective(900px) rotateX(var(--rt-rx)) rotateY(var(--rt-ry)) scale(var(--rt-scale));
+    transition: transform 0.4s ease;
+    will-change: transform;
 }
 .rtacc-ticket-body {
     position: relative;
@@ -1388,7 +1383,7 @@ textarea.rtacc-field-saved {
     height: 120px;
     max-height: 62%;
     pointer-events: none;
-    z-index: 0;
+    z-index: 4; /* sits above the holographic foil */
 }
 /* Perforated stub — holds the kicker, QR, ticket no. and wallet buttons. */
 .rtacc-ticket-stub {
@@ -1447,6 +1442,8 @@ textarea.rtacc-field-saved {
     text-align: center;
     color: var(--rtacc-primary, #CC0B24);
     font-weight: 700;
+    position: relative;
+    z-index: 4; /* above the holographic foil */
 }
 .rtacc-ticket-stub-id { color: #FFF0C4; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
 /* Semicircular cutout in the stub's outer (right) edge — the ticket's
@@ -1463,7 +1460,82 @@ textarea.rtacc-field-saved {
     pointer-events: none;
 }
 .rtacc-ticket--void { opacity: 0.6; filter: grayscale(0.4); }
-.rtacc-ticket-wallet { margin: -2px 0 2px; }
+.rtacc-ticket-wallet { margin: -2px 0 2px; position: relative; z-index: 4; }
+
+/* ---- Holographic foil overlay ----
+ * A repeating micro-print of the event text ("R T I H Y M 2 0 2 7 H O S T E D
+ * B Y R T S W I T Z E R L A N D"), staggered row to row, masks a dark red
+ * shimmer that sweeps across the whole ticket as the page scrolls. The overlay
+ * blend keeps the QR stub legible (white stays white, black stays black).
+ * Registered custom properties let the sweep position interpolate smoothly. */
+@property --rtx { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
+@property --rty { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
+@property --sheen { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+.rtacc-ticket-holo {
+    --rtx: 50%;
+    --rty: 50%;
+    --sheen: 0%;
+    /* Two rows: the second is shifted left so the text is offset per row. */
+    --holo-mask: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221800%22%20height=%22208%22%3E%3Ctext%20x=%220%22%20y=%2218%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%227%22%20fill=%22%23fff%22%3ER%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20%3C/text%3E%3Ctext%20x=%22-200%22%20y=%2244%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%227%22%20fill=%22%23fff%22%3EA%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20%3C/text%3E%3Ctext%20x=%22-150%22%20y=%2270%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%227%22%20fill=%22%23fff%22%3ER%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20%3C/text%3E%3Ctext%20x=%22-350%22%20y=%2296%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%227%22%20fill=%22%23fff%22%3EA%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20%3C/text%3E%3Ctext%20x=%22-300%22%20y=%22122%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%227%22%20fill=%22%23fff%22%3ER%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20%3C/text%3E%3Ctext%20x=%22-500%22%20y=%22148%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%227%22%20fill=%22%23fff%22%3EA%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20%3C/text%3E%3Ctext%20x=%22-450%22%20y=%22174%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%227%22%20fill=%22%23fff%22%3ER%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20I%20N%20T%20E%20R%20N%20A%20T%20I%20O%20N%20A%20L%20%20H%20A%20L%20F%20%20Y%20E%20A%20R%20%20M%20E%20E%20T%20I%20N%20G%20%202%200%202%207%20%20H%20O%20S%20T%20E%20D%20%20B%20Y%20%20R%20O%20U%20N%20D%20%20T%20A%20B%20L%20E%20%20S%20W%20I%20T%20Z%20E%20R%20L%20A%20N%20D%20%20/%20%20%3C/text%3E%3Ctext%20x=%22-650%22%20y=%22200%22%20xml:space=%22preserve%22%20font-family=%22Helvetica,Arial,sans-serif%22%20font-size=%2224%22%20font-weight=%22800%22%20letter-spacing=%227%22%20fill=%22%23fff%22%3EA%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20A%20D%20O%20P%20T%20.%20%20A%20D%20A%20P%20T%20.%20%20I%20M%20P%20R%20O%20V%20E%20.%20%20%3C/text%3E%3C/svg%3E");
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at var(--rtx) var(--rty),
+            rgba(255, 175, 190, 0.7) 0%,
+            rgba(150, 20, 50, 0.15) 28%,
+            rgba(40, 0, 12, 0) 62%),
+        repeating-linear-gradient(112deg,
+            rgba(0, 0, 0, 0.88) 0%,
+            rgba(70, 0, 20, 0.62) 5%,
+            rgba(255, 150, 172, 0.92) 9%,
+            rgba(70, 0, 20, 0.62) 13%,
+            rgba(0, 0, 0, 0.88) 18%);
+    background-size: 150% 150%, 260% 260%;
+    /* Glare tracks the pointer/scroll (--rtx/--rty); the spectrum sweeps on
+     * --sheen (animated below), so the foil always catches the light. */
+    background-position: var(--rtx) var(--rty), var(--sheen) 50%;
+    background-blend-mode: screen;
+    /* Overlay darkens the unlit micro-print (multiply on the dark stops) while
+     * the moving band still lights up (screen on the bright stop). */
+    mix-blend-mode: overlay;
+    opacity: 0.6;
+    -webkit-mask-image: var(--holo-mask);
+            mask-image: var(--holo-mask);
+    -webkit-mask-repeat: repeat;
+            mask-repeat: repeat;
+    -webkit-mask-size: 1300px 150.2px;
+            mask-size: 1300px 150.2px;
+    animation: rtacc-holo-sheen 16s linear infinite;
+    transition: --rtx 0.4s linear, --rty 0.4s linear, --sheen 0.4s linear;
+}
+@keyframes rtacc-holo-sheen {
+    from { --sheen: 0%; }
+    to   { --sheen: 200%; }
+}
+/* While hovering, JS drives --sheen from the pointer — drop the drift so the
+ * inline value wins (animations otherwise override inline styles). */
+.rtacc-ticket:hover .rtacc-ticket-holo { animation: none; }
+/* "Disable motion" preference: stop the tilt and hide the hologram entirely. */
+.rtacc-no-motion .rtacc-ticket { transform: none !important; }
+.rtacc-no-motion .rtacc-ticket-holo { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+    .rtacc-ticket-holo { animation: none; transition: none; }
+    .rtacc-ticket { transform: none; transition: none; }
+}
+/* "Disable motion effects" toggle beneath the ticket. */
+.rtacc-motion-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 8px 2px 0;
+    font-size: 12px;
+    color: var(--rtacc-muted, #777);
+    cursor: pointer;
+}
+.rtacc-motion-toggle input { margin: 0; cursor: pointer; }
 
 /* Smaller displays: turn the ticket 90° into a portrait pass (stub below the
  * body) that reads like the Apple Wallet ticket — big centred QR at the bottom. */
@@ -1488,17 +1560,18 @@ textarea.rtacc-field-saved {
         flex-wrap: wrap;
         justify-content: center;
     }
-    /* Gianni sits in the bottom-right of the whole ticket, behind the content.
-     * (body goes static so the mascot positions against the ticket; the stub
-     * keeps a higher stacking level so the QR/buttons stay on top.) */
+    /* Gianni sits in the bottom-right of the whole ticket. Body goes static so
+     * the mascot positions against the ticket; the stub, mascot, QR and wallet
+     * buttons stay above the holographic foil (which shows through the stub's
+     * transparent background). */
     .rtacc-ticket-body { position: static; }
-    .rtacc-ticket-stub { z-index: 1; }
+    .rtacc-ticket-stub { z-index: 4; }
     .rtacc-ticket-mascot {
         top: auto;
         bottom: 0;
         right: 8px;
         height: 132px;
-        z-index: 0;
+        z-index: 4;
     }
 }
 

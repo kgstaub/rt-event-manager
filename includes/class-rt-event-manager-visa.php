@@ -33,6 +33,9 @@ class RT_Event_Manager_Visa {
 
     private function __construct() {
         add_action('admin_menu', array($this, 'add_admin_menu'), 20);
+        // Save the settings form before output so we can redirect (Post/Redirect/
+        // Get) and avoid the browser's "resubmit form?" prompt on refresh.
+        add_action('admin_init', array($this, 'handle_settings_post'));
         add_action('wp_ajax_rt_event_manager_generate_visa', array($this, 'ajax_generate'));
         add_action('wp_ajax_rt_event_manager_visa_pdf', array($this, 'ajax_download'));
         // Ensure the storage table exists.
@@ -259,24 +262,38 @@ class RT_Event_Manager_Visa {
         );
     }
 
+    /**
+     * Save the Visa Settings form on admin_init (before output), then redirect
+     * back to the page so a browser refresh does not re-submit the form.
+     */
+    public function handle_settings_post() {
+        if (!isset($_POST['rt_visa_settings_nonce'])) {
+            return;
+        }
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        if (!wp_verify_nonce(wp_unslash($_POST['rt_visa_settings_nonce']), 'rt_visa_settings')) {
+            return;
+        }
+        $text_fields = array('host_type', 'host_name', 'host_first_name', 'host_dob', 'host_phone', 'host_email', 'host_nationality', 'sig1_name', 'sig1_title', 'sig2_name', 'sig2_title');
+        foreach ($text_fields as $f) {
+            update_option('rt_event_manager_visa_' . $f, sanitize_text_field(wp_unslash($_POST['visa_' . $f] ?? '')));
+        }
+        update_option('rt_event_manager_visa_host_address', sanitize_textarea_field(wp_unslash($_POST['visa_host_address'] ?? '')));
+        update_option('rt_event_manager_visa_guardian_note', sanitize_textarea_field(wp_unslash($_POST['visa_guardian_note'] ?? '')));
+        update_option('rt_event_manager_visa_template', wp_kses_post(wp_unslash($_POST['visa_template'] ?? '')));
+        update_option('rt_event_manager_visa_sig1_img', absint($_POST['visa_sig1_img'] ?? 0));
+        update_option('rt_event_manager_visa_sig2_img', absint($_POST['visa_sig2_img'] ?? 0));
+        update_option('rt_event_manager_visa_bg_img', absint($_POST['visa_bg_img'] ?? 0));
+        set_transient('rtem_visa_flash_' . get_current_user_id(), '1', 60);
+        wp_safe_redirect(add_query_arg('page', 'rt-event-manager-visa-settings', admin_url('admin.php')));
+        exit;
+    }
+
     public function render_settings_page() {
         if (!current_user_can('manage_options')) {
             wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
-        }
-
-        if (isset($_POST['rt_visa_settings_nonce']) && wp_verify_nonce($_POST['rt_visa_settings_nonce'], 'rt_visa_settings')) {
-            $text_fields = array('host_type', 'host_name', 'host_first_name', 'host_dob', 'host_phone', 'host_email', 'host_nationality', 'sig1_name', 'sig1_title', 'sig2_name', 'sig2_title');
-            foreach ($text_fields as $f) {
-                update_option('rt_event_manager_visa_' . $f, sanitize_text_field(wp_unslash($_POST['visa_' . $f] ?? '')));
-            }
-            update_option('rt_event_manager_visa_host_address', sanitize_textarea_field(wp_unslash($_POST['visa_host_address'] ?? '')));
-            update_option('rt_event_manager_visa_guardian_note', sanitize_textarea_field(wp_unslash($_POST['visa_guardian_note'] ?? '')));
-            update_option('rt_event_manager_visa_template', wp_kses_post(wp_unslash($_POST['visa_template'] ?? '')));
-            update_option('rt_event_manager_visa_sig1_img', absint($_POST['visa_sig1_img'] ?? 0));
-            update_option('rt_event_manager_visa_sig2_img', absint($_POST['visa_sig2_img'] ?? 0));
-            update_option('rt_event_manager_visa_bg_img', absint($_POST['visa_bg_img'] ?? 0));
-            update_option('rt_event_manager_receipt_bg_img', absint($_POST['receipt_bg_img'] ?? 0));
-            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Visa settings saved.', 'rt-event-manager') . '</p></div>';
         }
 
         wp_enqueue_media();
@@ -287,6 +304,11 @@ class RT_Event_Manager_Visa {
         }
 
         echo '<div class="wrap"><h1>' . esc_html__('Visa Settings', 'rt-event-manager') . '</h1>';
+        $flash_key = 'rtem_visa_flash_' . get_current_user_id();
+        if (get_transient($flash_key)) {
+            delete_transient($flash_key);
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Visa settings saved.', 'rt-event-manager') . '</p></div>';
+        }
         echo '<p class="description">' . esc_html__('Configure the host details and the German letter template. Variables in curly braces are replaced when a letter is generated.', 'rt-event-manager') . '</p>';
         echo '<form method="post">';
         wp_nonce_field('rt_visa_settings', 'rt_visa_settings_nonce');
@@ -333,15 +355,7 @@ class RT_Event_Manager_Visa {
             . '<button type="button" class="button rt-visa-clear" data-target="visa_bg_img">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
         $row(__('Letter background (A4)', 'rt-event-manager'), $bg_html, __('Full-page A4 background (letterhead) drawn behind the letter text.', 'rt-event-manager'));
 
-        // Optional letterhead background for the order receipt / invoice PDFs.
-        $rbg     = absint(get_option('rt_event_manager_receipt_bg_img', 0));
-        $rbg_src = $rbg ? wp_get_attachment_image_url($rbg, 'medium') : '';
-        $rbg_preview = '<div class="rt-visa-sig-preview" style="margin:6px 0;">' . ($rbg_src ? '<img src="' . esc_url($rbg_src) . '" style="max-height:160px;border:1px solid #ddd;" />' : '') . '</div>';
-        $rbg_html = $rbg_preview
-            . '<input type="hidden" name="receipt_bg_img" id="receipt_bg_img" value="' . esc_attr($rbg) . '" /> '
-            . '<button type="button" class="button rt-visa-upload" data-target="receipt_bg_img">' . esc_html__('Select background image', 'rt-event-manager') . '</button> '
-            . '<button type="button" class="button rt-visa-clear" data-target="receipt_bg_img">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
-        $row(__('Invoice / receipt background (A4)', 'rt-event-manager'), $rbg_html, __('Full-page A4 background (letterhead) drawn behind the order receipt / invoice PDFs. Leave empty for a plain white page.', 'rt-event-manager'));
+        // Note: the invoice / receipt background lives on RT Event → Settings.
 
         $row(
             __('Guardian note (under-6 child)', 'rt-event-manager'),

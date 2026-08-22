@@ -31,6 +31,8 @@ class RT_Event_Manager_Apple_Wallet {
 
     private function __construct() {
         add_action('admin_menu', array($this, 'add_admin_menu'), 21);
+        // Save settings before output so we can redirect (Post/Redirect/Get).
+        add_action('admin_init', array($this, 'handle_settings_post'));
         add_action('wp_ajax_rt_event_manager_apple_pass', array($this, 'ajax_download'));
         // Pass Update Web Service (device registration + pass fetch).
         add_action('init', array($this, 'maybe_install_registrations_table'));
@@ -163,80 +165,97 @@ class RT_Event_Manager_Apple_Wallet {
         );
     }
 
+    /**
+     * Persist the Apple Wallet settings form on admin_init (before output) and
+     * redirect back, so refreshing the page does not re-submit the form.
+     */
+    public function handle_settings_post() {
+        if (!isset($_POST['rt_wallet_nonce']) || !wp_verify_nonce(wp_unslash($_POST['rt_wallet_nonce']), 'rt_wallet_save')) {
+            return;
+        }
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+        update_option('rt_event_manager_wallet_team_id', sanitize_text_field(wp_unslash($_POST['wallet_team_id'] ?? '')));
+        update_option('rt_event_manager_wallet_pass_type_id', sanitize_text_field(wp_unslash($_POST['wallet_pass_type_id'] ?? '')));
+        update_option('rt_event_manager_wallet_org_name', sanitize_text_field(wp_unslash($_POST['wallet_org_name'] ?? '')));
+        update_option('rt_event_manager_wallet_event_name', sanitize_text_field(wp_unslash($_POST['wallet_event_name'] ?? '')));
+        update_option('rt_event_manager_wallet_header_label', sanitize_text_field(wp_unslash($_POST['wallet_header_label'] ?? '')));
+        update_option('rt_event_manager_wallet_header_value', sanitize_text_field(wp_unslash($_POST['wallet_header_value'] ?? '')));
+        update_option('rt_event_manager_wallet_event_type', sanitize_text_field(wp_unslash($_POST['wallet_event_type'] ?? '')));
+        update_option('rt_event_manager_wallet_venue_name', sanitize_text_field(wp_unslash($_POST['wallet_venue_name'] ?? '')));
+        update_option('rt_event_manager_wallet_venue_lat', sanitize_text_field(wp_unslash($_POST['wallet_venue_lat'] ?? '')));
+        update_option('rt_event_manager_wallet_venue_lng', sanitize_text_field(wp_unslash($_POST['wallet_venue_lng'] ?? '')));
+        update_option('rt_event_manager_wallet_ws_url', esc_url_raw(trim((string) wp_unslash($_POST['wallet_ws_url'] ?? ''))));
+
+        // Password: only overwrite when a new value is entered.
+        $pass = (string) wp_unslash($_POST['wallet_p12_pass'] ?? '');
+        if ('' !== $pass) {
+            update_option('rt_event_manager_wallet_p12_pass_enc', RT_Event_Manager_Visa::encrypt($pass));
+        }
+        // Certificate uploads: read bytes, store encrypted, keep existing if none.
+        if (!empty($_FILES['wallet_p12']['tmp_name']) && is_uploaded_file($_FILES['wallet_p12']['tmp_name'])) {
+            $bytes = file_get_contents($_FILES['wallet_p12']['tmp_name']);
+            if (false !== $bytes) {
+                update_option('rt_event_manager_wallet_p12_enc', RT_Event_Manager_Visa::encrypt($bytes));
+            }
+        }
+        if (!empty($_FILES['wallet_cert']['tmp_name']) && is_uploaded_file($_FILES['wallet_cert']['tmp_name'])) {
+            $bytes = file_get_contents($_FILES['wallet_cert']['tmp_name']);
+            if (false !== $bytes) {
+                update_option('rt_event_manager_wallet_cert_enc', RT_Event_Manager_Visa::encrypt($bytes));
+            }
+        }
+        if (!empty($_FILES['wallet_key']['tmp_name']) && is_uploaded_file($_FILES['wallet_key']['tmp_name'])) {
+            $bytes = file_get_contents($_FILES['wallet_key']['tmp_name']);
+            if (false !== $bytes) {
+                update_option('rt_event_manager_wallet_key_enc', RT_Event_Manager_Visa::encrypt($bytes));
+            }
+        }
+        if (!empty($_FILES['wallet_logo']['tmp_name']) && is_uploaded_file($_FILES['wallet_logo']['tmp_name'])) {
+            $bytes = file_get_contents($_FILES['wallet_logo']['tmp_name']);
+            if (false !== $bytes && false !== @getimagesizefromstring($bytes)) {
+                update_option('rt_event_manager_wallet_logo', base64_encode($bytes));
+            } else {
+                RT_Event_Manager::push_admin_notice(__('The logo could not be read as an image.', 'rt-event-manager'), 'error');
+            }
+        }
+        if (!empty($_FILES['wallet_icon']['tmp_name']) && is_uploaded_file($_FILES['wallet_icon']['tmp_name'])) {
+            $bytes = file_get_contents($_FILES['wallet_icon']['tmp_name']);
+            if (false !== $bytes && false !== @getimagesizefromstring($bytes)) {
+                update_option('rt_event_manager_wallet_icon', base64_encode($bytes));
+            } else {
+                RT_Event_Manager::push_admin_notice(__('The icon could not be read as an image.', 'rt-event-manager'), 'error');
+            }
+        }
+        if (!empty($_FILES['wallet_wwdr']['tmp_name']) && is_uploaded_file($_FILES['wallet_wwdr']['tmp_name'])) {
+            $bytes = file_get_contents($_FILES['wallet_wwdr']['tmp_name']);
+            if (false !== $bytes) {
+                update_option('rt_event_manager_wallet_wwdr_enc', RT_Event_Manager_Visa::encrypt($bytes));
+            }
+        }
+        RT_Event_Manager::push_admin_notice(__('Apple Wallet settings saved.', 'rt-event-manager'), 'success');
+
+        // Validate the certificate now so misconfiguration is caught early.
+        $check = $this->load_signing_material();
+        if (is_wp_error($check)) {
+            RT_Event_Manager::push_admin_notice($check->get_error_message(), 'error');
+        } elseif (self::is_configured()) {
+            RT_Event_Manager::push_admin_notice(__('Certificate loaded successfully — Apple Wallet passes are ready.', 'rt-event-manager'), 'success');
+        }
+
+        wp_safe_redirect(add_query_arg('page', 'rt-event-manager-apple-wallet', admin_url('admin.php')));
+        exit;
+    }
+
     public function render_settings_page() {
         if (!current_user_can(self::CAP)) {
             wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
         }
 
-        if (isset($_POST['rt_wallet_nonce']) && wp_verify_nonce($_POST['rt_wallet_nonce'], 'rt_wallet_save')) {
-            update_option('rt_event_manager_wallet_team_id', sanitize_text_field(wp_unslash($_POST['wallet_team_id'] ?? '')));
-            update_option('rt_event_manager_wallet_pass_type_id', sanitize_text_field(wp_unslash($_POST['wallet_pass_type_id'] ?? '')));
-            update_option('rt_event_manager_wallet_org_name', sanitize_text_field(wp_unslash($_POST['wallet_org_name'] ?? '')));
-            update_option('rt_event_manager_wallet_event_name', sanitize_text_field(wp_unslash($_POST['wallet_event_name'] ?? '')));
-            update_option('rt_event_manager_wallet_header_label', sanitize_text_field(wp_unslash($_POST['wallet_header_label'] ?? '')));
-            update_option('rt_event_manager_wallet_header_value', sanitize_text_field(wp_unslash($_POST['wallet_header_value'] ?? '')));
-            update_option('rt_event_manager_wallet_event_type', sanitize_text_field(wp_unslash($_POST['wallet_event_type'] ?? '')));
-            update_option('rt_event_manager_wallet_venue_name', sanitize_text_field(wp_unslash($_POST['wallet_venue_name'] ?? '')));
-            update_option('rt_event_manager_wallet_venue_lat', sanitize_text_field(wp_unslash($_POST['wallet_venue_lat'] ?? '')));
-            update_option('rt_event_manager_wallet_venue_lng', sanitize_text_field(wp_unslash($_POST['wallet_venue_lng'] ?? '')));
-            update_option('rt_event_manager_wallet_ws_url', esc_url_raw(trim((string) wp_unslash($_POST['wallet_ws_url'] ?? ''))));
-
-            // Password: only overwrite when a new value is entered.
-            $pass = (string) wp_unslash($_POST['wallet_p12_pass'] ?? '');
-            if ('' !== $pass) {
-                update_option('rt_event_manager_wallet_p12_pass_enc', RT_Event_Manager_Visa::encrypt($pass));
-            }
-            // Certificate uploads: read bytes, store encrypted, keep existing if none.
-            if (!empty($_FILES['wallet_p12']['tmp_name']) && is_uploaded_file($_FILES['wallet_p12']['tmp_name'])) {
-                $bytes = file_get_contents($_FILES['wallet_p12']['tmp_name']);
-                if (false !== $bytes) {
-                    update_option('rt_event_manager_wallet_p12_enc', RT_Event_Manager_Visa::encrypt($bytes));
-                }
-            }
-            if (!empty($_FILES['wallet_cert']['tmp_name']) && is_uploaded_file($_FILES['wallet_cert']['tmp_name'])) {
-                $bytes = file_get_contents($_FILES['wallet_cert']['tmp_name']);
-                if (false !== $bytes) {
-                    update_option('rt_event_manager_wallet_cert_enc', RT_Event_Manager_Visa::encrypt($bytes));
-                }
-            }
-            if (!empty($_FILES['wallet_key']['tmp_name']) && is_uploaded_file($_FILES['wallet_key']['tmp_name'])) {
-                $bytes = file_get_contents($_FILES['wallet_key']['tmp_name']);
-                if (false !== $bytes) {
-                    update_option('rt_event_manager_wallet_key_enc', RT_Event_Manager_Visa::encrypt($bytes));
-                }
-            }
-            if (!empty($_FILES['wallet_logo']['tmp_name']) && is_uploaded_file($_FILES['wallet_logo']['tmp_name'])) {
-                $bytes = file_get_contents($_FILES['wallet_logo']['tmp_name']);
-                if (false !== $bytes && false !== @getimagesizefromstring($bytes)) {
-                    update_option('rt_event_manager_wallet_logo', base64_encode($bytes));
-                } else {
-                    echo '<div class="notice notice-error"><p>' . esc_html__('The logo could not be read as an image.', 'rt-event-manager') . '</p></div>';
-                }
-            }
-            if (!empty($_FILES['wallet_icon']['tmp_name']) && is_uploaded_file($_FILES['wallet_icon']['tmp_name'])) {
-                $bytes = file_get_contents($_FILES['wallet_icon']['tmp_name']);
-                if (false !== $bytes && false !== @getimagesizefromstring($bytes)) {
-                    update_option('rt_event_manager_wallet_icon', base64_encode($bytes));
-                } else {
-                    echo '<div class="notice notice-error"><p>' . esc_html__('The icon could not be read as an image.', 'rt-event-manager') . '</p></div>';
-                }
-            }
-            if (!empty($_FILES['wallet_wwdr']['tmp_name']) && is_uploaded_file($_FILES['wallet_wwdr']['tmp_name'])) {
-                $bytes = file_get_contents($_FILES['wallet_wwdr']['tmp_name']);
-                if (false !== $bytes) {
-                    update_option('rt_event_manager_wallet_wwdr_enc', RT_Event_Manager_Visa::encrypt($bytes));
-                }
-            }
-            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Apple Wallet settings saved.', 'rt-event-manager') . '</p></div>';
-
-            // Validate the certificate now so misconfiguration is caught early.
-            $check = $this->load_signing_material();
-            if (is_wp_error($check)) {
-                echo '<div class="notice notice-error"><p>' . esc_html($check->get_error_message()) . '</p></div>';
-            } elseif (self::is_configured()) {
-                echo '<div class="notice notice-success"><p>' . esc_html__('Certificate loaded successfully — Apple Wallet passes are ready.', 'rt-event-manager') . '</p></div>';
-            }
-        }
+        // The settings save is handled on admin_init (with a redirect); replay
+        // any notices it queued.
+        RT_Event_Manager::flush_admin_notices();
 
         // Test push: send an update to every device registered for a serial.
         if (isset($_POST['rt_wallet_test_nonce']) && wp_verify_nonce($_POST['rt_wallet_test_nonce'], 'rt_wallet_test')) {

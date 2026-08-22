@@ -35,7 +35,52 @@ class RT_Event_Manager_Google_Wallet {
 
     private function __construct() {
         add_action('admin_menu', array($this, 'add_admin_menu'), 22);
+        // Save settings before output so we can redirect (Post/Redirect/Get).
+        add_action('admin_init', array($this, 'handle_settings_post'));
         add_action('wp_ajax_rt_event_manager_google_pass', array($this, 'ajax_redirect'));
+    }
+
+    /**
+     * Persist the Google Wallet settings form on admin_init (before output) and
+     * redirect back, so refreshing the page does not re-submit the form.
+     */
+    public function handle_settings_post() {
+        if (!isset($_POST['rt_gwallet_nonce']) || !wp_verify_nonce(wp_unslash($_POST['rt_gwallet_nonce']), 'rt_gwallet_save')) {
+            return;
+        }
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+        update_option('rt_event_manager_google_issuer_id', sanitize_text_field(wp_unslash($_POST['google_issuer_id'] ?? '')));
+        update_option('rt_event_manager_google_class_suffix', sanitize_text_field(wp_unslash($_POST['google_class_suffix'] ?? '')));
+        update_option('rt_event_manager_google_logo_url', esc_url_raw(wp_unslash($_POST['google_logo_url'] ?? '')));
+
+        // Service account JSON upload: parse client_email + private_key.
+        if (!empty($_FILES['google_sa_json']['tmp_name']) && is_uploaded_file($_FILES['google_sa_json']['tmp_name'])) {
+            $raw = file_get_contents($_FILES['google_sa_json']['tmp_name']);
+            $sa  = json_decode((string) $raw, true);
+            if (is_array($sa) && !empty($sa['client_email']) && !empty($sa['private_key'])) {
+                update_option('rt_event_manager_google_sa_email', sanitize_email($sa['client_email']));
+                update_option('rt_event_manager_google_sa_key_enc', RT_Event_Manager_Visa::encrypt($sa['private_key']));
+            } else {
+                RT_Event_Manager::push_admin_notice(__('That file is not a valid service-account JSON key (missing client_email or private_key).', 'rt-event-manager'), 'error');
+            }
+        }
+
+        RT_Event_Manager::push_admin_notice(__('Google Wallet settings saved.', 'rt-event-manager'), 'success');
+
+        if (self::is_configured()) {
+            // Validate that the stored key is usable for signing.
+            $key = RT_Event_Manager_Visa::decrypt(self::opt('sa_key_enc'));
+            if ('' === $key || false === @openssl_pkey_get_private($key)) {
+                RT_Event_Manager::push_admin_notice(__('The stored service-account private key could not be read. Re-upload the JSON key file.', 'rt-event-manager'), 'error');
+            } else {
+                RT_Event_Manager::push_admin_notice(__('Service account loaded successfully — Google Wallet save links are ready.', 'rt-event-manager'), 'success');
+            }
+        }
+
+        wp_safe_redirect(add_query_arg('page', 'rt-event-manager-google-wallet', admin_url('admin.php')));
+        exit;
     }
 
     /* ---------------------------------------------------------------------
@@ -79,35 +124,9 @@ class RT_Event_Manager_Google_Wallet {
             wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
         }
 
-        if (isset($_POST['rt_gwallet_nonce']) && wp_verify_nonce($_POST['rt_gwallet_nonce'], 'rt_gwallet_save')) {
-            update_option('rt_event_manager_google_issuer_id', sanitize_text_field(wp_unslash($_POST['google_issuer_id'] ?? '')));
-            update_option('rt_event_manager_google_class_suffix', sanitize_text_field(wp_unslash($_POST['google_class_suffix'] ?? '')));
-            update_option('rt_event_manager_google_logo_url', esc_url_raw(wp_unslash($_POST['google_logo_url'] ?? '')));
-
-            // Service account JSON upload: parse client_email + private_key.
-            if (!empty($_FILES['google_sa_json']['tmp_name']) && is_uploaded_file($_FILES['google_sa_json']['tmp_name'])) {
-                $raw = file_get_contents($_FILES['google_sa_json']['tmp_name']);
-                $sa  = json_decode((string) $raw, true);
-                if (is_array($sa) && !empty($sa['client_email']) && !empty($sa['private_key'])) {
-                    update_option('rt_event_manager_google_sa_email', sanitize_email($sa['client_email']));
-                    update_option('rt_event_manager_google_sa_key_enc', RT_Event_Manager_Visa::encrypt($sa['private_key']));
-                } else {
-                    echo '<div class="notice notice-error"><p>' . esc_html__('That file is not a valid service-account JSON key (missing client_email or private_key).', 'rt-event-manager') . '</p></div>';
-                }
-            }
-
-            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Google Wallet settings saved.', 'rt-event-manager') . '</p></div>';
-
-            if (self::is_configured()) {
-                // Validate that the stored key is usable for signing.
-                $key = RT_Event_Manager_Visa::decrypt(self::opt('sa_key_enc'));
-                if ('' === $key || false === @openssl_pkey_get_private($key)) {
-                    echo '<div class="notice notice-error"><p>' . esc_html__('The stored service-account private key could not be read. Re-upload the JSON key file.', 'rt-event-manager') . '</p></div>';
-                } else {
-                    echo '<div class="notice notice-success"><p>' . esc_html__('Service account loaded successfully — Google Wallet save links are ready.', 'rt-event-manager') . '</p></div>';
-                }
-            }
-        }
+        // The settings save is handled on admin_init (with a redirect); replay
+        // any notices it queued.
+        RT_Event_Manager::flush_admin_notices();
 
         // Sync/test: PATCH a specific ticket's pass now and report the result.
         if (isset($_POST['rt_gwallet_test_nonce']) && wp_verify_nonce($_POST['rt_gwallet_test_nonce'], 'rt_gwallet_test')) {
