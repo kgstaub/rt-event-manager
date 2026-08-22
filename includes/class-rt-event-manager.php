@@ -70,10 +70,16 @@ class RT_Event_Manager {
 
         // WooCommerce registration fields
         add_action('woocommerce_register_form', array($this, 'add_registration_fields'));
+        add_action('woocommerce_register_form', array($this, 'render_pp_consent_checkbox'), 20);
         add_action('woocommerce_created_customer', array($this, 'save_registration_fields'));
 
         // Validate registration fields
         add_filter('woocommerce_registration_errors', array($this, 'validate_registration_fields'), 10, 3);
+
+        // Explicit privacy-policy consent at checkout.
+        add_action('woocommerce_review_order_before_submit', array($this, 'render_pp_consent_checkbox'));
+        add_action('woocommerce_checkout_process', array($this, 'validate_checkout_pp_consent'));
+        add_action('woocommerce_checkout_create_order', array($this, 'save_checkout_pp_consent'), 10, 2);
 
         // WooCommerce checkout fields
         add_filter('woocommerce_checkout_fields', array($this, 'add_checkout_fields'));
@@ -1351,13 +1357,79 @@ class RT_Event_Manager {
      * @return WP_Error
      */
     public function validate_registration_fields($validation_errors, $username, $email) {
-        // Add validation if needed (fields are optional by default)
-        // Example: Make family required
-        // if (isset($_POST['rti_family']) && empty($_POST['rti_family'])) {
-        //     $validation_errors->add('rti_family_error', __('Please select your family organization.', 'rt-event-manager'));
-        // }
-
+        // Privacy policy consent is required to register.
+        if (empty($_POST['rti_pp_consent'])) {
+            $validation_errors->add('rti_pp_consent_error', __('Please confirm that you have read and agree to the Privacy Policy.', 'rt-event-manager'));
+        }
         return $validation_errors;
+    }
+
+    /** URL of the privacy policy (falls back to the site privacy page). */
+    public static function privacy_policy_url() {
+        $url = get_option('rt_event_manager_pp_url', '');
+        if ('' === $url && function_exists('get_privacy_policy_url')) {
+            $url = get_privacy_policy_url();
+        }
+        return $url;
+    }
+
+    /**
+     * Explicit "I have read the Privacy Policy" consent checkbox, shown on both
+     * the registration form and the checkout. Ticking it records acceptance of
+     * the current privacy-policy version (see RT_Event_Manager_Account).
+     */
+    /** Whether the checkout still needs a privacy-policy consent (guests always;
+     *  logged-in members only until they've accepted the current version). */
+    private function checkout_pp_consent_needed() {
+        if (!is_user_logged_in()) {
+            return true;
+        }
+        $current = (int) get_option('rt_event_manager_pp_version', 1);
+        return (int) get_user_meta(get_current_user_id(), 'pp_accepted', true) < $current;
+    }
+
+    public function render_pp_consent_checkbox() {
+        // On checkout, skip it for members who already accepted the current policy.
+        if (function_exists('is_checkout') && is_checkout() && !$this->checkout_pp_consent_needed()) {
+            return;
+        }
+        $url   = self::privacy_policy_url();
+        $label = $url
+            ? sprintf(
+                /* translators: %s: privacy policy link */
+                __('I have read and agree to the %s.', 'rt-event-manager'),
+                '<a href="' . esc_url($url) . '" target="_blank" rel="noopener noreferrer">' . esc_html__('Privacy Policy', 'rt-event-manager') . '</a>'
+            )
+            : esc_html__('I have read and agree to the Privacy Policy.', 'rt-event-manager');
+
+        echo '<p class="form-row rti-pp-consent validate-required">';
+        echo '<label class="woocommerce-form__label woocommerce-form__label-for-checkbox checkbox">';
+        echo '<input type="checkbox" class="woocommerce-form__input woocommerce-form__input-checkbox input-checkbox" name="rti_pp_consent" id="rti_pp_consent" value="1" ' . checked(!empty($_POST['rti_pp_consent']), true, false) . ' /> ';
+        echo '<span>' . wp_kses_post($label) . ' <span class="required">*</span></span>';
+        echo '</label></p>';
+    }
+
+    /** Require the privacy-policy consent checkbox at checkout (when shown). */
+    public function validate_checkout_pp_consent() {
+        if ($this->checkout_pp_consent_needed() && empty($_POST['rti_pp_consent'])) {
+            wc_add_notice(__('Please confirm that you have read and agree to the Privacy Policy.', 'rt-event-manager'), 'error');
+        }
+    }
+
+    /** Record the privacy-policy consent (version + time) on the order and, for
+     *  logged-in members, on their profile. */
+    public function save_checkout_pp_consent($order, $data) {
+        if (empty($_POST['rti_pp_consent'])) {
+            return;
+        }
+        $version = (int) get_option('rt_event_manager_pp_version', 1);
+        if (is_object($order)) {
+            $order->update_meta_data('_rti_pp_consent_version', $version);
+            $order->update_meta_data('_rti_pp_consent_at', current_time('mysql'));
+        }
+        if (is_user_logged_in()) {
+            update_user_meta(get_current_user_id(), 'pp_accepted', $version);
+        }
     }
 
     /**
@@ -1380,6 +1452,13 @@ class RT_Event_Manager {
 
         if (isset($_POST['rti_world_id'])) {
             update_user_meta($customer_id, 'world_id', sanitize_text_field($_POST['rti_world_id']));
+        }
+
+        // Record privacy-policy acceptance only when the consent box was ticked
+        // (registration and checkout both post rti_pp_consent). Without it the
+        // member is treated as not having consented and will be prompted.
+        if (!empty($_POST['rti_pp_consent'])) {
+            update_user_meta($customer_id, 'pp_accepted', (int) get_option('rt_event_manager_pp_version', 1));
         }
     }
 
@@ -4064,7 +4143,7 @@ class RT_Event_Manager {
     public function add_admin_menu() {
         add_menu_page(
             __('RT Event Manager', 'rt-event-manager'),
-            __('RT Event Manager', 'rt-event-manager'),
+            __('RT Event', 'rt-event-manager'),
             'edit_shop_orders',
             'rt-event-manager',
             array($this, 'render_tickets_overview_page'),
@@ -5065,6 +5144,13 @@ class RT_Event_Manager {
 
         if (isset($_POST['rt_settings_save']) && check_admin_referer('rt_settings_save')) {
             WC_Admin_Settings::save_fields($fields);
+            // "Require re-consent" is a one-shot trigger: bump the policy version
+            // (invalidating every member's stored acceptance) and clear the box.
+            if ('yes' === get_option('rt_event_manager_pp_bump')) {
+                update_option('rt_event_manager_pp_version', (int) get_option('rt_event_manager_pp_version', 1) + 1);
+                update_option('rt_event_manager_pp_bump', 'no');
+                WC_Admin_Settings::add_message(__('Privacy policy marked as updated — all members will be asked to accept it again on their next visit.', 'rt-event-manager'));
+            }
             WC_Admin_Settings::add_message(__('Settings saved.', 'rt-event-manager'));
         }
 
@@ -5199,6 +5285,80 @@ class RT_Event_Manager {
             array(
                 'type' => 'sectionend',
                 'id'   => 'rti_shop_settings',
+            ),
+
+            array(
+                'title' => __('Privacy Policy', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => sprintf(
+                    /* translators: %d: current privacy-policy version number */
+                    __('Current version: %d. When you update the privacy policy, tick the box below and save to require every member to accept it again on their next visit.', 'rt-event-manager'),
+                    (int) get_option('rt_event_manager_pp_version', 1)
+                ),
+                'id'    => 'rti_pp_settings',
+            ),
+            array(
+                'title'    => __('Privacy policy URL', 'rt-event-manager'),
+                'desc'     => __('Link shown to members in the re-consent prompt. Leave empty to use the site privacy policy page.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_pp_url',
+                'type'     => 'url',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Summary of changes', 'rt-event-manager'),
+                'desc'     => __('Optional. Shown in the re-consent prompt so members can see what changed (one point per line).', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_pp_changes',
+                'type'     => 'textarea',
+                'default'  => '',
+                'css'      => 'min-width:420px;height:120px;',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'   => __('Require re-consent', 'rt-event-manager'),
+                'desc'    => __('Privacy policy updated — ask all members to accept it again on next login', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_pp_bump',
+                'type'    => 'checkbox',
+                'default' => 'no',
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_pp_settings',
+            ),
+
+            array(
+                'title' => __('Dashboard Ticket', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('The physical-style event ticket shown on the customer dashboard (with the QR stub).', 'rt-event-manager'),
+                'id'    => 'rti_dashboard_ticket',
+            ),
+            array(
+                'title'    => __('Short event name', 'rt-event-manager'),
+                'desc'     => __('Shown top-right on the ticket, e.g. "RTI HYM 2027".', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_ticket_short_name',
+                'type'     => 'text',
+                'default'  => 'RTI HYM 2027',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Ticket logo URL', 'rt-event-manager'),
+                'desc'     => __('Small emblem shown top-left on the ticket. Leave empty to omit.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_ticket_logo_url',
+                'type'     => 'url',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Ticket mascot URL', 'rt-event-manager'),
+                'desc'     => __('Mascot image (e.g. waving Gianni), shown bottom-right on the ticket. A transparent PNG works best. Leave empty to omit.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_ticket_mascot_url',
+                'type'     => 'url',
+                'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_dashboard_ticket',
             ),
 
             array(

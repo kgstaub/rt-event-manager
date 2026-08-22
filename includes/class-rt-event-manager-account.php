@@ -43,10 +43,6 @@ class RT_Event_Manager_Account {
         add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_assets'));
         add_filter('script_loader_tag', array($this, 'fa_kit_script_tag'), 10, 2);
 
-        // Show the merged ".WORLD" SSO login buttons above the WooCommerce
-        // registration form (WC uses its own form, which the SSO module's
-        // WP-core register_form hook does not reach).
-        add_action('woocommerce_register_form_start', array($this, 'render_sso_login_buttons'));
 
         // "Add more to your booking" controls on the cart page.
         add_action('woocommerce_after_cart_table', array($this, 'render_cart_add_tickets'));
@@ -63,6 +59,7 @@ class RT_Event_Manager_Account {
         add_action('wp_ajax_rt_event_manager_accept_transfer', array($this, 'ajax_accept_transfer'));
         add_action('wp_ajax_rt_event_manager_decline_transfer', array($this, 'ajax_decline_transfer'));
         add_action('wp_ajax_rt_event_manager_withdraw_transfer', array($this, 'ajax_withdraw_transfer'));
+        add_action('wp_ajax_rt_event_manager_pp_accept', array($this, 'ajax_pp_accept'));
 
         // Automatically withdraw pending transfers older than the expiry window.
         add_action('init', array($this, 'maybe_schedule_transfer_expiry'));
@@ -283,6 +280,7 @@ class RT_Event_Manager_Account {
             'cartUrl'      => wc_get_cart_url(),
             'accountUrl'   => wc_get_page_permalink('myaccount'),
             'profileNonce' => wp_create_nonce('rt_event_manager_save_profile'),
+            'ppAcceptNonce' => wp_create_nonce('rt_event_manager_pp_accept'),
             'ticketsNonce' => wp_create_nonce('rt_event_manager_account_save_tickets'),
             'addTicketNonce' => wp_create_nonce('rt_event_manager_add_ticket'),
             'transferNonce' => wp_create_nonce('rt_event_manager_transfer'),
@@ -296,6 +294,13 @@ class RT_Event_Manager_Account {
             'i18n'         => array(
                 'saving'      => __('Saving…', 'rt-event-manager'),
                 'saved'       => __('Saved!', 'rt-event-manager'),
+                'savedMsg'    => __('Your changes have been saved.', 'rt-event-manager'),
+                'emergencyIncomplete' => __('Incomplete — please add your emergency contact', 'rt-event-manager'),
+                'invalidEmail' => __('Please enter a valid email address.', 'rt-event-manager'),
+                'searchPlaceholder' => __('Search…', 'rt-event-manager'),
+                'fillRequired' => __('Please fill in all the required fields.', 'rt-event-manager'),
+                'successLead' => __('Success!', 'rt-event-manager'),
+                'errorLead'   => __('Error', 'rt-event-manager'),
                 'error'       => __('Something went wrong. Please try again.', 'rt-event-manager'),
                 'requestFail' => __('Request failed. Please try again.', 'rt-event-manager'),
                 'needParent'  => __('Please choose which ticket to attach this to.', 'rt-event-manager'),
@@ -325,14 +330,126 @@ class RT_Event_Manager_Account {
     }
 
     /**
-     * Render the merged .WORLD SSO login buttons (via the module's shortcode)
-     * at the top of the WooCommerce registration form. No-op if the SSO module
-     * is unavailable.
+     * Logged-out login/register page: .WORLD SSO on the left, local login and
+     * registration on the right. WC login/register submissions are still
+     * handled by WooCommerce's form handler (matching field names + nonces).
      */
-    public function render_sso_login_buttons() {
-        if (shortcode_exists('world_sso_login')) {
-            echo do_shortcode('[world_sso_login]');
+    private function render_auth_page() {
+        $this->enqueue_assets();
+        $sso         = shortcode_exists('world_sso_login') ? do_shortcode('[world_sso_login hide_local="1" hide_heading="1"]') : '';
+        $reg_enabled = 'yes' === get_option('woocommerce_enable_myaccount_registration');
+
+        ob_start();
+        echo '<div class="rtacc rtacc-auth">';
+        echo '<div class="rtacc-auth-grid uk-child-width-1-2@m" uk-grid>';
+
+        // Left: .WORLD SSO.
+        if ('' !== $sso) {
+            echo '<div>';
+            echo '<div class="uk-card uk-card-default uk-card-body rtacc-auth-col rtacc-auth-col--sso">';
+            echo '<h2 class="uk-card-title rtacc-auth-title">' . esc_html__('Login or Register with .WORLD', 'rt-event-manager') . '</h2>';
+            echo '<div class="woocommerce">' . $sso . '</div>'; // phpcs:ignore — module output
+            echo '<div class="rtacc-auth-note rtacc-alert-secondary uk-margin-top" uk-alert>';
+            echo '<p><strong>' . esc_html__('New here?', 'rt-event-manager') . '</strong> ' . esc_html__('Signing in with .WORLD creates your event account automatically on your first login — no separate registration needed.', 'rt-event-manager') . '</p>';
+            echo '<p>' . esc_html__('Your name, club and contact details stay in sync with your .WORLD profile, so you never have to keep them up to date here.', 'rt-event-manager') . '</p>';
+            echo '</div>';
+            echo '</div>';
+            echo '</div>';
         }
+
+        // Right: local login and registration as two stacked rows. Each form
+        // is wrapped in .woocommerce so the theme's form styling applies.
+        echo '<div>';
+        echo '<div class="rtacc-auth-col rtacc-auth-col--local">';
+
+        // Row 1 — Log in.
+        echo '<div class="uk-card uk-card-default uk-card-body">';
+        echo '<h2 class="uk-card-title rtacc-auth-title">' . esc_html__('Log in with local account', 'rt-event-manager') . '</h2>';
+        echo '<div class="woocommerce">';
+        $this->render_wc_login_form();
+        echo '</div>';
+        echo '</div>';
+
+        // Row 2 — Register.
+        if ($reg_enabled) {
+            echo '<div class="uk-card uk-card-default uk-card-body uk-margin-medium-top">';
+            echo '<h2 class="uk-card-title rtacc-auth-title">' . esc_html__('Register a local account', 'rt-event-manager') . '</h2>';
+            echo '<div class="woocommerce">';
+            $this->render_wc_register_form();
+            echo '</div>';
+            echo '</div>';
+        }
+
+        echo '</div>';
+        echo '</div>';
+
+        echo '</div>'; // .rtacc-auth-grid
+        echo '</div>'; // .rtacc-auth
+        return ob_get_clean();
+    }
+
+    /** WooCommerce my-account login form (standalone). */
+    private function render_wc_login_form() {
+        ?>
+        <form class="woocommerce-form woocommerce-form-login login rtacc-auth-form" method="post">
+            <?php do_action('woocommerce_login_form_start'); ?>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-username"><?php esc_html_e('Username or email address', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input type="text" class="woocommerce-Input woocommerce-Input--text input-text" name="username" id="rtacc-username" autocomplete="username" value="<?php echo (!empty($_POST['username'])) ? esc_attr(wp_unslash($_POST['username'])) : ''; ?>" />
+            </p>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-password"><?php esc_html_e('Password', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input class="woocommerce-Input woocommerce-Input--text input-text" type="password" name="password" id="rtacc-password" autocomplete="current-password" />
+            </p>
+            <?php do_action('woocommerce_login_form'); ?>
+            <p class="form-row">
+                <label class="woocommerce-form__label woocommerce-form__label-for-checkbox woocommerce-form-login__rememberme">
+                    <input class="woocommerce-form__input woocommerce-form__input-checkbox" name="rememberme" type="checkbox" id="rtacc-rememberme" value="forever" /> <span><?php esc_html_e('Remember me', 'rt-event-manager'); ?></span>
+                </label>
+                <?php wp_nonce_field('woocommerce-login', 'woocommerce-login-nonce'); ?>
+                <button type="submit" class="woocommerce-button button woocommerce-form-login__submit" name="login" value="<?php esc_attr_e('Log in', 'rt-event-manager'); ?>"><?php esc_html_e('Log in', 'rt-event-manager'); ?></button>
+            </p>
+            <p class="woocommerce-LostPassword lost_password">
+                <a href="<?php echo esc_url(wp_lostpassword_url()); ?>"><?php esc_html_e('Lost your password?', 'rt-event-manager'); ?></a>
+            </p>
+            <?php do_action('woocommerce_login_form_end'); ?>
+        </form>
+        <?php
+    }
+
+    /** WooCommerce my-account registration form (standalone, local account). */
+    private function render_wc_register_form() {
+        $gen_user = 'yes' === get_option('woocommerce_registration_generate_username');
+        $gen_pass = 'yes' === get_option('woocommerce_registration_generate_password');
+        ?>
+        <form method="post" class="woocommerce-form woocommerce-form-register register rtacc-auth-form" <?php do_action('woocommerce_register_form_tag'); ?>>
+            <?php do_action('woocommerce_register_form_start'); ?>
+            <?php if (!$gen_user) : ?>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-reg-username"><?php esc_html_e('Username', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input type="text" class="woocommerce-Input woocommerce-Input--text input-text" name="username" id="rtacc-reg-username" autocomplete="username" value="<?php echo (!empty($_POST['username'])) ? esc_attr(wp_unslash($_POST['username'])) : ''; ?>" />
+            </p>
+            <?php endif; ?>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-reg-email"><?php esc_html_e('Email address', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input type="email" class="woocommerce-Input woocommerce-Input--text input-text" name="email" id="rtacc-reg-email" autocomplete="email" value="<?php echo (!empty($_POST['email'])) ? esc_attr(wp_unslash($_POST['email'])) : ''; ?>" />
+            </p>
+            <?php if (!$gen_pass) : ?>
+            <p class="woocommerce-form-row form-row">
+                <label for="rtacc-reg-password"><?php esc_html_e('Password', 'rt-event-manager'); ?>&nbsp;<span class="required">*</span></label>
+                <input type="password" class="woocommerce-Input woocommerce-Input--text input-text" name="password" id="rtacc-reg-password" autocomplete="new-password" />
+            </p>
+            <?php else : ?>
+            <p><?php esc_html_e('A link to set a new password will be sent to your email address.', 'rt-event-manager'); ?></p>
+            <?php endif; ?>
+            <?php do_action('woocommerce_register_form'); ?>
+            <p class="woocommerce-FormRow form-row">
+                <?php wp_nonce_field('woocommerce-register', 'woocommerce-register-nonce'); ?>
+                <button type="submit" class="woocommerce-Button woocommerce-button button woocommerce-form-register__submit" name="register" value="<?php esc_attr_e('Register', 'rt-event-manager'); ?>"><?php esc_html_e('Register', 'rt-event-manager'); ?></button>
+            </p>
+            <?php do_action('woocommerce_register_form_end'); ?>
+        </form>
+        <?php
     }
 
     /**
@@ -466,12 +583,17 @@ class RT_Event_Manager_Account {
         // transfer link brought them here, keep the token and return to it after
         // they log in or register.
         if (!is_user_logged_in()) {
+            // WC endpoints while logged out (lost-password, reset-password, …)
+            // must keep working — defer to WooCommerce for those.
+            if (function_exists('is_wc_endpoint_url') && is_wc_endpoint_url()) {
+                return do_shortcode('[woocommerce_my_account]');
+            }
+            $notice = '';
             if ('' !== $transfer_token) {
                 $this->prepare_transfer_login_redirect($transfer_token);
                 $notice = '<div class="woocommerce-info">' . esc_html__('Please log in or create an account to accept this ticket transfer.', 'rt-event-manager') . '</div>';
-                return $notice . do_shortcode('[woocommerce_my_account]');
             }
-            return do_shortcode('[woocommerce_my_account]');
+            return $notice . $this->render_auth_page();
         }
 
         // Active WC endpoint (view-order, order-pay, lost-password, add-payment
@@ -510,6 +632,9 @@ class RT_Event_Manager_Account {
         $tab = $this->current_tab();
 
         echo '<div class="rtacc">';
+
+        // Prompt for privacy-policy re-consent when it has been updated.
+        $this->render_pp_modal();
 
         // Mobile: a hamburger opens the navigation in a UIkit off-canvas.
         echo '<button class="rtacc-hamburger" type="button" uk-toggle="target: #rtacc-offcanvas-nav" aria-label="' . esc_attr__('Open menu', 'rt-event-manager') . '">';
@@ -579,11 +704,11 @@ class RT_Event_Manager_Account {
         // (compound variants like gauge-high/calendar-days are not in Graphite).
         $icons = array(
             'dashboard' => 'fa-house',
-            'profile'   => 'fa-user',
+            'profile'   => 'fa-id-badge',
             'emergency' => 'fa-kit-medical',
             'orders'    => 'fa-list',
             'refunds'   => 'fa-money-bill',
-            'tickets'   => 'fa-ticket',
+            'tickets'   => 'fa-tickets-perforated',
             'pretour'   => 'fa-map',
             'daytour'   => 'fa-compass',
             'calendar'  => 'fa-calendar',
@@ -591,20 +716,41 @@ class RT_Event_Manager_Account {
             'shop'      => 'fa-bag-shopping',
         );
 
-        // Regular style (requires the Pro kit above for full icon coverage);
-        // the active item's icon is solid.
         $fa_style = 'fa-regular';
-        $item = function ($icon, $url, $label, $classes) use ($fa_style) {
-            $style = (false !== strpos($classes, 'uk-active')) ? 'fa-solid' : $fa_style;
+        // Build one <i> icon element (with optional extra attributes).
+        $icon_tag = function ($cls, $extra = '') {
+            return '<i class="' . esc_attr($cls) . ' rtacc-nav-icon" aria-hidden="true"' . $extra . '></i>';
+        };
+        $item = function ($icon_html, $url, $label, $classes) {
             return sprintf(
-                '<li class="%s"><a href="%s"><i class="%s %s rtacc-nav-icon" aria-hidden="true"></i>%s</a></li>',
+                '<li class="%s"><a href="%s">%s%s</a></li>',
                 esc_attr($classes),
                 esc_url($url),
-                esc_attr($style),
-                esc_attr($icon),
+                $icon_html, // pre-built markup
                 esc_html($label)
             );
         };
+
+        // Items that flag incomplete data. When flagged, the item shows a custom
+        // "…-circle-exclamation" kit icon (its "-active" variant when current)
+        // instead of the regular icon, and gets a light-blue background.
+        $attention = array(
+            'profile'   => $this->profile_incomplete(),
+            'emergency' => $this->emergency_contact_incomplete(),
+            'tickets'   => $this->tickets_incomplete(),
+        );
+        $attention_icons = array(
+            'profile'   => 'fa-kit fa-kit-profile-circle-exclamation',
+            'emergency' => 'fa-kit fa-kit-medical-circle-exclamation',
+            'tickets'   => 'fa-kit fa-kit-ticket-circle-exclamation',
+        );
+        // Custom kit icons with a normal + "-active" variant (used solid when the
+        // item is current). NB: the pretour/daytour glyphs are named opposite in
+        // the kit, so they are mapped crossed here on purpose.
+        $kit_icons = array(
+            'pretour' => 'fa-kit fa-ticket-daytour',
+            'daytour' => 'fa-kit fa-ticket-pretour',
+        );
 
         // Visual grouping (a blank gap is shown between non-empty groups).
         $groups = array(
@@ -623,8 +769,31 @@ class RT_Event_Manager_Account {
                 if (!isset($tabs[$key])) {
                     continue;
                 }
-                $icon = isset($icons[$key]) ? $icons[$key] : 'fa-circle';
-                $group_html .= $item($icon, $this->tab_url($key), $tabs[$key], ($key === $current) ? 'uk-active' : '');
+                $is_active  = ($key === $current);
+                if (isset($kit_icons[$key])) {
+                    // Custom kit icon: solid "-active" variant when current.
+                    $normal_cls = $kit_icons[$key] . ($is_active ? '-active' : '');
+                } else {
+                    $style      = $is_active ? 'fa-solid' : $fa_style;
+                    $normal_cls = $style . ' ' . (isset($icons[$key]) ? $icons[$key] : 'fa-circle');
+                }
+                $classes    = $is_active ? 'uk-active' : '';
+
+                if (array_key_exists($key, $attention)) {
+                    // Stable hook so JS can swap the icon live after a save.
+                    $classes  = trim($classes . ' rtacc-nav-item-' . $key);
+                    $alert_cls = $attention_icons[$key] . ($is_active ? '-active' : '');
+                    $extra     = ' data-icon-normal="' . esc_attr($normal_cls) . '" data-icon-alert="' . esc_attr($alert_cls) . '"';
+                    if ($attention[$key]) {
+                        $classes   = trim($classes . ' rtacc-nav-attention');
+                        $icon_html = $icon_tag($alert_cls, $extra);
+                    } else {
+                        $icon_html = $icon_tag($normal_cls, $extra);
+                    }
+                } else {
+                    $icon_html = $icon_tag($normal_cls);
+                }
+                $group_html .= $item($icon_html, $this->tab_url($key), $tabs[$key], $classes);
             }
             if ('' === $group_html) {
                 continue;
@@ -639,8 +808,14 @@ class RT_Event_Manager_Account {
         if ($rendered_any) {
             $out .= '<li class="rtacc-nav-sep" aria-hidden="true"></li>';
         }
-        $out .= $item('fa-power-off', wp_logout_url($this->account_base_url()), __('Log out', 'rt-event-manager'), 'rtacc-nav-logout');
+        $out .= $item($icon_tag($fa_style . ' fa-power-off'), wp_logout_url($this->account_base_url()), __('Log out', 'rt-event-manager'), 'rtacc-nav-logout');
         $out .= '</ul>';
+        if (defined('RT_EVENT_MANAGER_VERSION')) {
+            $out .= '<div class="rtacc-nav-version uk-text uk-text-small uk-meta">'
+                . esc_html__('Powered by', 'rt-event-manager') . '<br>'
+                . esc_html(sprintf(__('RT Event Manager v.%s', 'rt-event-manager'), RT_EVENT_MANAGER_VERSION))
+                . '</div>';
+        }
         return $out;
     }
 
@@ -695,37 +870,50 @@ class RT_Event_Manager_Account {
                 $open = ($own_holder !== '' && $holder === $own_holder) ? ' open' : '';
                 echo '<details class="rtacc-dash-group"' . $open . '>';
                 echo '<summary class="rtacc-dash-summary">' . esc_html($holder) . ' <span class="rtacc-dash-count">' . esc_html(sprintf(_n('%d ticket', '%d tickets', count($rows), 'rt-event-manager'), count($rows))) . '</span></summary>';
-                echo '<table class="rtacc-table rtacc-tickets rtacc-dashboard-table uk-table uk-table-divider uk-table-middle uk-table-small">';
-                echo '<thead><tr>';
-                echo '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>';
-                echo '<th>' . esc_html__('Event date', 'rt-event-manager') . '</th>';
-                echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
-                echo '</tr></thead><tbody>';
+                // Main event / Future-member tickets render as visual tickets
+                // (QR stub); any pretours / day tours follow in a compact table.
+                $mains = array();
+                $tours = array();
                 foreach ($rows as $t) {
-                    $status     = isset($t['status']) ? $t['status'] : 'draft';
-                    $product    = wc_get_product($t['product_id']);
-                    $what       = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
-                    $event_date = $this->ticket_event_date($t['product_id']);
-                    echo '<tr class="rtacc-trow-' . esc_attr(RT_Event_Manager::get_ticket_kind($t)) . '">';
-                    echo '<td data-title="' . esc_attr__('Ticket', 'rt-event-manager') . '">' . esc_html($what) . '</td>';
-                    echo '<td data-title="' . esc_attr__('Event date', 'rt-event-manager') . '">';
-                    if ('' !== $event_date) {
-                        echo '<span class="rtacc-badge rtacc-badge--date"><i class="fa-solid fa-calendar" aria-hidden="true"></i> ' . esc_html($event_date) . '</span>';
-                    } else {
-                        echo '—';
-                    }
-                    echo '</td>';
-                    echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
-                    // Add-to-wallet badges for the main event/Future-member ticket.
                     if (in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true)) {
-                        $badges = $this->wallet_badges_html(absint($t['id']));
-                        if ('' !== $badges) {
-                            echo '<td data-title="' . esc_attr__('Wallet', 'rt-event-manager') . '"><div class="rtacc-wallet-badges">' . $badges . '</div></td>';
-                        }
+                        $mains[] = $t;
+                    } else {
+                        $tours[] = $t;
                     }
-                    echo '</tr>';
                 }
-                echo '</tbody></table>';
+                if (!empty($mains)) {
+                    echo '<div class="rtacc-ticket-list">';
+                    foreach ($mains as $t) {
+                        $this->render_ticket_visual($t);
+                    }
+                    echo '</div>';
+                }
+                if (!empty($tours)) {
+                    echo '<table class="rtacc-table rtacc-tickets rtacc-dashboard-table uk-table uk-table-divider uk-table-middle uk-table-small">';
+                    echo '<thead><tr>';
+                    echo '<th>' . esc_html__('Tour', 'rt-event-manager') . '</th>';
+                    echo '<th>' . esc_html__('Date', 'rt-event-manager') . '</th>';
+                    echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
+                    echo '</tr></thead><tbody>';
+                    foreach ($tours as $t) {
+                        $status     = isset($t['status']) ? $t['status'] : 'draft';
+                        $product    = wc_get_product($t['product_id']);
+                        $what       = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
+                        $event_date = $this->ticket_event_date($t['product_id']);
+                        echo '<tr class="rtacc-trow-' . esc_attr(RT_Event_Manager::get_ticket_kind($t)) . '">';
+                        echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($what) . '</td>';
+                        echo '<td data-title="' . esc_attr__('Date', 'rt-event-manager') . '">';
+                        if ('' !== $event_date) {
+                            echo '<span class="rtacc-badge rtacc-badge--date"><i class="fa-solid fa-calendar" aria-hidden="true"></i> ' . esc_html($event_date) . '</span>';
+                        } else {
+                            echo '—';
+                        }
+                        echo '</td>';
+                        echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
+                        echo '</tr>';
+                    }
+                    echo '</tbody></table>';
+                }
                 echo '</details>';
             }
         }
@@ -734,6 +922,119 @@ class RT_Event_Manager_Account {
         echo '<a class="uk-button uk-button-default" href="' . esc_url($this->tab_url('tickets')) . '">' . esc_html__('Manage tickets', 'rt-event-manager') . '</a> ';
         echo '<a class="uk-button uk-button-default" href="' . esc_url($this->tab_url('orders')) . '">' . esc_html__('View orders', 'rt-event-manager') . '</a>';
         echo '</p>';
+    }
+
+    /**
+     * Render a main event / Future-member ticket on the dashboard as a physical
+     * ticket with a perforated QR stub — mirroring the Apple Wallet pass (same
+     * event name, club/status/tours lines and check-in QR payload).
+     *
+     * @param array $t Ticket row.
+     */
+    private function render_ticket_visual($t) {
+        $id       = absint($t['id']);
+        $status   = isset($t['status']) ? $t['status'] : 'draft';
+        $voided   = in_array($status, array('cancelled', 'refunded', 'invalid'), true);
+        $holder   = ($t['holder_name'] !== '') ? $t['holder_name'] : __('Attendee', 'rt-event-manager');
+        $number   = absint($t['ticket_index']) + 1;
+        $ticket_no = '#' . absint($t['order_id']) . ' · ' . $number;
+
+        $labels     = $this->status_labels();
+        $event_name = get_option('rt_event_manager_wallet_event_name', __('RTI Half-Year Meeting 2027', 'rt-event-manager'));
+        $short_name = get_option('rt_event_manager_ticket_short_name', 'RTI HYM 2027');
+        $logo_url   = get_option('rt_event_manager_ticket_logo_url', '');
+        $mascot_url = get_option('rt_event_manager_ticket_mascot_url', '');
+
+        $has_apple  = class_exists('RT_Event_Manager_Apple_Wallet');
+        $org        = $has_apple ? RT_Event_Manager_Apple_Wallet::org_line($t) : '';
+        $status_lbl = $has_apple ? RT_Event_Manager_Apple_Wallet::status_label($t) : (isset($labels[$status]) ? $labels[$status] : $status);
+        $has_pre    = !empty(RT_Event_Manager::get_child_pretours($id));
+        $has_day    = !empty(RT_Event_Manager::get_child_daytours($id));
+        $tours      = $has_apple ? RT_Event_Manager_Apple_Wallet::tours_line($has_pre, $has_day) : '';
+
+        // Guardian (Future-member tickets only) — the parent ticket's holder.
+        $guardian = '';
+        if ('minor' === RT_Event_Manager::get_ticket_kind($t) && absint($t['parent_ticket_id'])) {
+            $p = RT_Event_Manager::get_ticket_by_id(absint($t['parent_ticket_id']));
+            if ($p && 'minor' === RT_Event_Manager::get_ticket_kind($p) && absint($p['parent_ticket_id'])) {
+                $p = RT_Event_Manager::get_ticket_by_id(absint($p['parent_ticket_id']));
+            }
+            if ($p && '' !== $p['holder_name']) {
+                $guardian = $p['holder_name'];
+            }
+        }
+
+        $qr = '';
+        if (!$voided && class_exists('RT_Event_Manager_Ticket_Pass') && class_exists('RT_Event_Manager_Badge_Generator')) {
+            $img = RT_Event_Manager_Badge_Generator::instance()->generate_qr_code(RT_Event_Manager_Ticket_Pass::checkin_token($t), 240);
+            if ($img) {
+                $qr = $img;
+            }
+        }
+
+        $lbl = function ($text) { return '<span class="rtacc-ticket-lbl">' . esc_html($text) . '</span>'; };
+
+        echo '<div class="rtacc-ticket' . ($voided ? ' rtacc-ticket--void' : '') . '">';
+
+        echo '<div class="rtacc-ticket-body">';
+        // Event title sits at the top (where the "Ticket" kicker used to be).
+        echo '<div class="rtacc-ticket-event">';
+        if ($logo_url) {
+            echo '<img class="rtacc-ticket-logo" src="' . esc_url($logo_url) . '" alt="" />';
+        }
+        echo $lbl(__('EVENT', 'rt-event-manager')) . '<span class="rtacc-ticket-title">' . esc_html($event_name) . '</span>';
+        $dates = $this->ticket_date_range($t);
+        if ('' !== $dates) {
+            echo '<span class="rtacc-ticket-dates"><i class="fa-solid fa-calendar" aria-hidden="true"></i> ' . esc_html($dates) . '</span>';
+        }
+        echo '</div>';
+
+        // Row 1: Attendee [ gap ] (Guardian, Future members) … Ticket (right).
+        echo '<div class="rtacc-ticket-grid rtacc-ticket-grid--2 rtacc-ticket-row1">';
+        echo '<div>' . $lbl(__('ATTENDEE', 'rt-event-manager')) . '<span class="rtacc-ticket-val">' . esc_html($holder) . '</span></div>';
+        if ('' !== $guardian) {
+            echo '<div>' . $lbl(__('GUARDIAN', 'rt-event-manager')) . '<span class="rtacc-ticket-val">' . esc_html($guardian) . '</span></div>';
+        }
+        echo '<div class="rtacc-ta-right">' . $lbl(__('TICKET', 'rt-event-manager')) . '<span class="rtacc-ticket-val">' . esc_html($ticket_no) . '</span></div>';
+        echo '</div>';
+
+        // Row 2: Club | Includes (aligned under the ticket, right).
+        echo '<div class="rtacc-ticket-grid rtacc-ticket-grid--2">';
+        echo '<div>' . $lbl(__('CLUB', 'rt-event-manager')) . '<span class="rtacc-ticket-val">' . esc_html('' !== $org ? $org : '—') . '</span></div>';
+        if ('' !== $tours) {
+            echo '<div class="rtacc-ta-right">' . $lbl(__('INCLUDES', 'rt-event-manager')) . '<span class="rtacc-ticket-val">' . esc_html($tours) . '</span></div>';
+        }
+        echo '</div>';
+
+        // Row 3: Status (under Club).
+        echo '<div class="rtacc-ticket-grid">';
+        echo '<div>' . $lbl(__('STATUS', 'rt-event-manager')) . '<span class="rtacc-ticket-val">' . esc_html($status_lbl) . '</span></div>';
+        echo '</div>';
+
+        if ($mascot_url) {
+            echo '<img class="rtacc-ticket-mascot" src="' . esc_url($mascot_url) . '" alt="" aria-hidden="true" />';
+        }
+        echo '</div>'; // .rtacc-ticket-body
+
+        echo '<div class="rtacc-ticket-stub">';
+        echo '<span class="rtacc-ticket-perf" aria-hidden="true"></span>';
+        echo '<span class="rtacc-ticket-cut" aria-hidden="true"></span>';
+        // Kicker (Ticket / short name) now heads the stub.
+        echo '<span class="rtacc-ticket-kicker">' . $lbl(__('Ticket', 'rt-event-manager')) . '<span class="rtacc-ticket-strong">' . esc_html($short_name) . '</span></span>';
+        if ('' !== $qr) {
+            echo '<img class="rtacc-ticket-qr" src="' . esc_attr($qr) . '" alt="' . esc_attr__('Ticket QR code', 'rt-event-manager') . '" />';
+        } else {
+            echo '<div class="rtacc-ticket-qr rtacc-ticket-qr--void">' . esc_html($status_lbl) . '</div>';
+        }
+        echo '<div class="rtacc-ticket-stub-id">' . esc_html($ticket_no) . '</div>';
+        // Add-to-wallet buttons live under the QR in the stub.
+        $badges = $this->wallet_badges_html($id);
+        if ('' !== $badges) {
+            echo '<div class="rtacc-wallet-badges rtacc-ticket-wallet">' . $badges . '</div>';
+        }
+        echo '</div>'; // .rtacc-ticket-stub
+
+        echo '</div>'; // .rtacc-ticket
     }
 
     /* ---------------------------------------------------------------------
@@ -842,7 +1143,8 @@ class RT_Event_Manager_Account {
         }
 
         // --- Editable block (one form spanning the subsections below) ---
-        echo '<form id="rtacc-profile-form" class="rtacc-form uk-form-stacked">';
+        // rtacc-profile-autosave opts these fields into save-on-exit auto-saving.
+        echo '<form id="rtacc-profile-form" class="rtacc-form rtacc-profile-autosave uk-form-stacked">';
 
         echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Your details', 'rt-event-manager') . '</h3>';
@@ -854,21 +1156,17 @@ class RT_Event_Manager_Account {
 
         echo '<p class="rtacc-field">';
         echo '<label class="uk-form-label" for="rtacc-function">' . esc_html__('Function / Role', 'rt-event-manager') . '</label>';
-        echo '<input type="text" id="rtacc-function" class="uk-input" name="function" value="' . esc_attr($function) . '" list="rtacc-function-suggestions" autocomplete="off" />';
-        if (!empty($function_suggestions)) {
-            echo '<datalist id="rtacc-function-suggestions">';
-            foreach ($function_suggestions as $suggestion) {
-                echo '<option value="' . esc_attr($suggestion) . '"></option>';
-            }
-            echo '</datalist>';
-        }
+        // Themed autocomplete (matches the theme instead of the native datalist popup).
+        $fn_json = !empty($function_suggestions) ? wp_json_encode(array_values($function_suggestions)) : '[]';
+        echo '<span class="rtacc-combo">';
+        echo '<input type="text" id="rtacc-function" class="uk-input rtacc-combo-input" name="function" value="' . esc_attr($function) . '" autocomplete="off" data-suggestions="' . esc_attr($fn_json) . '" />';
+        echo '</span>';
         echo '</p>';
         echo '</section>';
 
-        echo '<p class="rtacc-actions">';
-        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button>';
-        echo '<span class="rtacc-status" id="rtacc-profile-status" aria-live="polite"></span>';
-        echo '</p>';
+        // No Save button: fields auto-save on exit with an inline confirmation.
+        // The status line is kept for surfacing errors only.
+        echo '<p class="rtacc-actions"><span class="rtacc-status" id="rtacc-profile-status" aria-live="polite"></span></p>';
 
         echo '</form>';
     }
@@ -922,36 +1220,115 @@ class RT_Event_Manager_Account {
             'billing_address_2' => __('Address line 2', 'rt-event-manager'),
             'billing_city'      => __('City', 'rt-event-manager'),
             'billing_postcode'  => __('Postcode', 'rt-event-manager'),
-            'billing_country'   => __('Country', 'rt-event-manager'),
         );
         foreach ($meta_fields as $name => $label) {
             echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-' . esc_attr($name) . '">' . esc_html($label) . '</label>';
             echo '<input type="text" id="rtacc-' . esc_attr($name) . '" class="uk-input" name="' . esc_attr($name) . '" value="' . esc_attr(get_user_meta($user_id, $name, true)) . '" /></p>';
         }
+
+        // Country as a WooCommerce country select so it stores the ISO code
+        // that the checkout billing field expects (free text won't match there).
+        $current_country = get_user_meta($user_id, 'billing_country', true);
+        $countries = (function_exists('WC') && WC()->countries) ? WC()->countries->get_countries() : array();
+        echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-billing_country">' . esc_html__('Country', 'rt-event-manager') . '</label>';
+        echo '<select id="rtacc-billing_country" class="uk-select" name="billing_country">';
+        echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
+        foreach ($countries as $code => $cname) {
+            echo '<option value="' . esc_attr($code) . '" ' . selected($current_country, $code, false) . '>' . esc_html($cname) . '</option>';
+        }
+        echo '</select></p>';
+
+        // Phone → billing phone.
+        echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-billing_phone">' . esc_html__('Phone', 'rt-event-manager') . '</label>';
+        echo '<input type="tel" id="rtacc-billing_phone" class="uk-input" name="billing_phone" value="' . esc_attr(get_user_meta($user_id, 'billing_phone', true)) . '" placeholder="+41791234567" /></p>';
     }
 
     /* ---------------------------------------------------------------------
      * Tab: Emergency Contact
      * ------------------------------------------------------------------- */
 
+    /**
+     * Whether the member's primary emergency contact is missing or incomplete.
+     * Drives the red notification dot on the Emergency Contact nav item. The
+     * primary contact (block 1) must have name, relationship, email and phone.
+     */
+    private function emergency_contact_incomplete($user_id = 0) {
+        $user_id = $user_id ? absint($user_id) : get_current_user_id();
+        if (!$user_id) {
+            return false;
+        }
+        foreach (array('name', 'relationship', 'email', 'phone') as $key) {
+            if ('' === trim((string) get_user_meta($user_id, 'rti_emergency1_' . $key, true))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the member's profile is missing information. Drives the nav dot on
+     * My Profile — flagged while the Function / Role field has not been set.
+     */
+    private function profile_incomplete($user_id = 0) {
+        $user_id = $user_id ? absint($user_id) : get_current_user_id();
+        if (!$user_id) {
+            return false;
+        }
+        return '' === trim((string) get_user_meta($user_id, 'rti_function', true));
+    }
+
+    /**
+     * Whether the member has any active event ticket that is not fully
+     * personalised. Drives the nav dot on Event Tickets — flagged while any
+     * live event/Future-member ticket is still missing its holder name.
+     */
+    private function tickets_incomplete($user_id = 0) {
+        $user_id = $user_id ? absint($user_id) : get_current_user_id();
+        if (!$user_id) {
+            return false;
+        }
+        foreach (RT_Event_Manager::get_tickets_for_user($user_id) as $t) {
+            if (!in_array($this->effective_kind($t), array('event', 'minor'), true)) {
+                continue;
+            }
+            $status = isset($t['status']) ? $t['status'] : '';
+            if (in_array($status, array('cancelled', 'refunded'), true)) {
+                continue;
+            }
+            if ('' === trim((string) (isset($t['holder_name']) ? $t['holder_name'] : ''))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function render_emergency() {
         $user_id = get_current_user_id();
 
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Emergency Contact', 'rt-event-manager') . '</h2>';
-        echo '<p class="rtacc-hint">' . esc_html__('Who should we contact in case of an emergency? You can add a second contact too.', 'rt-event-manager') . '</p>';
+        // Intro doubles as the anchor the auto-save alert floats over (a div so a
+        // floating child element is valid markup).
+        echo '<div class="rtacc-hint rtacc-emergency-intro">' . esc_html__('Who should we contact in case of an emergency? You can add a second contact too.', 'rt-event-manager') . '</div>';
+
+        // When the primary contact is still incomplete, prompt the member with a
+        // bottom-centre notification (rendered by account.js on load).
+        if ($this->emergency_contact_incomplete($user_id)) {
+            echo '<div class="rtacc-emergency-prompt" data-message="' . esc_attr__('Please add your emergency contact details so we can reach someone on your behalf if needed.', 'rt-event-manager') . '" hidden></div>';
+        }
 
         // Reuse the profile-save form id so the existing AJAX save handles it.
-        echo '<form id="rtacc-profile-form" class="rtacc-form uk-form-stacked">';
-        $this->render_emergency_block(1, __('Emergency contact', 'rt-event-manager'), $user_id);
-        $this->render_emergency_block(2, __('Second emergency contact (optional)', 'rt-event-manager'), $user_id);
-        echo '<p class="rtacc-actions">';
-        echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button>';
-        echo '<span class="rtacc-status" id="rtacc-profile-status" aria-live="polite"></span>';
-        echo '</p></form>';
+        // rtacc-emergency-form opts these fields into save-on-exit auto-saving.
+        echo '<form id="rtacc-profile-form" class="rtacc-form rtacc-emergency-form uk-form-stacked">';
+        // The secondary contact stays locked until the primary contact is complete.
+        $primary_incomplete = $this->emergency_contact_incomplete($user_id);
+        $this->render_emergency_block(1, __('Emergency contact', 'rt-event-manager'), $user_id, false);
+        $this->render_emergency_block(2, __('Second emergency contact (optional)', 'rt-event-manager'), $user_id, $primary_incomplete);
+        // No Save button: fields auto-save on exit with an inline confirmation.
+        echo '</form>';
     }
 
     /** One emergency-contact block (Name, Relationship, Email, Phone). */
-    private function render_emergency_block($n, $title, $user_id) {
+    private function render_emergency_block($n, $title, $user_id, $locked = false) {
         $fields = array(
             'name'         => __('Name', 'rt-event-manager'),
             'relationship' => __('Relationship', 'rt-event-manager'),
@@ -966,15 +1343,28 @@ class RT_Event_Manager_Account {
             'other'    => __('Other', 'rt-event-manager'),
         );
 
-        echo '<section class="rtacc-panel uk-card uk-card-default uk-card-body">';
+        // Block 2 carries a stable class so JS can lock/unlock it live.
+        $section_class = 'rtacc-panel uk-card uk-card-default uk-card-body';
+        if (2 === absint($n)) {
+            $section_class .= ' rtacc-emergency-secondary';
+        }
+        if ($locked) {
+            $section_class .= ' rtacc-locked';
+        }
+        $disabled_attr = $locked ? ' disabled' : '';
+
+        echo '<section class="' . esc_attr($section_class) . '">';
         echo '<h3 class="rtacc-subtitle">' . esc_html($title) . '</h3>';
+        if (2 === absint($n)) {
+            echo '<p class="rtacc-hint rtacc-emergency-secondary-hint"' . ($locked ? '' : ' hidden') . '>' . esc_html__('Add your primary emergency contact first to enable a second one.', 'rt-event-manager') . '</p>';
+        }
         foreach ($fields as $key => $label) {
             $post_name = 'emergency' . absint($n) . '_' . $key;
             $meta_key  = 'rti_emergency' . absint($n) . '_' . $key;
             $value     = get_user_meta($user_id, $meta_key, true);
             echo '<p class="rtacc-field"><label class="uk-form-label" for="rtacc-' . esc_attr($post_name) . '">' . esc_html($label) . '</label>';
             if ('relationship' === $key) {
-                echo '<select id="rtacc-' . esc_attr($post_name) . '" class="uk-select" name="' . esc_attr($post_name) . '">';
+                echo '<select id="rtacc-' . esc_attr($post_name) . '" class="uk-select" name="' . esc_attr($post_name) . '"' . $disabled_attr . '>';
                 echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
                 foreach ($relationships as $rk => $rl) {
                     echo '<option value="' . esc_attr($rk) . '" ' . selected($value, $rk, false) . '>' . esc_html($rl) . '</option>';
@@ -982,7 +1372,7 @@ class RT_Event_Manager_Account {
                 echo '</select>';
             } else {
                 $type = ('email' === $key) ? 'email' : (('phone' === $key) ? 'tel' : 'text');
-                echo '<input type="' . esc_attr($type) . '" id="rtacc-' . esc_attr($post_name) . '" class="uk-input" name="' . esc_attr($post_name) . '" value="' . esc_attr($value) . '" />';
+                echo '<input type="' . esc_attr($type) . '" id="rtacc-' . esc_attr($post_name) . '" class="uk-input" name="' . esc_attr($post_name) . '" value="' . esc_attr($value) . '"' . $disabled_attr . ' />';
             }
             echo '</p>';
         }
@@ -1244,8 +1634,11 @@ class RT_Event_Manager_Account {
         $future_options    = $this->ticket_options($event_parents);
         $future_button     = $this->future_add_button($future_options);
 
+        // With no own ticket yet, offer a straight-to-checkout purchase button.
+        $buy_own_button = empty($mine) ? $this->buy_own_ticket_button() : '';
+
         $this->render_editable_sections('rtacc-tickets-form', array(
-            array('label' => __('My Ticket', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a ticket assigned to yourself yet.', 'rt-event-manager')),
+            array('label' => __('My Ticket', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a ticket assigned to yourself yet.', 'rt-event-manager'), 'after' => $buy_own_button),
             array('label' => __('Travelling with me', 'rt-event-manager'), 'tickets' => $companions, 'empty' => __('No additional tickets yet.', 'rt-event-manager'), 'after' => $add_ticket_button),
             array('label' => __('Future Tablers / Future Circlers', 'rt-event-manager'), 'tickets' => $minors, 'empty' => __('No Future member tickets yet.', 'rt-event-manager'), 'minor' => true, 'after' => $future_button, 'guardian_options' => $future_options, 'desc' => sprintf(
                 /* translators: 1: minimum age, 2: maximum age */
@@ -1979,8 +2372,8 @@ class RT_Event_Manager_Account {
         }
 
         if (!$readonly && $can_edit && $has_rows) {
-            // No save button — fields auto-save on exit; this line shows the
-            // "Saving…/Saved!" status.
+            // Each row has its own pencil / save control; this line surfaces the
+            // save status / errors.
             echo '<p class="rtacc-actions"><span class="rtacc-status" aria-live="polite"></span></p>';
         }
 
@@ -2095,8 +2488,12 @@ class RT_Event_Manager_Account {
             // (unless locked).
             $dietary_editable = $can_edit && !$is_locked;
             $phone_editable   = $can_edit && !$is_locked;
+            // A row is editable (gets a pencil / save toggle) when any of its
+            // fields may be changed. Locked fields render as read-only text and
+            // are never part of edit mode; terminal tickets are never editable.
+            $editable_row     = ($can_edit && !in_array($status, array('checked_in', 'cancelled', 'refunded'), true));
 
-            echo '<tr data-ticket-id="' . esc_attr($id) . '" class="rtacc-trow-' . esc_attr($kind) . '">';
+            echo '<tr data-ticket-id="' . esc_attr($id) . '" class="rtacc-trow-' . esc_attr($kind) . '"' . ($editable_row ? ' data-editable="1"' : '') . '>';
 
             if ($show_product) {
                 $product = wc_get_product($t['product_id']);
@@ -2120,8 +2517,9 @@ class RT_Event_Manager_Account {
                 }
 
                 // Family — editable only for companions (ticket_index > 0).
+                // A plain <select>; the JS enhancer themes it (rtacc-enhance).
                 if ($can_edit && !$is_locked && $is_comp && !$is_minor) {
-                    echo '<td data-title="' . esc_attr__('Family', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select" name="tickets[' . esc_attr($id) . '][rti_family]">';
+                    echo '<td data-title="' . esc_attr__('Family', 'rt-event-manager') . '"><select class="rtacc-ticket-field uk-select rtacc-enhance" name="tickets[' . esc_attr($id) . '][rti_family]">';
                     echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
                     foreach ($family_options as $key => $label) {
                         echo '<option value="' . esc_attr($key) . '" ' . selected($t['rti_family'], (string) $key, false) . '>' . esc_html($label) . '</option>';
@@ -2142,15 +2540,11 @@ class RT_Event_Manager_Account {
                     echo '<option value="' . esc_attr($dkey) . '" ' . selected($t['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
                 }
                 echo '</select>';
-                $list_id = 'rtacc-allergy-list-' . $id;
-                echo '<input type="text" class="rtacc-ticket-field rtacc-allergy-input uk-input" name="tickets[' . esc_attr($id) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" style="margin-top:4px;' . ($t['dietary'] === 'allergies' ? '' : 'display:none;') . '" />';
-                if (!empty($allergy_suggestions)) {
-                    echo '<datalist id="' . esc_attr($list_id) . '">';
-                    foreach ($allergy_suggestions as $s) {
-                        echo '<option value="' . esc_attr($s) . '"></option>';
-                    }
-                    echo '</datalist>';
-                }
+                // Themed autocomplete (native <datalist> popups can't be styled).
+                $sugg_json = !empty($allergy_suggestions) ? wp_json_encode(array_values($allergy_suggestions)) : '[]';
+                echo '<span class="rtacc-combo"' . ($t['dietary'] === 'allergies' ? '' : ' style="display:none;"') . '>';
+                echo '<input type="text" class="rtacc-ticket-field rtacc-allergy-input rtacc-combo-input uk-input" name="tickets[' . esc_attr($id) . '][allergy_details]" value="' . esc_attr($allergy_val) . '" autocomplete="off" data-suggestions="' . esc_attr($sugg_json) . '" placeholder="' . esc_attr__('Select or type your allergies', 'rt-event-manager') . '" />';
+                echo '</span>';
                 echo '</td>';
             } else {
                 $dlabel = isset($dietary_options[$t['dietary']]) ? $dietary_options[$t['dietary']] : '—';
@@ -2193,11 +2587,26 @@ class RT_Event_Manager_Account {
             }
 
             echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($status_labels[$status]) . '</span></td>';
-            echo '<td data-title="' . esc_attr__('Actions', 'rt-event-manager') . '">' . $this->ticket_actions_cell($t) . '</td>';
+            echo '<td data-title="' . esc_attr__('Actions', 'rt-event-manager') . '">' . $this->ticket_actions_cell($t, $this->ticket_edit_control($editable_row)) . '</td>';
             echo '</tr>';
         }
 
         echo '</tbody></table>';
+    }
+
+    /**
+     * Pencil (enter edit mode) + save icon for an editable ticket row. The save
+     * icon is hidden until editing; JS toggles them (rtacc-edit-toggle /
+     * rtacc-edit-save). Returns '' for non-editable rows.
+     */
+    private function ticket_edit_control($editable) {
+        if (!$editable) {
+            return '';
+        }
+        return '<span class="rtacc-edit-controls">'
+            . '<button type="button" class="rtacc-icon-btn rtacc-edit-toggle" title="' . esc_attr__('Edit', 'rt-event-manager') . '" aria-label="' . esc_attr__('Edit', 'rt-event-manager') . '"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>'
+            . '<button type="button" class="rtacc-icon-btn rtacc-edit-save" title="' . esc_attr__('Save', 'rt-event-manager') . '" aria-label="' . esc_attr__('Save', 'rt-event-manager') . '" hidden><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i></button>'
+            . '</span>';
     }
 
     /**
@@ -2208,7 +2617,7 @@ class RT_Event_Manager_Account {
      * @param array $t Ticket row.
      * @return string HTML.
      */
-    private function ticket_actions_cell($t) {
+    private function ticket_actions_cell($t, $edit_control = '') {
         $id     = absint($t['id']);
         $kind   = $this->effective_kind($t);
         $status = isset($t['status']) ? $t['status'] : 'draft';
@@ -2245,7 +2654,7 @@ class RT_Event_Manager_Account {
         // Transfer and cancellation are offered only for confirmed tickets.
         $is_confirmed         = ('valid' === $status);
 
-        $out = '<div class="rtacc-row-actions">';
+        $out = '<div class="rtacc-row-actions">' . $edit_control;
 
         // Ticket menu (attendee tickets only): PDF download + wallet passes.
         if (in_array($kind, array('event', 'minor'), true)) {
@@ -2361,6 +2770,26 @@ class RT_Event_Manager_Account {
 
         return '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cotraveller">'
             . esc_html__('Add a ticket', 'rt-event-manager') . '</button></p>';
+    }
+
+    /**
+     * "Purchase my event ticket" button for the My Ticket section when the
+     * account has no own event ticket yet. Simple products go straight to
+     * checkout with the ticket in the cart; option-based products link to the
+     * product page (options must be chosen there).
+     */
+    private function buy_own_ticket_button() {
+        $product = $this->first_purchasable_product($this->get_event_product_ids());
+        if (!$product) {
+            return '';
+        }
+        if ($this->product_needs_options($product)) {
+            $url = $product->get_permalink();
+        } else {
+            $url = add_query_arg('add-to-cart', $product->get_id(), wc_get_checkout_url());
+        }
+        return '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($url) . '">'
+            . esc_html__('Purchase my event ticket', 'rt-event-manager') . '</a></p>';
     }
 
     /** First purchasable, in-stock product from a list of ids, or null. */
@@ -2537,14 +2966,10 @@ class RT_Event_Manager_Account {
         }
         echo '</select></p>';
         echo '<p class="rtacc-field rtacc-modal-allergy-field" style="display:none;"><label class="uk-form-label">' . esc_html__('Please specify the allergies', 'rt-event-manager') . '</label>';
-        echo '<input type="text" class="uk-input rtacc-modal-allergy" name="allergy" list="' . esc_attr($list_id) . '" placeholder="' . esc_attr__('Select or specify allergies', 'rt-event-manager') . '" autocomplete="off" />';
-        if (!empty($allergy_suggestions)) {
-            echo '<datalist id="' . esc_attr($list_id) . '">';
-            foreach ($allergy_suggestions as $s) {
-                echo '<option value="' . esc_attr($s) . '"></option>';
-            }
-            echo '</datalist>';
-        }
+        $modal_sugg_json = !empty($allergy_suggestions) ? wp_json_encode(array_values($allergy_suggestions)) : '[]';
+        echo '<span class="rtacc-combo">';
+        echo '<input type="text" class="uk-input rtacc-modal-allergy rtacc-combo-input" name="allergy" placeholder="' . esc_attr__('Select or type your allergies', 'rt-event-manager') . '" autocomplete="off" data-suggestions="' . esc_attr($modal_sugg_json) . '" />';
+        echo '</span>';
         echo '</p>';
 
         echo '<div class="rtacc-modal-error rtacc-status is-error" style="display:none;"></div>';
@@ -2857,6 +3282,55 @@ class RT_Event_Manager_Account {
         }
         $ts = strtotime($start);
         return $ts ? date_i18n(get_option('date_format'), $ts) : '';
+    }
+
+    /**
+     * Date range for a ticket: from the earliest start (the event start, or an
+     * earlier pretour/day-tour the attendee holds) to the official event end.
+     *
+     * @param array $t
+     * @return string Formatted range, or '' when no dates are configured.
+     */
+    private function ticket_date_range($t) {
+        $end_ts = ('' !== (string) get_option('rt_event_manager_event_end', '')) ? strtotime(get_option('rt_event_manager_event_end')) : 0;
+
+        // Base start = the first official agenda entry (falls back to the
+        // configured event start). Pretours/day tours may pull it earlier below.
+        $start_ts = 0;
+        foreach (RT_Event_Manager::get_agenda() as $item) {
+            $s = !empty($item['start']) ? strtotime($item['start']) : 0;
+            if ($s && (!$start_ts || $s < $start_ts)) {
+                $start_ts = $s;
+            }
+        }
+        if (!$start_ts && '' !== (string) get_option('rt_event_manager_event_start', '')) {
+            $start_ts = strtotime(get_option('rt_event_manager_event_start'));
+        }
+
+        $tours = array_merge(
+            RT_Event_Manager::get_child_pretours(absint($t['id'])),
+            RT_Event_Manager::get_child_daytours(absint($t['id']))
+        );
+        foreach ($tours as $tour) {
+            $raw = get_post_meta($tour['product_id'], '_rti_start', true);
+            $ts  = ('' !== $raw) ? strtotime($raw) : 0;
+            if ($ts && (!$start_ts || $ts < $start_ts)) {
+                $start_ts = $ts;
+            }
+        }
+        return $this->format_date_range($start_ts, $end_ts);
+    }
+
+    /** Human date range; compact when both dates share a month + year. */
+    private function format_date_range($start_ts, $end_ts) {
+        if ($start_ts && $end_ts) {
+            if (date('n-Y', $start_ts) === date('n-Y', $end_ts)) {
+                return date_i18n('j', $start_ts) . ' – ' . date_i18n('j F Y', $end_ts);
+            }
+            return date_i18n('j M Y', $start_ts) . ' – ' . date_i18n('j M Y', $end_ts);
+        }
+        $ts = $start_ts ? $start_ts : $end_ts;
+        return $ts ? date_i18n('j F Y', $ts) : '';
     }
 
     /**
@@ -3326,6 +3800,61 @@ class RT_Event_Manager_Account {
      * AJAX: save profile (local editable fields only)
      * ------------------------------------------------------------------- */
 
+    /* ---------------------------------------------------------------------
+     * Privacy-policy re-consent
+     * ------------------------------------------------------------------- */
+
+    /** Current privacy-policy version; admins bump it to force re-consent. */
+    public static function pp_current_version() {
+        return (int) get_option('rt_event_manager_pp_version', 1);
+    }
+
+    /** Whether the logged-in member must (re-)accept the current privacy policy. */
+    private function pp_reconsent_required($user_id = 0) {
+        $user_id = $user_id ? absint($user_id) : get_current_user_id();
+        if (!$user_id) {
+            return false;
+        }
+        return (int) get_user_meta($user_id, 'pp_accepted', true) < self::pp_current_version();
+    }
+
+    /** Record the member's acceptance of the current privacy-policy version. */
+    public function ajax_pp_accept() {
+        check_ajax_referer('rt_event_manager_pp_accept', 'nonce');
+        if (!is_user_logged_in()) {
+            wp_send_json_error(__('You must be logged in.', 'rt-event-manager'));
+        }
+        update_user_meta(get_current_user_id(), 'pp_accepted', self::pp_current_version());
+        wp_send_json_success();
+    }
+
+    /** Modal shown until the member accepts the (updated) privacy policy. */
+    private function render_pp_modal() {
+        if (!$this->pp_reconsent_required()) {
+            return;
+        }
+        $url = get_option('rt_event_manager_pp_url', '');
+        if ('' === $url && function_exists('get_privacy_policy_url')) {
+            $url = get_privacy_policy_url();
+        }
+        echo '<div class="rtacc-modal rtacc-pp-modal" id="rtacc-modal-pp">';
+        echo '<div class="rtacc-modal-backdrop"></div>'; // no data-rtacc-close: must accept
+        echo '<div class="rtacc-modal-dialog">';
+        echo '<h3 class="rtacc-subtitle">' . esc_html__('Our privacy policy has been updated', 'rt-event-manager') . '</h3>';
+        echo '<p>' . esc_html__('We have updated our privacy policy. Please review and accept it to continue using your event account.', 'rt-event-manager') . '</p>';
+        $changes = trim((string) get_option('rt_event_manager_pp_changes', ''));
+        if ('' !== $changes) {
+            echo '<div class="rtacc-alert-secondary"><strong>' . esc_html__('What changed', 'rt-event-manager') . '</strong><br>' . nl2br(esc_html($changes)) . '</div>';
+        }
+        if ('' !== $url) {
+            echo '<p><a href="' . esc_url($url) . '" target="_blank" rel="noopener noreferrer">' . esc_html__('Read the privacy policy', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a></p>';
+        }
+        echo '<p class="rtacc-modal-error uk-text-danger" style="display:none;"></p>';
+        echo '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary rtacc-pp-accept">' . esc_html__('I accept the updated privacy policy', 'rt-event-manager') . '</button></p>';
+        echo '</div>';
+        echo '</div>';
+    }
+
     public function ajax_save_profile() {
         check_ajax_referer('rt_event_manager_save_profile', 'nonce');
 
@@ -3338,6 +3867,18 @@ class RT_Event_Manager_Account {
         // Always-editable local fields.
         if (isset($_POST['function'])) {
             update_user_meta($user_id, 'rti_function', sanitize_text_field(wp_unslash($_POST['function'])));
+        }
+
+        // Validate emergency emails first: reject a non-empty but malformed
+        // address rather than silently dropping it via sanitize_email().
+        foreach (array(1, 2) as $n) {
+            $field = 'emergency' . $n . '_email';
+            if (isset($_POST[$field])) {
+                $raw = trim((string) wp_unslash($_POST[$field]));
+                if ('' !== $raw && !is_email($raw)) {
+                    wp_send_json_error(__('Please enter a valid email address.', 'rt-event-manager'));
+                }
+            }
         }
 
         // Emergency contacts (up to two): Name, Relationship, Email, Phone.
@@ -3358,10 +3899,14 @@ class RT_Event_Manager_Account {
         if (!$this->user_is_sso($user_id)) {
             $userdata = array('ID' => $user_id);
             if (isset($_POST['first_name'])) {
-                $userdata['first_name'] = sanitize_text_field(wp_unslash($_POST['first_name']));
+                $fn = sanitize_text_field(wp_unslash($_POST['first_name']));
+                $userdata['first_name'] = $fn;
+                update_user_meta($user_id, 'billing_first_name', $fn); // prefill checkout billing
             }
             if (isset($_POST['last_name'])) {
-                $userdata['last_name'] = sanitize_text_field(wp_unslash($_POST['last_name']));
+                $ln = sanitize_text_field(wp_unslash($_POST['last_name']));
+                $userdata['last_name'] = $ln;
+                update_user_meta($user_id, 'billing_last_name', $ln);
             }
             if (isset($_POST['email'])) {
                 $email = sanitize_email(wp_unslash($_POST['email']));
@@ -3378,7 +3923,7 @@ class RT_Event_Manager_Account {
                 wp_update_user($userdata);
             }
 
-            $meta_map = array('rti_family', 'rti_club', 'billing_address_1', 'billing_address_2', 'billing_city', 'billing_postcode', 'billing_country');
+            $meta_map = array('rti_family', 'rti_club', 'billing_address_1', 'billing_address_2', 'billing_city', 'billing_postcode', 'billing_country', 'billing_phone');
             foreach ($meta_map as $key) {
                 if (isset($_POST[$key])) {
                     update_user_meta($user_id, $key, sanitize_text_field(wp_unslash($_POST[$key])));

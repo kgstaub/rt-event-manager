@@ -75,6 +75,8 @@
 .rtacc-offcanvas .uk-nav > li > a {
     display: block;
     padding: 8px 12px;
+    margin: 2px 0; /* small gap so highlighted items don't touch */
+    position: relative; /* anchor for the corner notification dot */
 }
 /* Active item: brand colour + bold on a light gray button. */
 .rtacc-nav .uk-nav > li.uk-active > a,
@@ -89,6 +91,30 @@
 .rtacc-offcanvas .uk-nav > li:not(.rtacc-nav-logout) > a:hover {
     background: #f3f4f5;
     border-radius: 6px;
+}
+/* Blue notification icon pinned to the item's top-right corner, like an app
+ * icon badge. */
+.rtacc-nav-dot {
+    position: absolute;
+    /* Sits just past the item's top-right corner, peeking above and right. */
+    top: -6px;
+    right: -9px;
+    margin: 0;
+    padding: 0;
+    font-size: 17px;
+    line-height: 1;
+    color: #1e87f0;
+    background: none;
+}
+/* A nav item with an active notification gets a light blue background. */
+.rtacc-nav .uk-nav > li.rtacc-nav-attention > a,
+.rtacc-offcanvas .uk-nav > li.rtacc-nav-attention > a {
+    background: #e6f2fd;
+    border-radius: 6px;
+}
+.rtacc-nav .uk-nav > li.rtacc-nav-attention > a:hover,
+.rtacc-offcanvas .uk-nav > li.rtacc-nav-attention > a:hover {
+    background: #d3e8fc;
 }
 /* Blank gap between navigation groups (no line). */
 .rtacc-nav-sep {
@@ -700,6 +726,12 @@
     max-width: 480px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
 }
+/* Wider, scrollable dialog for content-heavy modals (e.g. visa letters). */
+.rtacc-modal--wide .rtacc-modal-dialog {
+    max-width: 780px;
+    max-height: 88vh;
+    overflow-y: auto;
+}
 .rtacc-modal-dialog .rtacc-field {
     margin-bottom: 12px;
 }
@@ -1035,7 +1067,8 @@
     /* Editable controls fill the value side without overflowing (min-width:0
        lets the flex item shrink below its intrinsic width). */
     .rtacc-tickets td .uk-input,
-    .rtacc-tickets td .uk-select {
+    .rtacc-tickets td .uk-select,
+    .rtacc-tickets td .rtacc-select {
         flex: 1 1 0;
         min-width: 0;
         max-width: none;
@@ -1056,3 +1089,422 @@
         display: block;
         border: none;
     }
+
+/* ------------------------------------------------------------------ *
+ * Logged-out login / register page (two columns).
+ * Layout only — cards, inputs, buttons and alerts inherit the theme
+ * (UIkit / YOOtheme Pro) styling via uk-* classes and the .woocommerce
+ * wrapper. Do not restyle those here.
+ * ------------------------------------------------------------------ */
+.rtacc-auth {
+    width: 100%;
+}
+.rtacc-auth-title {
+    margin-top: 0;
+}
+.rtacc-auth-note p {
+    margin: 0 0 8px;
+}
+.rtacc-auth-note p:last-child {
+    margin-bottom: 0;
+}
+
+/* Row-level save alert — floats over the edited stacked ticket box. */
+.rtacc-row-has-alert {
+    position: relative;
+}
+.rtacc-row-alert {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    z-index: 20;
+    pointer-events: none; /* let the box stay interactive; re-enable on the alert */
+}
+.rtacc-row-alert .uk-alert {
+    margin: 0;
+    box-sizing: border-box;
+    pointer-events: auto;
+}
+
+/* Inline "saved" confirmation on a field: green via uk-form-success, plus a
+ * checkmark at the right edge with a little padding. Selects keep their native
+ * arrow (no checkmark), showing only the green border. */
+.rtacc-field-saved {
+    transition: border-color 0.2s ease, color 0.2s ease;
+}
+input.rtacc-field-saved,
+textarea.rtacc-field-saved {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%232E9500' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 34px !important;
+}
+
+/* Secondary emergency contact locked until the primary contact is complete. */
+.rtacc-emergency-secondary.rtacc-locked {
+    opacity: 0.55;
+}
+.rtacc-emergency-secondary.rtacc-locked input,
+.rtacc-emergency-secondary.rtacc-locked select {
+    cursor: not-allowed;
+}
+
+/* Themed allergy autocomplete (replaces the unstyleable native datalist). */
+.rtacc-combo {
+    position: relative;
+    display: block;
+    margin-top: 4px;
+}
+.rtacc-combo-list {
+    position: absolute;
+    z-index: 30;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin: 2px 0 0;
+    padding: 4px 0;
+    list-style: none;
+    background: #fff;
+    border: 1px solid var(--rtacc-border, #e6e6e6);
+    border-radius: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.rtacc-combo-list li {
+    padding: 6px 12px;
+    cursor: pointer;
+}
+.rtacc-combo-list li:hover,
+.rtacc-combo-list li.rtacc-combo-active {
+    background: var(--rtacc-primary, #CC0B24);
+    color: #fff;
+}
+
+/* Themed custom <select> replacement (matches the theme's dropdown styling
+ * instead of the browser's native option popup). */
+.rtacc-select {
+    position: relative;
+}
+.rtacc-select-toggle {
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+.rtacc-select-danger .rtacc-select-toggle {
+    border-color: #CC0B24; /* theme danger */
+}
+.rtacc-select-list {
+    position: absolute;
+    z-index: 30;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin: 2px 0 0;
+    padding: 4px 0;
+    list-style: none;
+    background: #fff;
+    border: 1px solid var(--rtacc-border, #e6e6e6);
+    border-radius: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+.rtacc-select-list li {
+    padding: 6px 12px;
+    cursor: pointer;
+}
+.rtacc-select-list li:hover,
+.rtacc-select-list li.rtacc-combo-active {
+    background: var(--rtacc-primary, #CC0B24);
+    color: #fff;
+}
+
+/* Field/control text reads left-aligned everywhere (the stacked value cell is
+ * otherwise right-aligned, which pushed input text and dropdowns to the right). */
+.rtacc .uk-input,
+.rtacc .uk-select,
+.rtacc .uk-textarea,
+.rtacc-tickets td .uk-input,
+.rtacc-tickets td .uk-select,
+.rtacc-tickets td .rtacc-select-toggle,
+.rtacc-select-toggle,
+.rtacc-combo-input,
+.rtacc-combo-list,
+.rtacc-combo-list li,
+.rtacc-select-list,
+.rtacc-select-list li,
+.rtacc-modal .uk-input,
+.rtacc-modal .uk-select {
+    text-align: left;
+}
+
+/* Native <select> is kept as the value source but hidden; the themed toggle
+ * + list (built by the JS enhancer) drive it. */
+.rtacc-select > select {
+    display: none !important;
+}
+
+/* Items with an active notification: dark-blue label + icon (overrides the
+ * brand red used for normal/active items). */
+.rtacc-nav .uk-nav > li.rtacc-nav-attention > a,
+.rtacc-offcanvas .uk-nav > li.rtacc-nav-attention > a,
+.rtacc-nav .uk-nav > li.rtacc-nav-attention .rtacc-nav-icon,
+.rtacc-offcanvas .uk-nav > li.rtacc-nav-attention .rtacc-nav-icon {
+    color: #14508c !important; /* dark blue */
+}
+
+/* Search box atop a long themed select list (e.g. country). */
+.rtacc-select-list .rtacc-select-search {
+    position: sticky;
+    top: 0;
+    padding: 6px 8px;
+    background: #fff;
+    border-bottom: 1px solid var(--rtacc-border, #e6e6e6);
+    cursor: default;
+}
+.rtacc-select-list .rtacc-select-search:hover {
+    background: #fff;
+    color: inherit;
+}
+.rtacc-select-list .rtacc-select-filter {
+    width: 100%;
+    height: 34px;
+}
+
+/* ---- Ticket row edit mode (pencil / save) ---- */
+.rtacc-edit-controls {
+    display: inline-flex;
+    gap: 6px;
+    vertical-align: middle;
+}
+.rtacc-edit-controls .rtacc-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--rtacc-border, #e6e6e6);
+    border-radius: 6px;
+    background: #fff;
+    color: #333;
+    cursor: pointer;
+    line-height: 1;
+}
+.rtacc-edit-controls .rtacc-icon-btn:hover {
+    background: #f3f4f5;
+}
+.rtacc-edit-controls .rtacc-edit-save {
+    color: var(--rtacc-primary, #CC0B24);
+    border-color: var(--rtacc-primary, #CC0B24);
+}
+/* A disabled themed select (row not in edit mode) looks muted. */
+.rtacc-select > select:disabled ~ .rtacc-select-toggle {
+    opacity: 0.6;
+    cursor: default;
+}
+
+/* Required-but-empty field, highlighted while its section's nav notice is active.
+ * outline (not box-shadow) so it survives the portal's no-shadow rule. */
+.rtacc-required-missing {
+    outline: 2px solid var(--rtacc-primary, #CC0B24) !important;
+    outline-offset: 0;
+    border-radius: 6px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Dashboard event ticket — physical ticket with a perforated QR stub,
+ * styled to echo the Apple Wallet pass (brand red, cream labels).
+ * ------------------------------------------------------------------ */
+.rtacc-ticket-list {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin: 12px 0 8px;
+}
+.rtacc-ticket {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    background: var(--rtacc-primary, #CC0B24);
+    color: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+}
+.rtacc-ticket-body {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 22px 26px;
+    overflow: hidden;
+}
+.rtacc-ticket-logo {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+    border-radius: 50%;
+    vertical-align: middle;
+    margin-bottom: 8px;
+}
+/* Kicker (Ticket / short name) — centred at the top of the QR stub. */
+.rtacc-ticket-kicker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    line-height: 1.15;
+}
+.rtacc-ticket-lbl {
+    display: block;
+    color: #FFF0C4;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.rtacc-ticket-strong { font-size: 20px; font-weight: 700; }
+.rtacc-ticket-event { margin-bottom: 16px; }
+.rtacc-ticket-title { display: block; font-size: 24px; font-weight: 700; line-height: 1.15; }
+.rtacc-ticket-dates { display: block; margin-top: 6px; color: #FFF0C4; font-size: 14px; font-weight: 600; }
+.rtacc-ta-center { text-align: center; }
+.rtacc-ticket-val { display: block; font-size: 16px; font-weight: 600; margin-top: 2px; }
+.rtacc-ticket-grid { display: flex; gap: 16px; margin-bottom: 14px; position: relative; z-index: 1; }
+.rtacc-ticket-grid--2 { justify-content: space-between; }
+/* Row 1: attendee + guardian grouped left (with breathing room), ticket right. */
+.rtacc-ticket-row1 { justify-content: flex-start; gap: 56px; }
+.rtacc-ticket-row1 .rtacc-ta-right { margin-left: auto; }
+.rtacc-ticket-grid--3 > div { flex: 1 1 0; min-width: 0; }
+.rtacc-ta-right { text-align: right; margin-left: auto; }
+.rtacc-ticket-grid:last-of-type { margin-bottom: 0; }
+.rtacc-ticket-mascot {
+    position: absolute;
+    right: 6px;
+    bottom: -4px;
+    height: 120px;
+    max-height: 62%;
+    pointer-events: none;
+    z-index: 0;
+}
+/* Perforated stub — holds the kicker, QR, ticket no. and wallet buttons. */
+.rtacc-ticket-stub {
+    position: relative;
+    flex: 0 0 250px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 22px 18px;
+}
+/* Perforation: a column of white discs (r=15px) centred on the seam, matching
+ * the end notch indents. Rendered as an un-clipped strip so full circles show
+ * on both the ticket and stub sides. */
+.rtacc-ticket-perf {
+    position: absolute;
+    top: 12px;
+    bottom: 12px;
+    left: -5px;
+    width: 10px;
+    background-image: radial-gradient(circle, #fff 0 5px, rgba(255, 255, 255, 0) 6px);
+    background-repeat: repeat-y;
+    background-position: center; /* centre the disc rhythm → symmetric top/bottom gaps */
+    background-size: 10px 18px;
+    pointer-events: none;
+}
+.rtacc-ticket-stub .rtacc-wallet-badges {
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin: 2px 0 0;
+}
+.rtacc-ticket-stub::before,
+.rtacc-ticket-stub::after {
+    content: "";
+    position: absolute;
+    left: -5px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #fff; /* notch cut, matches the page background */
+}
+.rtacc-ticket-stub::before { top: -5px; }
+.rtacc-ticket-stub::after { bottom: -5px; }
+.rtacc-ticket-qr {
+    width: 134px;
+    height: 134px;
+    background: #fff;
+    border-radius: 8px;
+    padding: 8px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--rtacc-primary, #CC0B24);
+    font-weight: 700;
+}
+.rtacc-ticket-stub-id { color: #FFF0C4; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+/* Semicircular cutout in the stub's outer (right) edge — the ticket's
+ * overflow:hidden clips the outer half, leaving a bite. */
+.rtacc-ticket-cut {
+    position: absolute;
+    top: 50%;
+    right: -57px;
+    width: 88px;
+    height: 132px;
+    margin-top: -66px;
+    border-radius: 50%;
+    background: #fff;
+    pointer-events: none;
+}
+.rtacc-ticket--void { opacity: 0.6; filter: grayscale(0.4); }
+.rtacc-ticket-wallet { margin: -2px 0 2px; }
+
+/* Smaller displays: turn the ticket 90° into a portrait pass (stub below the
+ * body) that reads like the Apple Wallet ticket — big centred QR at the bottom. */
+@media (max-width: 700px) {
+    .rtacc-ticket { flex-direction: column; }
+    .rtacc-ticket-stub {
+        flex-basis: auto;
+        padding: 26px 18px 24px;
+    }
+    /* No perforation dots, notch indents or side cutout in portrait. */
+    .rtacc-ticket-perf,
+    .rtacc-ticket-stub::before,
+    .rtacc-ticket-stub::after,
+    .rtacc-ticket-cut {
+        display: none;
+    }
+    /* Bigger, centred QR like the wallet pass. */
+    .rtacc-ticket-qr { width: 168px; height: 168px; }
+    /* Add-to-wallet buttons on one line under the QR. */
+    .rtacc-ticket-stub .rtacc-wallet-badges {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    /* Gianni sits in the bottom-right of the whole ticket, behind the content.
+     * (body goes static so the mascot positions against the ticket; the stub
+     * keeps a higher stacking level so the QR/buttons stay on top.) */
+    .rtacc-ticket-body { position: static; }
+    .rtacc-ticket-stub { z-index: 1; }
+    .rtacc-ticket-mascot {
+        top: auto;
+        bottom: 0;
+        right: 8px;
+        height: 132px;
+        z-index: 0;
+    }
+}
+
+/* Version tag under the navigation — text styling comes from the uk-* classes. */
+.rtacc-nav-version {
+    margin-top: 12px;
+    padding: 0 12px;
+    text-align: center;
+}
