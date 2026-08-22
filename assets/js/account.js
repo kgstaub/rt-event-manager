@@ -851,58 +851,97 @@
     }
     initTicketRows();
 
-    // ---- Holographic ticket: the shimmer sweeps as the page scrolls ----
+    // ---- Holographic ticket: shimmer + mouse "heavy weight" tilt ----
     (function initTicketHolo() {
+        var $tickets = $('.rtacc-ticket');
+        if (!$tickets.length) { return; }
+
+        // Motion preference (persisted; OFF by default → motion enabled).
+        var motionOff = false;
+        try { motionOff = localStorage.getItem('rtacc_motion_off') === '1'; } catch (e) {}
+        var reduce   = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var canHover = !window.matchMedia || window.matchMedia('(hover: hover)').matches;
+
+        function motionOn() { return !motionOff && !reduce; }
+        function resetTransforms() {
+            $tickets.each(function () {
+                this.style.setProperty('--rt-rx', '0deg');
+                this.style.setProperty('--rt-ry', '0deg');
+                this.style.setProperty('--rt-scale', '1');
+            });
+        }
+        function applyMotionState() {
+            $('.rtacc').toggleClass('rtacc-no-motion', motionOff);
+            if (motionOff) { resetTransforms(); }
+        }
+
+        // Toggle control (a checkbox rendered on the dashboard).
+        var $toggle = $('#rtacc-motion-toggle');
+        $toggle.prop('checked', motionOff);
+        $toggle.on('change', function () {
+            motionOff = this.checked;
+            try { localStorage.setItem('rtacc_motion_off', motionOff ? '1' : '0'); } catch (e) {}
+            applyMotionState();
+        });
+        applyMotionState();
+
+        // Scroll sweeps the glare (keeps the foil alive with no pointer).
         var holos = $('.rtacc-ticket-holo').toArray();
-        if (!holos.length) { return; }
         var ticking = false;
-        function update() {
+        function updateScroll() {
             ticking = false;
+            if (!motionOn()) { return; }
             var vh = window.innerHeight || document.documentElement.clientHeight;
             holos.forEach(function (holo) {
-                var host = holo.parentNode; // .rtacc-ticket
+                var host = holo.parentNode;
                 if (!host) { return; }
                 var r = host.getBoundingClientRect();
                 if (!r.height) { return; }
-                // 0 as the ticket enters the bottom of the viewport, 1 as it
-                // leaves the top — so scrolling drags the sheen across it.
-                var p = (vh - r.top) / (vh + r.height);
-                p = Math.max(0, Math.min(1, p));
+                var p = Math.max(0, Math.min(1, (vh - r.top) / (vh + r.height)));
                 var pct = (p * 100).toFixed(1) + '%';
                 holo.style.setProperty('--rtx', pct);
                 holo.style.setProperty('--rty', pct);
             });
         }
-        function onScroll() {
-            if (!ticking) { ticking = true; window.requestAnimationFrame(update); }
-        }
+        function onScroll() { if (!ticking) { ticking = true; window.requestAnimationFrame(updateScroll); } }
         window.addEventListener('scroll', onScroll, { passive: true });
         window.addEventListener('resize', onScroll, { passive: true });
-        update();
-    })();
+        updateScroll();
 
-    // ---- Holographic ticket: mouse "heavy weight" tilt (dips inward) ----
-    (function initTicketTilt() {
-        // Only on devices with a real hovering pointer.
-        if (window.matchMedia && !window.matchMedia('(hover: hover)').matches) { return; }
-        var MAX = 7; // max tilt in degrees
-        $('.rtacc-ticket').each(function () {
-            var card = this;
-            $(card).on('pointermove', function (e) {
-                var r = card.getBoundingClientRect();
-                if (!r.width || !r.height) { return; }
-                var px = (e.clientX - r.left) / r.width - 0.5;  // -0.5 … 0.5
-                var py = (e.clientY - r.top) / r.height - 0.5;
-                // The side under the pointer sinks inward, like a pressed weight.
-                card.style.setProperty('--rt-ry', (px * 2 * MAX).toFixed(2) + 'deg');
-                card.style.setProperty('--rt-rx', (-py * 2 * MAX).toFixed(2) + 'deg');
-                card.style.setProperty('--rt-scale', '0.985');
-            }).on('pointerleave', function () {
-                card.style.setProperty('--rt-ry', '0deg');
-                card.style.setProperty('--rt-rx', '0deg');
-                card.style.setProperty('--rt-scale', '1');
+        // Pointer sweeps the light and tilts the ticket inward (real pointers).
+        if (canHover) {
+            var MAX = 4; // max tilt in degrees (subtle)
+            $tickets.each(function () {
+                var card = this;
+                var holo = card.querySelector('.rtacc-ticket-holo');
+                $(card).on('pointermove', function (e) {
+                    if (!motionOn()) { return; }
+                    var r = card.getBoundingClientRect();
+                    if (!r.width || !r.height) { return; }
+                    var nx = (e.clientX - r.left) / r.width;   // 0 … 1
+                    var ny = (e.clientY - r.top) / r.height;
+                    if (holo) {
+                        holo.style.setProperty('--rtx', (nx * 100).toFixed(1) + '%');
+                        holo.style.setProperty('--rty', (ny * 100).toFixed(1) + '%');
+                        holo.style.setProperty('--sheen', (nx * 200).toFixed(1) + '%');
+                    }
+                    // The side under the pointer sinks inward, like a pressed weight.
+                    card.style.setProperty('--rt-ry', ((nx - 0.5) * 2 * MAX).toFixed(2) + 'deg');
+                    card.style.setProperty('--rt-rx', ((0.5 - ny) * 2 * MAX).toFixed(2) + 'deg');
+                    card.style.setProperty('--rt-scale', '0.99');
+                }).on('pointerleave', function () {
+                    card.style.setProperty('--rt-ry', '0deg');
+                    card.style.setProperty('--rt-rx', '0deg');
+                    card.style.setProperty('--rt-scale', '1');
+                    if (holo) {
+                        // Let the ambient drift + scroll take back over.
+                        holo.style.removeProperty('--sheen');
+                        holo.style.removeProperty('--rtx');
+                        holo.style.removeProperty('--rty');
+                    }
+                });
             });
-        });
+        }
     })();
 
     // Use .hide()/.show() (inline display) rather than the [hidden] attribute:

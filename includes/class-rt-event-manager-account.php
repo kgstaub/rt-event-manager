@@ -887,6 +887,8 @@ class RT_Event_Manager_Account {
                         $this->render_ticket_visual($t);
                     }
                     echo '</div>';
+                    // Motion preference (unchecked = effects on; persisted in JS).
+                    echo '<label class="rtacc-motion-toggle"><input type="checkbox" id="rtacc-motion-toggle" class="uk-checkbox" /> ' . esc_html__('Disable motion effects', 'rt-event-manager') . '</label>';
                 }
                 if (!empty($tours)) {
                     echo '<table class="rtacc-table rtacc-tickets rtacc-dashboard-table uk-table uk-table-divider uk-table-middle uk-table-small">';
