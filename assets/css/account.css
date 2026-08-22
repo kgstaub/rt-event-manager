@@ -1503,8 +1503,8 @@
             mask-image: var(--holo-mask);
     -webkit-mask-repeat: repeat;
             mask-repeat: repeat;
-    -webkit-mask-size: 620px 57.9px;
-            mask-size: 620px 57.9px;
+    -webkit-mask-size: 1300px 121.3px;
+            mask-size: 1300px 121.3px;
     animation: rtacc-holo-sheen 16s linear infinite;
     transition: --rtx 0.4s linear, --rty 0.4s linear, --sheen 0.4s linear;
 }
