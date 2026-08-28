@@ -3,6 +3,14 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.2.8] — 2026-08-28
+
+### Fixed
+- **Invalid tickets showing in the member portal**: a ticket whose order is dead
+  (cancelled / failed / trashed / deleted / unpaid) is now hidden from the
+  dashboard and ticket lists, alongside cancelled/refunded. (Still visible via the
+  "show cancelled" toggle / refunds view.)
+
 ## [2.2.7] — 2026-08-28
 
 ### Fixed

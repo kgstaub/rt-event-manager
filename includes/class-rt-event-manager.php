@@ -2806,11 +2806,13 @@ class RT_Event_Manager {
             $params       = array_merge($params, $order_ids);
         }
 
-        // Cancelled and refunded tickets are hidden from the customer portal
-        // unless explicitly requested (the "show cancelled" toggle).
+        // Cancelled, refunded and invalid tickets are hidden from the customer
+        // portal unless explicitly requested (the "show cancelled" toggle / the
+        // refunds view). "invalid" means the order is dead — cancelled, failed,
+        // trashed/deleted or unpaid — so it should not show as a ticket.
         $sql = "SELECT * FROM $table_name WHERE (" . implode(' OR ', $where) . ")";
         if (!$include_terminal) {
-            $sql .= " AND status NOT IN ('cancelled', 'refunded')";
+            $sql .= " AND status NOT IN ('cancelled', 'refunded', 'invalid')";
         }
         $sql .= ' ORDER BY order_id ASC, ticket_index ASC';
 
