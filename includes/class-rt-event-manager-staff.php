@@ -51,6 +51,7 @@ class RT_Event_Manager_Staff {
     private function __construct() {
         add_action('admin_menu', array($this, 'add_admin_menu'), 23);
         add_action('admin_init', array($this, 'handle_post'));
+        add_action('admin_init', array($this, 'maybe_refresh_holder_names'));
     }
 
     /* ------------------------------------------------------------------ *
@@ -172,6 +173,62 @@ class RT_Event_Manager_Staff {
      * Staff ticket CRUD
      * ------------------------------------------------------------------ */
 
+    /**
+     * The best full name for a staff holder: WP first+last, else the billing
+     * first+last (SSO accounts may not populate the WP name fields), else the
+     * display name.
+     *
+     * @param WP_User $user
+     * @return string
+     */
+    private static function resolve_holder_name($user) {
+        $full = trim($user->first_name . ' ' . $user->last_name);
+        if ('' === $full) {
+            $full = trim(
+                (string) get_user_meta($user->ID, 'billing_first_name', true) . ' ' .
+                (string) get_user_meta($user->ID, 'billing_last_name', true)
+            );
+        }
+        return ('' !== $full) ? $full : $user->display_name;
+    }
+
+    /**
+     * One-time upgrade: staff tickets created with the old default (holder = the
+     * account's display name, often just a first name) are refreshed to the full
+     * name. Only auto-generated names are touched — the stored value must equal
+     * the account display name, or be a single first name that the full name
+     * begins with. Any custom multi-word name an admin typed is left alone.
+     */
+    public function maybe_refresh_holder_names() {
+        if (get_option('rt_event_manager_staff_names_refreshed_v1')) {
+            return;
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'rti_tickets';
+        $rows  = $wpdb->get_results("SELECT id, owner_user_id, holder_name FROM $table WHERE ticket_kind = 'staff'", ARRAY_A);
+        foreach ((array) $rows as $r) {
+            $uid = absint($r['owner_user_id']);
+            if (!$uid) {
+                continue;
+            }
+            $user = get_userdata($uid);
+            if (!$user) {
+                continue;
+            }
+            $full   = self::resolve_holder_name($user);
+            $holder = (string) $r['holder_name'];
+            if ('' === $full || $full === $holder) {
+                continue;
+            }
+            $is_auto_default   = ($holder === $user->display_name);
+            $is_first_name_only = (false === strpos($holder, ' ') && 0 === stripos($full, $holder . ' '));
+            if ($is_auto_default || $is_first_name_only) {
+                $wpdb->update($table, array('holder_name' => $full), array('id' => absint($r['id'])), array('%s'), array('%d'));
+            }
+        }
+        update_option('rt_event_manager_staff_names_refreshed_v1', '1');
+    }
+
     /** All staff tickets, newest first, with the owner's user object attached. */
     public static function get_staff_tickets() {
         global $wpdb;
@@ -217,12 +274,8 @@ class RT_Event_Manager_Staff {
         $table = $wpdb->prefix . 'rti_tickets';
 
         if ('' === $holder) {
-            $user = get_userdata($user_id);
-            if ($user) {
-                // Prefer the full name (first + last); fall back to display name.
-                $full   = trim($user->first_name . ' ' . $user->last_name);
-                $holder = ('' !== $full) ? $full : $user->display_name;
-            }
+            $user   = get_userdata($user_id);
+            $holder = $user ? self::resolve_holder_name($user) : '';
         }
         // Custom role display name is stored in the (otherwise unused) rti_club.
         $role_display = sanitize_text_field($role_display);

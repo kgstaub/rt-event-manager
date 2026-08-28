@@ -10,6 +10,12 @@ versioning (MAJOR.MINOR.PATCH).
   now checks for the Endroid `Builder` class and catches `\Throwable` (a
   class-not-found is an `Error`, not an `Exception`, so the old catch missed it).
   A stale `vendor/` now just skips the QR image instead of killing the page.
+
+### Changed
+- **Staff ticket names**: assignment resolves the full name from WP first+last,
+  then billing first+last (for SSO accounts with empty WP name fields), then the
+  display name. A one-time migration upgrades existing staff tickets still on the
+  auto-generated first name to the full name (custom names are preserved).
 - **Critical error on the dashboard for accounts whose email is a billing address
   on many orders**: reverted the 2.2.4/2.2.5 email-based order match — it pulled in
   tickets from orders billed to that address (for other people) and could crash the
