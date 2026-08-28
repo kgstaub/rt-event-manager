@@ -3,6 +3,16 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.2.6] — 2026-08-28
+
+### Fixed
+- **Critical error on the dashboard for accounts whose email is a billing address
+  on many orders**: reverted the 2.2.4/2.2.5 email-based order match — it pulled in
+  tickets from orders billed to that address (for other people) and could crash the
+  dashboard render. `get_tickets_for_user()` is back to matching by `owner_user_id`
+  plus the account's own orders (now bounded to 300 for safety). Early-bird /
+  guest-order surfacing will return via a safer mechanism.
+
 ## [2.2.5] — 2026-08-28
 
 ### Fixed
