@@ -446,6 +446,13 @@ class RT_Event_Manager {
         ));
 
         woocommerce_wp_text_input(array(
+            'id'          => '_rti_title_override',
+            'label'       => __('Ticket title override', 'rt-event-manager'),
+            'desc_tip'    => true,
+            'description' => __('Optional. Shown in place of the product name on tickets, the dashboard, wallet passes and the calendar. Leave empty to use the product name.', 'rt-event-manager'),
+        ));
+
+        woocommerce_wp_text_input(array(
             'id'          => '_rti_start',
             'label'       => __('Starts (date & time)', 'rt-event-manager'),
             'type'        => 'datetime-local',
@@ -471,6 +478,7 @@ class RT_Event_Manager {
     public function save_ticket_product_options($post_id) {
         update_post_meta($post_id, '_rti_is_ticket', isset($_POST['_rti_is_ticket']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rti_ticket_dietary', isset($_POST['_rti_ticket_dietary']) ? 'yes' : 'no');
+        update_post_meta($post_id, '_rti_title_override', sanitize_text_field(wp_unslash($_POST['_rti_title_override'] ?? '')));
         update_post_meta($post_id, '_rti_start', sanitize_text_field(wp_unslash($_POST['_rti_start'] ?? '')));
         update_post_meta($post_id, '_rti_end', sanitize_text_field(wp_unslash($_POST['_rti_end'] ?? '')));
     }
@@ -4135,8 +4143,9 @@ class RT_Event_Manager {
         ), ARRAY_A);
 
         foreach ($tickets as $ticket) {
-            // Never overwrite terminal states set deliberately.
-            if (in_array($ticket['status'], array('checked_in', 'cancelled', 'refunded'), true)) {
+            // Never overwrite terminal / deliberately-set states (incl. tour
+            // attendance: on_tour / attended / no_show).
+            if (in_array($ticket['status'], array('checked_in', 'on_tour', 'attended', 'no_show', 'cancelled', 'refunded'), true)) {
                 continue;
             }
             $status = rt_event_manager_determine_ticket_status($order, $ticket['holder_name']);
@@ -4360,6 +4369,7 @@ class RT_Event_Manager {
             if (class_exists('WC_Admin_Settings')) {
                 WC_Admin_Settings::save_fields($this->get_settings_fields());
                 $this->save_receipt_bg_setting();
+                $this->save_foil_custom_setting();
                 $message = __('Settings saved.', 'rt-event-manager');
                 // "Require re-consent" is a one-shot trigger: bump the policy
                 // version (invalidating stored acceptances) and clear the box.
@@ -4371,6 +4381,25 @@ class RT_Event_Manager {
                 $this->set_admin_flash($message, 'success');
             }
             $this->redirect_admin_page('rt-event-manager-settings');
+        }
+
+        // --- Event Agenda: timezone setting ---
+        if (isset($_POST['rt_agenda_tz_save'])) {
+            if (!current_user_can('manage_options')) {
+                return;
+            }
+            check_admin_referer('rt_agenda_tz_save');
+            $tz = sanitize_text_field(wp_unslash($_POST['rt_event_manager_timezone'] ?? ''));
+            if ('' !== $tz) {
+                try {
+                    new DateTimeZone($tz);
+                } catch (\Exception $e) {
+                    $tz = '';
+                }
+            }
+            update_option('rt_event_manager_timezone', $tz);
+            $this->set_admin_flash(__('Event timezone saved.', 'rt-event-manager'), 'success');
+            $this->redirect_admin_page('rt-event-manager-agenda');
         }
 
         // --- Event Agenda page ---
@@ -5385,6 +5414,7 @@ class RT_Event_Manager {
         echo '<form method="post" action="">';
         WC_Admin_Settings::output_fields($fields);
         $this->render_receipt_bg_field();
+        $this->render_foil_custom_field();
         wp_nonce_field('rt_settings_save');
         echo '<p class="submit"><button type="submit" name="rt_settings_save" value="1" class="button button-primary">' . esc_html__('Save changes', 'rt-event-manager') . '</button></p>';
         echo '</form></div>';
@@ -5445,6 +5475,56 @@ class RT_Event_Manager {
      */
     public function save_receipt_bg_setting() {
         update_option('rt_event_manager_receipt_bg_img', absint($_POST['receipt_bg_img'] ?? 0));
+    }
+
+    /**
+     * Render the custom ticket-foil image picker on the Settings page. The image
+     * is used as a CSS mask over the holographic sheen (opaque = foil shows,
+     * transparent = hidden), so only its alpha channel matters. Reuses the
+     * generic .rti-media-upload / .rti-media-clear script from the receipt field.
+     */
+    public function render_foil_custom_field() {
+        $id  = absint(get_option('rt_event_manager_foil_custom', 0));
+        $src = $id ? wp_get_attachment_image_url($id, 'medium') : '';
+        if ($id && !$src) {
+            $src = wp_get_attachment_url($id); // SVGs have no intermediate sizes
+        }
+        $tile = get_option('rt_event_manager_foil_custom_w', '');
+
+        echo '<h2>' . esc_html__('Custom ticket foil', 'rt-event-manager') . '</h2>';
+        echo '<table class="form-table" role="presentation"><tr><th scope="row">'
+            . esc_html__('Custom foil image', 'rt-event-manager')
+            . '</th><td>';
+        echo '<div class="rti-media-preview" style="margin:6px 0;padding:8px;background:#14213d;display:inline-block;border-radius:4px;">'
+            . ($src ? '<img src="' . esc_url($src) . '" style="max-height:160px;display:block;" />' : '')
+            . '</div><br>';
+        echo '<input type="hidden" name="foil_custom_img" id="foil_custom_img" value="' . esc_attr($id) . '" /> ';
+        echo '<button type="button" class="button rti-media-upload" data-target="foil_custom_img">' . esc_html__('Select foil image', 'rt-event-manager') . '</button> ';
+        echo '<button type="button" class="button rti-media-clear" data-target="foil_custom_img">' . esc_html__('Remove', 'rt-event-manager') . '</button>';
+        echo '<p style="margin-top:10px;">'
+            . '<label>' . esc_html__('Tile width (px)', 'rt-event-manager') . ' '
+            . '<input type="number" min="8" step="1" name="foil_custom_w" value="' . esc_attr($tile) . '" style="width:100px;" placeholder="' . esc_attr__('natural', 'rt-event-manager') . '" />'
+            . '</label> <span class="description">' . esc_html__('How wide each repeat is drawn on the ticket. Leave blank to use the image’s natural pixel size.', 'rt-event-manager') . '</span></p>';
+        echo '<p class="description" style="max-width:640px;">'
+            . '<strong>' . esc_html__('File requirements', 'rt-event-manager') . '</strong><br>'
+            . esc_html__('• Format: PNG (recommended) or WEBP with an alpha channel; SVG works only if your site permits SVG uploads.', 'rt-event-manager') . '<br>'
+            . esc_html__('• Transparency is required. The image is used as a mask: opaque areas reveal the holographic foil, transparent areas hide it. Colour is ignored — only opacity matters, so design in white on a fully transparent background.', 'rt-event-manager') . '<br>'
+            . esc_html__('• Use solid white (#FFFFFF) for the brightest shimmer; use partial opacity for fainter, subtler areas.', 'rt-event-manager') . '<br>'
+            . esc_html__('• The image repeats in both directions. For a seamless texture, make its edges tileable (a half-drop or centred motif tiles best).', 'rt-event-manager') . '<br>'
+            . esc_html__('• Recommended: a square tile roughly 200–600px (or 2× for retina), under ~1 MB. Avoid hairline 1px details — they wash out at the on-screen scale. Keep strokes ≥ 2px.', 'rt-event-manager') . '<br>'
+            . esc_html__('• Tiling starts from the top-left of each ticket. Any aspect ratio is accepted.', 'rt-event-manager')
+            . '</p>';
+        echo '</td></tr></table>';
+    }
+
+    /**
+     * Persist the custom foil image id + tile width (saved alongside the other
+     * RT Event → Settings fields).
+     */
+    public function save_foil_custom_setting() {
+        update_option('rt_event_manager_foil_custom', absint($_POST['foil_custom_img'] ?? 0));
+        $w = isset($_POST['foil_custom_w']) ? absint($_POST['foil_custom_w']) : 0;
+        update_option('rt_event_manager_foil_custom_w', $w > 0 ? $w : '');
     }
 
     /**
@@ -5548,6 +5628,38 @@ class RT_Event_Manager {
             array(
                 'type' => 'sectionend',
                 'id'   => 'rti_account_tabs',
+            ),
+
+            array(
+                'title' => __('Ticket Appearance', 'rt-event-manager'),
+                'type'  => 'title',
+                'desc'  => __('Choose the holographic foil design shown on tickets in the customer account.', 'rt-event-manager'),
+                'id'    => 'rti_ticket_appearance',
+            ),
+            array(
+                'title'    => __('Ticket foil style', 'rt-event-manager'),
+                'desc'     => __('Text lines: repeating "Round Table International / Adopt Adapt Improve" micro-print with the rondel. Rondel pattern: a repeating field of rondels only. Custom: your own uploaded foil image (set below).', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_foil_style',
+                'type'     => 'select',
+                'options'  => array(
+                    'text'   => __('Text lines (with rondel)', 'rt-event-manager'),
+                    'dots'   => __('Rondel pattern (no text)', 'rt-event-manager'),
+                    'custom' => __('Custom (uploaded image)', 'rt-event-manager'),
+                ),
+                'default'  => 'text',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Wallet pass background', 'rt-event-manager'),
+                'desc'     => __('Add a static rondel foil background to Apple Wallet passes and a hero banner to Google Wallet passes. Off by default (plain colour).', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_wallet_foil',
+                'type'     => 'checkbox',
+                'default'  => 'no',
+                'desc_tip' => true,
+            ),
+            array(
+                'type' => 'sectionend',
+                'id'   => 'rti_ticket_appearance',
             ),
 
             array(
@@ -5887,6 +5999,19 @@ class RT_Event_Manager {
         $this->render_admin_flash();
         echo '<p class="description">' . esc_html__('These official agenda items appear in every attendee\'s event calendar.', 'rt-event-manager') . '</p>';
 
+        // Event timezone — used for tour open/close windows and agenda times.
+        $current_tz = (string) get_option('rt_event_manager_timezone', '');
+        echo '<form method="post" style="margin:16px 0;padding:16px;background:#fff;border:1px solid #ccd0d4;max-width:640px;">';
+        wp_nonce_field('rt_agenda_tz_save');
+        echo '<h2 style="margin-top:0;">' . esc_html__('Event timezone', 'rt-event-manager') . '</h2>';
+        echo '<p class="description">' . esc_html__('Timezone used to interpret event and tour times (e.g. the "2 hours before departure" window). Defaults to the WordPress site timezone.', 'rt-event-manager') . '</p>';
+        echo '<p><select name="rt_event_manager_timezone">';
+        echo '<option value="">' . esc_html__('Use WordPress site timezone', 'rt-event-manager') . ' (' . esc_html(wp_timezone_string()) . ')</option>';
+        echo wp_timezone_choice($current_tz);
+        echo '</select></p>';
+        echo '<p><button type="submit" name="rt_agenda_tz_save" value="1" class="button button-primary">' . esc_html__('Save timezone', 'rt-event-manager') . '</button></p>';
+        echo '</form>';
+
         // Add form.
         echo '<form method="post" style="margin:16px 0;padding:16px;background:#fff;border:1px solid #ccd0d4;max-width:640px;">';
         wp_nonce_field('rt_agenda_save');
@@ -5995,7 +6120,7 @@ class RT_Event_Manager {
      */
     public static function get_ticket_kind($row) {
         $k = isset($row['ticket_kind']) ? $row['ticket_kind'] : '';
-        if (in_array($k, array('pretour', 'daytour', 'minor'), true)) {
+        if (in_array($k, array('pretour', 'daytour', 'minor', 'staff'), true)) {
             return $k;
         }
         return self::get_ticket_kind_for_product(isset($row['product_id']) ? $row['product_id'] : 0);
@@ -6007,6 +6132,164 @@ class RT_Event_Manager {
      * @param array $row
      * @return string
      */
+    /**
+     * The display title for a ticket/tour product: the per-product title override
+     * (_rti_title_override) when set, otherwise the WooCommerce product name.
+     *
+     * @param int $product_id
+     * @return string
+     */
+    public static function product_title($product_id) {
+        $override = trim((string) get_post_meta($product_id, '_rti_title_override', true));
+        if ('' !== $override) {
+            return $override;
+        }
+        $p = wc_get_product($product_id);
+        return $p ? $p->get_name() : '';
+    }
+
+    /* ---------------------------------------------------------------------
+     * Static holographic foil background for wallet passes. GD-drawn (no SVG
+     * rasteriser needed): the base card colour, a faint tiled rondel field, and
+     * a soft diagonal sheen — a still version of the on-screen ticket foil.
+     * ------------------------------------------------------------------- */
+
+    /** Base + accent RGB for a pass variant ('staff' | 'minor' | 'event'). */
+    private static function foil_palette($variant) {
+        switch ($variant) {
+            case 'staff':
+                return array(array(20, 33, 61), array(150, 178, 224));   // navy + steel
+            case 'minor':
+                return array(array(255, 240, 196), array(190, 140, 40));  // cream + bronze
+            default:
+                return array(array(204, 11, 36), array(255, 172, 190));   // red + pink
+        }
+    }
+
+    /**
+     * Render the foil background as PNG bytes, or null if GD is unavailable.
+     *
+     * @param int   $w
+     * @param int   $h
+     * @param array $base   [r,g,b] card colour
+     * @param array $accent [r,g,b] rondel/sheen tint
+     * @param int   $alpha  rondel transparency (0 opaque … 127 clear)
+     * @return string|null
+     */
+    public static function foil_pass_png($w, $h, $base, $accent, $alpha = 96) {
+        if (!function_exists('imagecreatetruecolor')) {
+            return null;
+        }
+        $im = imagecreatetruecolor($w, $h);
+        imagealphablending($im, true);
+        imagefilledrectangle($im, 0, 0, $w, $h, imagecolorallocate($im, $base[0], $base[1], $base[2]));
+
+        // Faint tiled rondels (the real SVG artwork, tinted) on a half-drop grid.
+        // Smaller diameter => denser field.
+        $diam = max(12, (int) round($h * 0.14));
+        $tile = self::foil_rondel_tile($accent, $alpha, $diam);
+        if (null !== $tile) {
+            $d    = imagesx($tile);
+            $step = max(40, (int) round($d * 1.4));
+            $row  = 0;
+            for ($cy = (int) round($step * 0.4); $cy < $h + $step; $cy += $step, $row++) {
+                $xoff = ($row % 2) ? (int) round($step * 0.5) : 0;
+                for ($cx = $xoff - $step; $cx < $w + $step; $cx += $step) {
+                    imagecopy($im, $tile, (int) round($cx - $d / 2), (int) round($cy - $d / 2), 0, 0, $d, $d);
+                }
+            }
+            imagedestroy($tile);
+        }
+
+        ob_start();
+        imagepng($im);
+        $out = ob_get_clean();
+        imagedestroy($im);
+        return $out;
+    }
+
+    /**
+     * The bundled rondel artwork (assets/img/rondel-white.png), scaled to $diam
+     * and recoloured to $accent at reduced opacity. Returns a GD image with a
+     * transparent background, or null on failure.
+     */
+    private static function foil_rondel_tile($accent, $alpha, $diam) {
+        $path = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/img/rondel-white.png';
+        if (!file_exists($path)) {
+            return null;
+        }
+        $src = @imagecreatefrompng($path);
+        if (!$src) {
+            return null;
+        }
+        $scaled = imagecreatetruecolor($diam, $diam);
+        imagealphablending($scaled, false);
+        imagesavealpha($scaled, true);
+        imagefill($scaled, 0, 0, imagecolorallocatealpha($scaled, 0, 0, 0, 127));
+        imagecopyresampled($scaled, $src, 0, 0, 0, 0, $diam, $diam, imagesx($src), imagesy($src));
+        imagedestroy($src);
+
+        // Tint white -> accent and scale opacity down to a faint watermark.
+        $strength = (127 - max(0, min(127, (int) $alpha))) / 127; // e.g. alpha 96 => ~0.24
+        $tint = imagecreatetruecolor($diam, $diam);
+        imagealphablending($tint, false);
+        imagesavealpha($tint, true);
+        imagefill($tint, 0, 0, imagecolorallocatealpha($tint, 0, 0, 0, 127));
+        $cache = array();
+        for ($y = 0; $y < $diam; $y++) {
+            for ($x = 0; $x < $diam; $x++) {
+                $a = (imagecolorat($scaled, $x, $y) >> 24) & 0x7F;
+                if ($a >= 127) {
+                    continue;
+                }
+                $fop = ((127 - $a) / 127) * $strength; // final opacity 0..1
+                if ($fop <= 0) {
+                    continue;
+                }
+                $ga = 127 - (int) round($fop * 127);
+                if (!isset($cache[$ga])) {
+                    $cache[$ga] = imagecolorallocatealpha($tint, $accent[0], $accent[1], $accent[2], $ga);
+                }
+                imagesetpixel($tint, $x, $y, $cache[$ga]);
+            }
+        }
+        imagedestroy($scaled);
+        return $tint;
+    }
+
+    /**
+     * A publicly hosted foil-background PNG for a pass variant (Google Wallet
+     * needs an image URL, not bytes). Generated once and cached in uploads,
+     * versioned by plugin version so it regenerates on upgrade. '' on failure.
+     *
+     * @param string $variant 'staff' | 'minor' | 'event'
+     * @return string
+     */
+    public static function foil_pass_url($variant) {
+        $variant = in_array($variant, array('staff', 'minor', 'event'), true) ? $variant : 'event';
+        $up = wp_upload_dir();
+        if (!empty($up['error'])) {
+            return '';
+        }
+        $dir = trailingslashit($up['basedir']) . 'rt-event-manager';
+        $url = trailingslashit($up['baseurl']) . 'rt-event-manager';
+        if (!file_exists($dir)) {
+            wp_mkdir_p($dir);
+        }
+        $ver  = defined('RT_EVENT_MANAGER_VERSION') ? RT_EVENT_MANAGER_VERSION : '1';
+        $file = 'foil-' . $variant . '-' . sanitize_key($ver) . '.png';
+        $path = trailingslashit($dir) . $file;
+        if (!file_exists($path)) {
+            list($base, $accent) = self::foil_palette($variant);
+            $png = self::foil_pass_png(1032, 336, $base, $accent, 96);
+            if (null === $png) {
+                return '';
+            }
+            file_put_contents($path, $png);
+        }
+        return trailingslashit($url) . $file;
+    }
+
     public static function ticket_kind_label($row) {
         $kind = self::get_ticket_kind($row);
         if ('minor' === $kind) {
@@ -6018,6 +6301,9 @@ class RT_Event_Manager {
         }
         if ('daytour' === $kind) {
             return __('Day tour', 'rt-event-manager');
+        }
+        if ('staff' === $kind) {
+            return __('Staff', 'rt-event-manager');
         }
         return __('Event', 'rt-event-manager');
     }
@@ -6116,11 +6402,65 @@ class RT_Event_Manager {
      * @param int $product_id
      * @return array{0:int,1:int}
      */
+    /**
+     * The event's timezone — the plugin's configured timezone (Event Agenda
+     * settings) if set, otherwise the WordPress site timezone.
+     *
+     * @return DateTimeZone
+     */
+    public static function event_timezone() {
+        $tz = (string) get_option('rt_event_manager_timezone', '');
+        if ('' !== $tz) {
+            try {
+                return new DateTimeZone($tz);
+            } catch (\Exception $e) {
+                // fall through to the site timezone
+            }
+        }
+        return wp_timezone();
+    }
+
+    /**
+     * Absolute Unix timestamp for a tour product's start, interpreting its stored
+     * (naive) datetime in the event timezone. 0 when unset.
+     *
+     * @param int $product_id
+     * @return int
+     */
+    public static function tour_start_timestamp($product_id) {
+        $s = get_post_meta($product_id, '_rti_start', true);
+        if ('' === $s) {
+            return 0;
+        }
+        return self::tour_dt_to_ts($s);
+    }
+
+    /**
+     * Convert a stored (naive) tour datetime string into an absolute Unix
+     * timestamp, interpreting it in the event timezone. 0 when unparseable.
+     *
+     * @param string $s
+     * @return int
+     */
+    public static function tour_dt_to_ts($s) {
+        $s = trim((string) $s);
+        if ('' === $s) {
+            return 0;
+        }
+        try {
+            return (new DateTime($s, self::event_timezone()))->getTimestamp();
+        } catch (\Exception $e) {
+            return (int) strtotime($s);
+        }
+    }
+
     public static function tour_product_range($product_id) {
         $s = get_post_meta($product_id, '_rti_start', true);
         $e = get_post_meta($product_id, '_rti_end', true);
-        $s = ('' !== $s) ? (int) strtotime($s) : 0;
-        $e = ('' !== $e) ? (int) strtotime($e) : 0;
+        // Interpret the stored (naive) datetimes in the event timezone so the
+        // displayed range and the session-key date agree with tour_start_timestamp().
+        $s = ('' !== $s) ? self::tour_dt_to_ts($s) : 0;
+        $e = ('' !== $e) ? self::tour_dt_to_ts($e) : 0;
         if (!$e) {
             $e = $s;
         }
@@ -6164,6 +6504,35 @@ class RT_Event_Manager {
      */
     public static function host_daytour_conflict($host_id, $new_product, $extra_products = array()) {
         $products = array();
+        foreach (self::get_child_daytours($host_id) as $c) {
+            $products[] = absint($c['product_id']);
+        }
+        foreach ($extra_products as $p) {
+            $products[] = absint($p);
+        }
+        foreach ($products as $p) {
+            if (self::daytours_conflict($p, $new_product)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether adding $new_product would overlap ANY tour (pretour or day tour)
+     * already linked to a host ticket. Uses tour_product_range time windows, so
+     * a pretour and a day tour that overlap in time also conflict.
+     *
+     * @param int   $host_id
+     * @param int   $new_product
+     * @param int[] $extra_products Extra product ids to consider (e.g. cart).
+     * @return bool
+     */
+    public static function host_tour_overlap($host_id, $new_product, $extra_products = array()) {
+        $products = array();
+        foreach (self::get_child_pretours($host_id) as $c) {
+            $products[] = absint($c['product_id']);
+        }
         foreach (self::get_child_daytours($host_id) as $c) {
             $products[] = absint($c['product_id']);
         }

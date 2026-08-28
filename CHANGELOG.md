@@ -3,6 +3,93 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.2.0] — 2026-08-28
+
+Event Staff & per-event check-in. Adds a `staff_role` column to the tickets
+table and two new tables (`rti_checkin_sessions`, `rti_checkins`); the schema
+migrates automatically (DB version 2.4.0 → 2.5.0).
+
+### Added
+- **Event Staff module** (*RT Event → Event Staff*): assign a staff ticket to any
+  member account (by email / username / user ID) with one of four roles —
+  **Manager** (full access), **Registration manager** (main-event check-in +
+  attendee profiles), **Event operator** (pre/day-tour check-in, open/close
+  events, participant profiles) and **Regular staff** (no access). One staff
+  ticket per account; re-assigning updates the role; Revoke removes it. Staff
+  tickets appear on the member's dashboard as a `STAFF` ticket with a QR.
+- **Per-event check-in** in the staff PWA:
+  - A **session selector** — the always-on **main registration desk** plus one
+    session per **tour product + date**.
+  - **Main desk**: registration managers (and managers) scan attendee tickets and
+    check them into the event (existing behaviour, now role-gated).
+  - **Tour sessions**: event operators (and managers) **open** a tour, scan
+    attendees as they **board**, and **close** it — closing **confirms
+    attendance** and records every unscanned holder as **not-attended**.
+  - Access to each session, and to open/close, is gated by the staff role.
+- **Tour duties for staff**: assign a pre/day tour to a staff ticket as **Guide**
+  or **Supervisor** (RT Event → Event Staff). The duty shows on the staff
+  member's dashboard tour list; duty rows are excluded from a tour's attendee
+  count and are not marked absent when a session closes. A staff member cannot
+  be assigned two tours whose times overlap.
+- **Staff-styled tickets & wallet passes**: staff tickets are **navy blue** with a
+  **dark-blue** holographic foil on the dashboard, and their Apple Wallet and
+  Google Wallet passes are generated in navy (role shown in place of the club).
+- **Custom role label**: an optional display name overrides the standard role
+  name on the staff ticket and wallet pass (the access level still follows the
+  chosen role).
+- **"Event Staff" badge** (staff navy) next to the dashboard greeting for staff.
+- The **My Calendar** menu is shown to staff too (a later release adds their
+  work / shift assignments), and the **Pretour / Day Tours** menus appear for a
+  staff member assigned that tour as guide / supervisor.
+- A **Check-in** tab under an **Event Management** heading in the account
+  navigation embeds the scanning app inside the portal (the menu stays visible) —
+  shown only to event operators and above (users with a check-in capability),
+  never to regular staff or attendees.
+- **Find Guest** (Event Management): search attendees by name, email, phone,
+  order or ticket number and view a read-only profile — details, dietary,
+  emergency contacts, guardian, everyone they are guardian for, and the status of
+  every ticket (pending / confirmed / checked-in). The purchasing (main) account
+  is shown as a link to its profile. Managers and registration managers see all
+  attendees; a **pure event guide only sees guests booked on the tour(s) they are
+  assigned to**.
+- **Future member (minor) styling**: cream/secondary card with primary-red
+  labels, dark-brown values and a dark-gold holographic foil, applied to the
+  dashboard ticket and the Apple / Google Wallet passes.
+- **Visa-letter verification (QR)**: each generated letter of invitation carries
+  a QR code (and printed link + reference) that opens a no-login page confirming
+  a letter with that reference **was issued**, showing the applicant name,
+  reference, issue date and a **"View the stored letter (PDF)"** button (the
+  exact stored copy) to compare with the presented document. Links are
+  **HMAC-signed tokens** (`?rtem_visa=<token>`) so references can't be enumerated;
+  the page **states it does not certify the physical document is unaltered**.
+  Admin *Visa Letters* gains a **Verify link** column. Public endpoints (the
+  verify page and the stored-PDF view) are no-login, token-gated and `noindex`.
+- **Log in as member (user switching)**: **WordPress administrators and the event
+  Manager role** can switch into a member's account to reproduce/verify issues —
+  from the front-end **Find Guest** profile (a "Log in as this member" button)
+  and from the *Users* list row action — then switch back from a fixed return
+  banner (and the admin bar; managers land back on the account portal). Nonce-
+  protected; cannot switch into another administrator or manager; the return is
+  proven server-side by a random token → the original user id (an impersonated
+  member can never escalate). Fires `rt_event_manager_user_switched` /
+  `rt_event_manager_user_switch_back` for auditing.
+
+### Changed
+- **Transfer accept now "recodes" the ticket**: accepting a transfer issues a
+  brand-new ticket (order 0, new number → new check-in QR) for the recipient and
+  marks the original as transferred (cancelled). Linked pre/day tours follow to
+  the recoded ticket.
+- **Transfer and refund/cancel are disabled** for staff tickets and staff tour
+  duties (they are organiser-assigned) — hidden in the member portal and
+  rejected server-side.
+- Check-in page access is now governed by staff roles (shop managers / admins
+  keep full access).
+
+### Fixed
+- The **Save button now reliably appears** when editing a ticket row (the
+  edit/save toggle no longer gets stuck hidden by the `[hidden]` attribute vs.
+  the button's CSS display rule).
+
 ## [2.1.8] — 2026-08-22
 
 Admin-usability, checkout and dashboard fixes. Backward compatible — no data

@@ -28,6 +28,18 @@
     var manualToggle = document.getElementById('rtem-manual-toggle');
     if (!video) { return; }
 
+    // ---- Check-in sessions (main desk + per-tour) ----
+    var sessionBar    = document.getElementById('rtem-session-bar');
+    var sessionSelect = document.getElementById('rtem-session');
+    var sessionState  = document.getElementById('rtem-session-state');
+    var sessionCount  = document.getElementById('rtem-session-count');
+    var sessionToggle = document.getElementById('rtem-session-toggle');
+    var sessionMap    = {}; // key => session object
+
+    function currentSessionKey() { return sessionSelect ? sessionSelect.value : 'main'; }
+    function currentSession() { return sessionMap[currentSessionKey()] || null; }
+    function isTourSession() { var s = currentSession(); return !!(s && s.kind === 'tour'); }
+
     var stream = null;
     var scanning = false;
     var rafId = null;
@@ -111,15 +123,119 @@
     }
 
     function lookup(params) {
+        params = params || {};
+        params.session = currentSessionKey();
         setHint('…');
         post('rt_event_manager_checkin_lookup', params).then(function (res) {
             busy = false;
             if (res && res.success) {
-                renderTicket(res.data);
+                if (res.data && res.data.tour) { renderTour(res.data); }
+                else { renderTicket(res.data); }
             } else {
                 showError((res && res.data && res.data.message) || I18N.notFound);
             }
         }).catch(function () { busy = false; showError(I18N.networkError); });
+    }
+
+    // ---- Session bar: populate, render state, open/close ----
+    function fmtCount(s) {
+        if (!s || s.kind !== 'tour') { return ''; }
+        return (I18N.boardedOf || '%1$d of %2$d boarded')
+            .replace('%1$d', s.boarded || 0).replace('%2$d', s.total || 0);
+    }
+    function renderSessionUI() {
+        var s = currentSession();
+        if (!s || !sessionState) { return; }
+        if (s.kind === 'tour') {
+            sessionState.textContent = (s.status === 'open') ? (I18N.eventOpen || 'Open') : (I18N.eventClosed || 'Closed');
+            sessionState.className = 'rtem-session-state ' + (s.status === 'open' ? 'is-open' : 'is-closed');
+            sessionCount.textContent = fmtCount(s);
+            if (CFG.canOpenClose) {
+                sessionToggle.hidden = false;
+                sessionToggle.textContent = (s.status === 'open') ? (I18N.closeEvent || 'Close event') : (I18N.openEvent || 'Open event');
+            } else {
+                sessionToggle.hidden = true;
+            }
+        } else {
+            sessionState.textContent = '';
+            sessionState.className = 'rtem-session-state';
+            sessionCount.textContent = '';
+            sessionToggle.hidden = true;
+        }
+    }
+    function loadSessions() {
+        if (!sessionSelect) { return; }
+        post('rt_event_manager_checkin_sessions', {}).then(function (res) {
+            if (!res || !res.success) { return; }
+            var list = (res.data && res.data.sessions) || [];
+            sessionMap = {};
+            sessionSelect.innerHTML = '';
+            var hasTour = false;
+            list.forEach(function (s) {
+                sessionMap[s.key] = s;
+                if (s.kind === 'tour') { hasTour = true; }
+                var opt = document.createElement('option');
+                opt.value = s.key; opt.textContent = s.label;
+                sessionSelect.appendChild(opt);
+            });
+            if (sessionBar) { sessionBar.hidden = !(list.length > 1 || hasTour); }
+            renderSessionUI();
+        }).catch(function () {});
+    }
+
+    function renderTour(d) {
+        result.hidden = false;
+        var boarded = !!d.boarded;
+        var open = !!d.session_open;
+        var banner = '';
+        if (boarded) {
+            banner = '<div class="rtem-banner rtem-banner-secondary">' + esc(I18N.boarded || 'Boarded') + '</div>';
+        } else if (!open) {
+            banner = '<div class="rtem-banner rtem-banner-danger">' + esc(I18N.closedScan || 'This event is closed — open it before scanning.') + '</div>';
+        }
+        var action = (!boarded && open)
+            ? '<button type="button" class="rtem-btn rtem-btn-checkin" id="rtem-board">' + esc(I18N.board || 'Board') + ' →</button>'
+            : '';
+        var profileBtn = d.can_profile
+            ? '<button type="button" class="rtem-btn rtem-btn-profile" id="rtem-profile-btn">' + esc(I18N.viewProfile || 'View profile') + '</button>'
+            : '';
+        var cnt = d.counts
+            ? (I18N.boardedOf || '%1$d of %2$d boarded').replace('%1$d', d.counts.boarded).replace('%2$d', d.counts.total)
+            : '';
+        result.innerHTML =
+            '<div class="rtem-card rtem-card-' + (boarded ? 'checked_in' : 'valid') + '">' +
+            banner +
+            '<h2 class="rtem-name">' + esc(d.holder) + '</h2>' +
+            '<div class="rtem-badges"><span class="rtem-badge">' + esc(d.product) + '</span></div>' +
+            (cnt ? '<p class="rtem-hint">' + esc(cnt) + '</p>' : '') +
+            action + profileBtn +
+            '<button type="button" class="rtem-btn rtem-btn-next" id="rtem-next">' + esc('Scan next') + '</button>' +
+            '</div>';
+
+        var boardBtn = document.getElementById('rtem-board');
+        if (boardBtn) {
+            boardBtn.addEventListener('click', function () {
+                boardBtn.disabled = true;
+                boardBtn.textContent = '…';
+                post('rt_event_manager_checkin_do', { session: d.session, tour_ticket_id: d.tour_ticket_id }).then(function (res) {
+                    if (res && res.success) {
+                        var s = sessionMap[d.session];
+                        if (s && res.data.counts) { s.boarded = res.data.counts.boarded; s.total = res.data.counts.total; renderSessionUI(); }
+                        flash(I18N.boarded || 'Boarded', 'ok');
+                        result.hidden = true; result.innerHTML = ''; startScan();
+                    } else {
+                        boardBtn.disabled = false;
+                        boardBtn.textContent = (I18N.board || 'Board') + ' →';
+                        showError((res && res.data && res.data.message) || I18N.networkError);
+                    }
+                }).catch(function () { boardBtn.disabled = false; showError(I18N.networkError); });
+            });
+        }
+        var pb = document.getElementById('rtem-profile-btn');
+        if (pb) { pb.addEventListener('click', function () { openProfile(d.profile_ticket_id); }); }
+        document.getElementById('rtem-next').addEventListener('click', function () {
+            result.hidden = true; result.innerHTML = ''; startScan();
+        });
     }
 
     function statusLabel(s) {
@@ -385,6 +501,33 @@
             });
         }
     }
+
+    if (sessionSelect) {
+        sessionSelect.addEventListener('change', function () {
+            result.hidden = true; result.innerHTML = '';
+            renderSessionUI();
+        });
+    }
+    if (sessionToggle) {
+        sessionToggle.addEventListener('click', function () {
+            var s = currentSession();
+            if (!s || s.kind !== 'tour') { return; }
+            var opening = (s.status !== 'open');
+            if (!opening && !window.confirm(I18N.confirmClose || 'Close this event?')) { return; }
+            sessionToggle.disabled = true;
+            post('rt_event_manager_checkin_toggle', { session: s.key, open: opening ? 1 : 0 }).then(function (res) {
+                sessionToggle.disabled = false;
+                if (res && res.success) {
+                    s.status = res.data.status; s.boarded = res.data.boarded; s.total = res.data.total;
+                    renderSessionUI();
+                    flash(opening ? (I18N.eventOpen || 'Open') : (I18N.eventClosed || 'Closed'), 'ok');
+                } else {
+                    showError((res && res.data && res.data.message) || I18N.networkError);
+                }
+            }).catch(function () { sessionToggle.disabled = false; showError(I18N.networkError); });
+        });
+    }
+    loadSessions();
 
     if (startBtn) { startBtn.addEventListener('click', startScan); }
     if (manualToggle && manual) {

@@ -308,9 +308,13 @@ class RT_Event_Manager_Google_Wallet {
 
     /** The inline EventTicketObject for one ticket. */
     private function ticket_object($ticket) {
-        $number = absint($ticket['ticket_index']) + 1;
-        $holder = ('' !== $ticket['holder_name']) ? $ticket['holder_name'] : __('Attendee', 'rt-event-manager');
-        $uid    = 'rtem-' . absint($ticket['order_id']) . '-' . $number;
+        $number   = absint($ticket['ticket_index']) + 1;
+        $holder   = ('' !== $ticket['holder_name']) ? $ticket['holder_name'] : __('Attendee', 'rt-event-manager');
+        $uid      = 'rtem-' . absint($ticket['order_id']) . '-' . $number;
+        $kind0     = RT_Event_Manager::get_ticket_kind($ticket);
+        $is_staff  = ('staff' === $kind0);
+        $is_minor  = ('minor' === $kind0);
+        $ticket_no = $is_staff ? __('STAFF', 'rt-event-manager') : ('#' . absint($ticket['order_id']) . ' · ' . $number);
 
         $status = isset($ticket['status']) ? $ticket['status'] : 'draft';
         // Map the ticket status to a Google Wallet object state. Only truly dead
@@ -323,9 +327,22 @@ class RT_Event_Manager_Google_Wallet {
             'classId'          => self::class_id(),
             'state'            => $state,
             'ticketHolderName' => $holder,
-            'ticketNumber'     => '#' . absint($ticket['order_id']) . ' · ' . $number,
-            'hexBackgroundColor' => '#CC0B24',
+            'ticketNumber'     => $ticket_no,
+            // Staff = navy, Future member = cream/gold, attendees = brand red.
+            'hexBackgroundColor' => $is_staff ? '#14213D' : ($is_minor ? '#FFF0C4' : '#CC0B24'),
         );
+
+        // Optional static rondel foil banner (hero image), off by default;
+        // toggled in RT Event → Ticket Appearance. Google fetches it by URL.
+        $hero = ('yes' === get_option('rt_event_manager_wallet_foil', 'no'))
+            ? RT_Event_Manager::foil_pass_url($is_staff ? 'staff' : ($is_minor ? 'minor' : 'event'))
+            : '';
+        if ('' !== $hero) {
+            $obj['heroImage'] = array(
+                'sourceUri'          => array('uri' => $hero),
+                'contentDescription' => array('defaultValue' => array('language' => 'en-US', 'value' => 'Round Table International foil')),
+            );
+        }
 
         // A cancelled/refunded/invalid ticket carries no scannable barcode.
         if (!in_array($status, array('cancelled', 'refunded', 'invalid'), true)) {
@@ -345,7 +362,7 @@ class RT_Event_Manager_Google_Wallet {
             array(
                 'id'     => 'ticket',
                 'header' => __('Ticket', 'rt-event-manager'),
-                'body'   => '#' . absint($ticket['order_id']) . ' · ' . $number,
+                'body'   => $ticket_no,
             ),
             array(
                 'id'     => 'status',
@@ -359,7 +376,7 @@ class RT_Event_Manager_Google_Wallet {
         if ('' !== $org) {
             $obj['textModulesData'][] = array(
                 'id'     => 'org',
-                'header' => __('Club', 'rt-event-manager'),
+                'header' => $is_staff ? __('Role', 'rt-event-manager') : __('Club', 'rt-event-manager'),
                 'body'   => $org,
             );
         }
@@ -382,7 +399,7 @@ class RT_Event_Manager_Google_Wallet {
             $names = array();
             foreach ($rows as $r) {
                 $p = wc_get_product($r['product_id']);
-                $names[] = $p ? $p->get_name() : ('#' . absint($r['product_id']));
+                $names[] = $p ? RT_Event_Manager::product_title($p->get_id()) : ('#' . absint($r['product_id']));
             }
             if ($names) {
                 $obj['textModulesData'][] = array(
@@ -605,6 +622,40 @@ class RT_Event_Manager_Google_Wallet {
      * the ticket status so a status change raises a fresh notification, while
      * repeated pushes of the same status don't nag the holder.
      */
+    /**
+     * Push a custom notification message to a ticket's Google Wallet pass.
+     *
+     * @param array  $ticket Ticket row.
+     * @param string $header Message header.
+     * @param string $body   Message body.
+     */
+    public function push_message($ticket, $header, $body) {
+        if (!self::is_configured() || !is_array($ticket)) {
+            return;
+        }
+        $token = $this->access_token();
+        if ('' === $token) {
+            return;
+        }
+        $object_id = self::opt('issuer_id') . '.rtem-' . absint($ticket['order_id']) . '-' . (absint($ticket['ticket_index']) + 1);
+        $message = array(
+            'id'     => 'tour-' . substr(md5($header . '|' . $body), 0, 12),
+            'header' => $header,
+            'body'   => $body,
+        );
+        wp_remote_post(
+            'https://walletobjects.googleapis.com/walletobjects/v1/eventTicketObject/' . rawurlencode($object_id) . '/addMessage',
+            array(
+                'timeout' => 15,
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $token,
+                    'Content-Type'  => 'application/json',
+                ),
+                'body'    => wp_json_encode(array('message' => $message)),
+            )
+        );
+    }
+
     private function add_message($token, $object_id, $ticket) {
         $status = isset($ticket['status']) ? $ticket['status'] : 'draft';
         $body   = sprintf(

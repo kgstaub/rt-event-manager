@@ -100,6 +100,9 @@ class RT_Event_Manager_Apple_Wallet {
             'draft'      => __('Pending', 'rt-event-manager'),
             'invalid'    => __('Invalid', 'rt-event-manager'),
             'checked_in' => __('Checked in', 'rt-event-manager'),
+            'on_tour'    => __('On tour', 'rt-event-manager'),
+            'attended'   => __('Attended', 'rt-event-manager'),
+            'no_show'    => __('No show', 'rt-event-manager'),
             'cancelled'  => __('Cancelled', 'rt-event-manager'),
             'refunded'   => __('Refunded', 'rt-event-manager'),
         );
@@ -107,12 +110,34 @@ class RT_Event_Manager_Apple_Wallet {
         return isset($map[$s]) ? $map[$s] : $s;
     }
 
+    /** Short uppercase status code shown on the pass face (e.g. CONF, PEND). */
+    public static function status_abbr($ticket) {
+        $map = array(
+            'valid'      => __('CONF', 'rt-event-manager'),
+            'draft'      => __('PEND', 'rt-event-manager'),
+            'invalid'    => __('INVALID', 'rt-event-manager'),
+            'checked_in' => __('IN', 'rt-event-manager'),
+            'on_tour'    => __('ON TOUR', 'rt-event-manager'),
+            'attended'   => __('ATTENDED', 'rt-event-manager'),
+            'no_show'    => __('NO SHOW', 'rt-event-manager'),
+            'cancelled'  => __('CANCELLED', 'rt-event-manager'),
+            'refunded'   => __('REFUNDED', 'rt-event-manager'),
+        );
+        $s = isset($ticket['status']) ? $ticket['status'] : 'draft';
+        return isset($map[$s]) ? $map[$s] : strtoupper((string) $s);
+    }
+
     /** "<Family> <Club>" line for a ticket; family abbreviated, "Guest" if unset. */
     public static function org_line($ticket) {
         // Minors have no club — the CLUB field carries their Future Circler /
         // Future Tabler category instead.
-        if ('minor' === RT_Event_Manager::get_ticket_kind($ticket)) {
+        $kind = RT_Event_Manager::get_ticket_kind($ticket);
+        if ('minor' === $kind) {
             return RT_Event_Manager::ticket_kind_label($ticket);
+        }
+        // Staff tickets carry their staff role (or custom label) in place of a club.
+        if ('staff' === $kind && class_exists('RT_Event_Manager_Staff')) {
+            return RT_Event_Manager_Staff::display_role($ticket);
         }
         // Family id → short code. NB family ids are 0-based (Round Table = 0),
         // so test for an empty string, not a falsy value.
@@ -184,8 +209,13 @@ class RT_Event_Manager_Apple_Wallet {
         update_option('rt_event_manager_wallet_header_value', sanitize_text_field(wp_unslash($_POST['wallet_header_value'] ?? '')));
         update_option('rt_event_manager_wallet_event_type', sanitize_text_field(wp_unslash($_POST['wallet_event_type'] ?? '')));
         update_option('rt_event_manager_wallet_venue_name', sanitize_text_field(wp_unslash($_POST['wallet_venue_name'] ?? '')));
-        update_option('rt_event_manager_wallet_venue_lat', sanitize_text_field(wp_unslash($_POST['wallet_venue_lat'] ?? '')));
-        update_option('rt_event_manager_wallet_venue_lng', sanitize_text_field(wp_unslash($_POST['wallet_venue_lng'] ?? '')));
+        update_option('rt_event_manager_wallet_venue_address', sanitize_textarea_field(wp_unslash($_POST['wallet_venue_address'] ?? '')));
+        update_option('rt_event_manager_wallet_venue_lat', trim(sanitize_text_field(wp_unslash($_POST['wallet_venue_lat'] ?? ''))));
+        update_option('rt_event_manager_wallet_venue_lng', trim(sanitize_text_field(wp_unslash($_POST['wallet_venue_lng'] ?? ''))));
+        update_option('rt_event_manager_wallet_link_website', esc_url_raw(trim((string) wp_unslash($_POST['wallet_link_website'] ?? ''))));
+        update_option('rt_event_manager_wallet_link_programme', esc_url_raw(trim((string) wp_unslash($_POST['wallet_link_programme'] ?? ''))));
+        update_option('rt_event_manager_wallet_contact_phone', sanitize_text_field(wp_unslash($_POST['wallet_contact_phone'] ?? '')));
+        update_option('rt_event_manager_wallet_contact_email', sanitize_email(wp_unslash($_POST['wallet_contact_email'] ?? '')));
         update_option('rt_event_manager_wallet_ws_url', esc_url_raw(trim((string) wp_unslash($_POST['wallet_ws_url'] ?? ''))));
 
         // Password: only overwrite when a new value is entered.
@@ -371,8 +401,17 @@ class RT_Event_Manager_Apple_Wallet {
         );
 
         $text(__('Venue name', 'rt-event-manager'), 'wallet_venue_name', self::opt('venue_name'), __('Shown on the event pass and used for the venue semantic tag.', 'rt-event-manager'));
+        echo '<tr><th scope="row">' . esc_html__('Venue address', 'rt-event-manager') . '</th><td>'
+            . '<textarea name="wallet_venue_address" rows="2" class="large-text">' . esc_textarea(self::opt('venue_address')) . '</textarea>'
+            . '<p class="description">' . esc_html__('Optional. Shown on the back of the pass as a tappable "Open in Maps" link (works regardless of the event date).', 'rt-event-manager') . '</p></td></tr>';
         $text(__('Venue latitude', 'rt-event-manager'), 'wallet_venue_lat', self::opt('venue_lat'), __('Optional — enables the map/location on the pass.', 'rt-event-manager'));
         $text(__('Venue longitude', 'rt-event-manager'), 'wallet_venue_lng', self::opt('venue_lng'));
+
+        // Back-of-pass links (tap ••• on the pass to reveal). Empty fields are omitted.
+        $text(__('Event website', 'rt-event-manager'), 'wallet_link_website', self::opt('link_website'), __('Full URL, e.g. https://rtihym2027.ch. Leave empty to use the site home page.', 'rt-event-manager'));
+        $text(__('Programme / schedule URL', 'rt-event-manager'), 'wallet_link_programme', self::opt('link_programme'), __('Link to the programme (e.g. the My Calendar page).', 'rt-event-manager'));
+        $text(__('Contact phone', 'rt-event-manager'), 'wallet_contact_phone', self::opt('contact_phone'), __('Convening team phone, e.g. +41 79 793 00 27.', 'rt-event-manager'));
+        $text(__('Contact email', 'rt-event-manager'), 'wallet_contact_email', self::opt('contact_email'), __('Convening team email, e.g. convenors@rtihym2027.ch.', 'rt-event-manager'));
 
         echo '</table>';
         echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html__('Save Apple Wallet settings', 'rt-event-manager') . '</button></p>';
@@ -439,6 +478,18 @@ class RT_Event_Manager_Apple_Wallet {
         $ticket = RT_Event_Manager::get_ticket_by_id($ticket_id);
         if (!$ticket || !RT_Event_Manager_Account::instance()->user_owns_ticket($ticket, get_current_user_id())) {
             wp_die(esc_html__('Ticket not found.', 'rt-event-manager'));
+        }
+
+        // Admin debug: ?debug=1 dumps the generated pass.json (pretty) instead of
+        // the signed .pkpass, so the pass contents can be inspected directly.
+        if (isset($_GET['debug']) && current_user_can(self::CAP)) {
+            $files = $this->pass_files($ticket);
+            $json  = isset($files['pass.json']) ? $files['pass.json'] : '{}';
+            $pretty = wp_json_encode(json_decode($json, true), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            nocache_headers();
+            header('Content-Type: text/plain; charset=utf-8');
+            echo $pretty ? $pretty : $json; // phpcs:ignore
+            exit;
         }
 
         $pkpass = $this->build_pkpass($ticket);
@@ -588,7 +639,7 @@ class RT_Event_Manager_Apple_Wallet {
     private function pass_files($ticket) {
         $kind    = RT_Event_Manager::get_ticket_kind($ticket);
         $product = wc_get_product($ticket['product_id']);
-        $pname   = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($ticket);
+        $pname   = $product ? RT_Event_Manager::product_title($product->get_id()) : RT_Event_Manager::ticket_kind_label($ticket);
         $holder  = ('' !== $ticket['holder_name']) ? $ticket['holder_name'] : __('Attendee', 'rt-event-manager');
         $number  = absint($ticket['ticket_index']) + 1;
         $status  = isset($ticket['status']) ? $ticket['status'] : 'draft';
@@ -599,7 +650,7 @@ class RT_Event_Manager_Apple_Wallet {
             $names = array();
             foreach ($rows as $r) {
                 $p = wc_get_product($r['product_id']);
-                $names[] = $p ? $p->get_name() : ('#' . absint($r['product_id']));
+                $names[] = $p ? RT_Event_Manager::product_title($p->get_id()) : ('#' . absint($r['product_id']));
             }
             if ($names) {
                 $back[] = array('key' => sanitize_key($label), 'label' => $label, 'value' => implode(', ', $names));
@@ -616,28 +667,89 @@ class RT_Event_Manager_Apple_Wallet {
             }
         }
 
-        // Family + club line, shown directly under the attendee (leftmost
-        // auxiliary field aligns under the leftmost secondary field).
-        $org = self::org_line($ticket);
-        $aux = array();
-        if ('' !== $org) {
-            $aux[] = array('key' => 'org', 'label' => __('CLUB', 'rt-event-manager'), 'value' => $org);
+        $is_staff = ('staff' === $kind);
+        $is_minor = ('minor' === $kind);
+
+        // CLUB (family + club). Staff carry a role instead of a club, so their
+        // CLUB slot is left empty and the ROLE field is used below.
+        $club = $is_staff ? '' : self::org_line($ticket);
+        // ROLE: staff role / custom label, otherwise the member's function
+        // (rti_function, e.g. "Past President"). Empty → the field is omitted.
+        if ($is_staff && class_exists('RT_Event_Manager_Staff')) {
+            $role = RT_Event_Manager_Staff::display_role($ticket);
+        } else {
+            $owner = absint($ticket['owner_user_id']);
+            $role  = $owner ? trim((string) get_user_meta($owner, 'rti_function', true)) : '';
         }
-        // changeMessage makes iOS raise a notification when the value changes.
-        $aux[] = array(
+        $tours = self::tours_line(!empty($pretours), !empty($daytours));
+
+        // Secondary row: CLUB | STATUS. changeMessage raises an iOS notification
+        // when the value changes.
+        $secondary = array();
+        if ('' !== $club) {
+            $secondary[] = array('key' => 'club', 'label' => __('CLUB', 'rt-event-manager'), 'value' => $club);
+        }
+        $secondary[] = array(
             'key'           => 'status',
             'label'         => __('STATUS', 'rt-event-manager'),
-            'value'         => self::status_label($ticket),
+            'value'         => self::status_abbr($ticket),
             'changeMessage' => __('Ticket status: %@', 'rt-event-manager'),
         );
-        // Included-tours indicator, shown in the field row above the QR.
-        $tours = self::tours_line(!empty($pretours), !empty($daytours));
+        // Auxiliary row: ROLE | INCLUDES.
+        $aux = array();
+        if ('' !== $role) {
+            $aux[] = array('key' => 'role', 'label' => __('ROLE', 'rt-event-manager'), 'value' => $role);
+        }
         if ('' !== $tours) {
             $aux[] = array(
                 'key'           => 'tours',
                 'label'         => __('INCLUDES', 'rt-event-manager'),
                 'value'         => $tours,
                 'changeMessage' => __('Your tours: %@', 'rt-event-manager'),
+            );
+        }
+
+        // Back-of-pass links (configurable in Apple Wallet settings). Apple makes
+        // URLs, phone numbers and emails tappable in back-field values.
+        $website = trim((string) self::opt('link_website'));
+        if ('' === $website) {
+            $website = home_url('/');
+        }
+        if ('' !== $website) {
+            $back[] = array(
+                'key'             => 'website',
+                'label'           => __('Event website', 'rt-event-manager'),
+                'value'           => $website,
+                'attributedValue' => '<a href="' . esc_url($website) . '">' . esc_html(preg_replace('#^https?://#', '', untrailingslashit($website))) . '</a>',
+            );
+        }
+        $programme = trim((string) self::opt('link_programme'));
+        if ('' !== $programme) {
+            $back[] = array(
+                'key'             => 'programme',
+                'label'           => __('Programme', 'rt-event-manager'),
+                'value'           => $programme,
+                'attributedValue' => '<a href="' . esc_url($programme) . '">' . esc_html__('View the programme', 'rt-event-manager') . '</a>',
+            );
+        }
+        $cphone = trim((string) self::opt('contact_phone'));
+        $cemail = trim((string) self::opt('contact_email'));
+        if ('' !== $cphone || '' !== $cemail) {
+            $plain = array();
+            $rich  = array();
+            if ('' !== $cphone) {
+                $plain[] = $cphone;
+                $rich[]  = '<a href="tel:' . esc_attr(preg_replace('/[^0-9+]/', '', $cphone)) . '">' . esc_html($cphone) . '</a>';
+            }
+            if ('' !== $cemail) {
+                $plain[] = $cemail;
+                $rich[]  = '<a href="mailto:' . esc_attr($cemail) . '">' . esc_html($cemail) . '</a>';
+            }
+            $back[] = array(
+                'key'             => 'contact',
+                'label'           => __('Convening team', 'rt-event-manager'),
+                'value'           => implode("\n", $plain),
+                'attributedValue' => implode("\n", $rich),
             );
         }
 
@@ -650,9 +762,10 @@ class RT_Event_Manager_Apple_Wallet {
             'description'        => $pname,
             'webServiceURL'      => self::web_service_url(),
             'authenticationToken' => self::auth_token(absint($ticket['order_id']) . '-' . $number),
-            'foregroundColor'    => 'rgb(255,255,255)',
-            'backgroundColor'    => 'rgb(204,11,36)',
-            'labelColor'         => 'rgb(255,240,196)',
+            // Staff = navy, Future member = cream/gold, attendees = brand red.
+            'foregroundColor'    => $is_minor ? 'rgb(102,11,5)' : 'rgb(255,255,255)',
+            'backgroundColor'    => $is_staff ? 'rgb(20,33,61)' : ($is_minor ? 'rgb(255,240,196)' : 'rgb(204,11,36)'),
+            'labelColor'         => $is_staff ? 'rgb(175,197,235)' : ($is_minor ? 'rgb(204,11,36)' : 'rgb(255,240,196)'),
             'barcodes'           => array(array(
                 'format'          => 'PKBarcodeFormatQR',
                 'message'         => RT_Event_Manager_Ticket_Pass::checkin_token($ticket),
@@ -660,11 +773,8 @@ class RT_Event_Manager_Apple_Wallet {
             )),
             'eventTicket'        => array(
                 'headerFields'    => array(),
-                'primaryFields'   => array(array('key' => 'event', 'label' => __('EVENT', 'rt-event-manager'), 'value' => self::opt('event_name', 'RTI Half-Year Meeting 2027'))),
-                'secondaryFields' => array(
-                    array('key' => 'name', 'label' => __('ATTENDEE', 'rt-event-manager'), 'value' => $holder),
-                    array('key' => 'ticket', 'label' => __('TICKET', 'rt-event-manager'), 'value' => '#' . absint($ticket['order_id']) . ' · ' . $number),
-                ),
+                'primaryFields'   => array(array('key' => 'name', 'label' => __('ATTENDEE', 'rt-event-manager'), 'value' => $holder)),
+                'secondaryFields' => $secondary,
                 'auxiliaryFields' => $aux,
                 'backFields'      => $back,
             ),
@@ -677,12 +787,20 @@ class RT_Event_Manager_Apple_Wallet {
             unset($pass['barcodes']);
         }
 
-        // Top-right header title (Apple headerFields).
+        // Top-right header (Apple headerFields): the configured value, or a
+        // default of TICKET / <event short name>.
         $header_value = (string) self::opt('header_value');
+        $header_label = (string) self::opt('header_label');
+        if ('' === $header_value) {
+            $header_value = (string) get_option('rt_event_manager_ticket_short_name', 'RTI HYM 2027');
+            if ('' === $header_label) {
+                $header_label = __('TICKET', 'rt-event-manager');
+            }
+        }
         if ('' !== $header_value) {
             $pass['eventTicket']['headerFields'][] = array(
                 'key'   => 'header',
-                'label' => (string) self::opt('header_label'),
+                'label' => $header_label,
                 'value' => $header_value,
             );
         }
@@ -695,19 +813,23 @@ class RT_Event_Manager_Apple_Wallet {
             'eventName' => $event_name,
         );
 
-        // Event dates (stored as Y-m-d) → ISO-8601 with the site's timezone offset.
+        // Event dates (stored as Y-m-d) → ISO-8601 interpreted in the event
+        // timezone (so 09:00 stays 09:00 local, with the correct DST offset).
+        $event_tz = RT_Event_Manager::event_timezone();
         $start = (string) get_option('rt_event_manager_event_start', '');
         $end   = (string) get_option('rt_event_manager_event_end', '');
         if ('' !== $start) {
-            $ts = strtotime($start . ' 09:00:00');
-            if ($ts) {
-                $semantics['eventStartDate'] = wp_date('c', $ts);
+            try {
+                $semantics['eventStartDate'] = (new DateTime($start . ' 09:00:00', $event_tz))->format('c');
+            } catch (\Exception $e) {
+                // skip on unparseable date
             }
         }
         if ('' !== $end) {
-            $ts = strtotime($end . ' 18:00:00');
-            if ($ts) {
-                $semantics['eventEndDate'] = wp_date('c', $ts);
+            try {
+                $semantics['eventEndDate'] = (new DateTime($end . ' 18:00:00', $event_tz))->format('c');
+            } catch (\Exception $e) {
+                // skip on unparseable date
             }
         }
 
@@ -716,9 +838,9 @@ class RT_Event_Manager_Apple_Wallet {
         if ('' !== $venue) {
             $semantics['venueName'] = $venue;
         }
-        $lat = self::opt('venue_lat');
-        $lng = self::opt('venue_lng');
-        if ('' !== (string) $lat && '' !== (string) $lng && is_numeric($lat) && is_numeric($lng)) {
+        $lat = trim((string) self::opt('venue_lat'));
+        $lng = trim((string) self::opt('venue_lng'));
+        if ('' !== $lat && '' !== $lng && is_numeric($lat) && is_numeric($lng)) {
             $semantics['venueLocation'] = array(
                 'latitude'  => (float) $lat,
                 'longitude' => (float) $lng,
@@ -731,13 +853,41 @@ class RT_Event_Manager_Apple_Wallet {
             ));
         }
 
+        // Venue back-field with a tappable "Open in Maps" link. This works from
+        // the back of the pass regardless of the event date (unlike the native
+        // location card, which iOS only activates when the pass is relevant).
+        $venue_addr = trim((string) self::opt('venue_address'));
+        if ('' !== $venue || '' !== $venue_addr) {
+            if ('' !== $lat && '' !== $lng) {
+                $maps_url = 'https://maps.apple.com/?ll=' . $lat . ',' . $lng
+                    . '&q=' . rawurlencode('' !== $venue ? $venue : 'Venue');
+            } else {
+                $maps_url = 'https://maps.apple.com/?q=' . rawurlencode(trim($venue . ' ' . $venue_addr));
+            }
+            $lines = array();
+            if ('' !== $venue) {
+                $lines[] = $venue;
+            }
+            if ('' !== $venue_addr) {
+                $lines[] = $venue_addr;
+            }
+            $plain = implode("\n", $lines);
+            $pass['eventTicket']['backFields'][] = array(
+                'key'             => 'venue',
+                'label'           => __('Venue', 'rt-event-manager'),
+                'value'           => $plain,
+                'attributedValue' => '<a href="' . esc_url($maps_url) . '">' . esc_html(str_replace("\n", ', ', $plain)) . '</a>',
+            );
+        }
+
         $pass['semantics'] = $semantics;
         // Attach the event window to the whole pass so it can surface at the right time.
         if (isset($semantics['eventStartDate'])) {
             $pass['relevantDate'] = $semantics['eventStartDate'];
         }
-        // Opt into the modern event-ticket presentation.
-        $pass['preferredStyleSchemes'] = array('posterEventTicket');
+        // Opt into the modern poster presentation: posterEventTicket on iOS that
+        // supports it, falling back to the classic event-ticket layout otherwise.
+        $pass['preferredStyleSchemes'] = array('posterEventTicket', 'eventTicket');
 
         $logo_src = base64_decode((string) self::opt('logo'), true);
         $logo = function ($w, $h) use ($logo_src) {
@@ -771,6 +921,21 @@ class RT_Event_Manager_Apple_Wallet {
             'logo@2x.png'    => $logo(320, 100),
             'logo@3x.png'    => $logo(480, 150),
         );
+
+        // Optional static rondel foil background (off by default; toggled in
+        // RT Event → Ticket Appearance). background.png is 180×220pt.
+        $bg_base   = $is_staff ? array(20, 33, 61)   : ($is_minor ? array(255, 240, 196) : array(204, 11, 36));
+        $bg_accent = $is_staff ? array(150, 178, 224) : ($is_minor ? array(190, 140, 40)  : array(255, 172, 190));
+        $bg1 = ('yes' === get_option('rt_event_manager_wallet_foil', 'no'))
+            ? RT_Event_Manager::foil_pass_png(180, 220, $bg_base, $bg_accent)
+            : null;
+        if (null !== $bg1) {
+            $bg2 = RT_Event_Manager::foil_pass_png(360, 440, $bg_base, $bg_accent);
+            $bg3 = RT_Event_Manager::foil_pass_png(540, 660, $bg_base, $bg_accent);
+            $files['background.png']    = $bg1;
+            $files['background@2x.png'] = (null !== $bg2) ? $bg2 : $bg1;
+            $files['background@3x.png'] = (null !== $bg3) ? $bg3 : $bg1;
+        }
 
         return $files;
     }

@@ -40,6 +40,152 @@ class RT_Event_Manager_Visa {
         add_action('wp_ajax_rt_event_manager_visa_pdf', array($this, 'ajax_download'));
         // Ensure the storage table exists.
         add_action('init', array($this, 'maybe_install_table'));
+
+        // 2.3.0 — public letter-verification (QR): an official scans the QR on a
+        // letter and lands on a no-login page confirming a letter was issued and
+        // showing its stored content to compare. Token-signed; NOT a tamper check.
+        add_action('template_redirect', array($this, 'maybe_render_verify_page'), 1);
+        add_action('wp_ajax_nopriv_rt_event_manager_visa_verify_pdf', array($this, 'ajax_verify_pdf'));
+        add_action('wp_ajax_rt_event_manager_visa_verify_pdf', array($this, 'ajax_verify_pdf'));
+    }
+
+    /* ---------------------------------------------------------------------
+     * 2.3.0 — public letter verification (QR)
+     * ------------------------------------------------------------------- */
+
+    /** HMAC signing secret for verification tokens (reuses the encryption key). */
+    private static function verify_secret() {
+        return 'rtem-visa-verify|' . self::key();
+    }
+
+    /** Signed, URL-safe token for a letter reference. */
+    public static function verify_token($reference) {
+        $sig = substr(hash_hmac('sha256', (string) $reference, self::verify_secret()), 0, 20);
+        return rtrim(strtr(base64_encode($reference . '|' . $sig), '+/', '-_'), '=');
+    }
+
+    /** Validate a token; returns the reference or '' if invalid. */
+    public static function reference_from_token($token) {
+        $raw = base64_decode(strtr((string) $token, '-_', '+/'), true);
+        if (false === $raw || false === strpos($raw, '|')) {
+            return '';
+        }
+        $pos = strrpos($raw, '|');
+        $reference = substr($raw, 0, $pos);
+        $sig       = substr($raw, $pos + 1);
+        $expect    = substr(hash_hmac('sha256', $reference, self::verify_secret()), 0, 20);
+        return hash_equals($expect, $sig) ? $reference : '';
+    }
+
+    /** Public verification URL for a letter reference (encoded for the QR code). */
+    public static function verify_link($reference) {
+        return add_query_arg('rtem_visa', self::verify_token($reference), home_url('/'));
+    }
+
+    /** Fetch a stored letter row by its reference (public lookup). */
+    private static function letter_by_reference($reference) {
+        global $wpdb;
+        $table = self::table();
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT id, ticket_id, order_id, reference, applicant_enc, pdf_enc, eu_efta, created_at FROM $table WHERE reference = %s LIMIT 1",
+            $reference
+        ), ARRAY_A);
+    }
+
+    /** Render the standalone, no-login verification page when ?rtem_visa=<token>. */
+    public function maybe_render_verify_page() {
+        if (!isset($_GET['rtem_visa'])) {
+            return;
+        }
+        $token     = sanitize_text_field(wp_unslash($_GET['rtem_visa']));
+        $reference = self::reference_from_token($token);
+        $row       = $reference ? self::letter_by_reference($reference) : null;
+
+        nocache_headers();
+        header('Content-Type: text/html; charset=utf-8');
+        $applicant = ($row && !empty($row['applicant_enc'])) ? json_decode(self::decrypt($row['applicant_enc']), true) : array();
+        $event     = self::get_option('host_name'); // organisation, for context
+        $rondel_url = RT_EVENT_MANAGER_PLUGIN_URL . 'assets/img/rondel-white.png';
+        // Who signed the letter (the configured signatories).
+        $signers = array();
+        foreach (array(1, 2) as $si) {
+            $sn = trim((string) self::get_option('sig' . $si . '_name'));
+            if ('' !== $sn) {
+                $st = trim((string) self::get_option('sig' . $si . '_title'));
+                $signers[] = ('' !== $st) ? ($sn . ' — ' . $st) : $sn;
+            }
+        }
+        $signed_by = implode(', ', $signers);
+        ?>
+<!DOCTYPE html><html <?php language_attributes(); ?>><head>
+<meta charset="<?php bloginfo('charset'); ?>"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title><?php esc_html_e('Visa letter verification', 'rt-event-manager'); ?></title>
+<style>
+ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f3f4f6;color:#1a1a1a;margin:0;padding:24px;}
+ .card{max-width:560px;margin:24px auto;background:#fff;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.08);overflow:hidden;}
+ .head{position:relative;overflow:hidden;padding:20px 24px;color:#fff;}
+ .head > *{position:relative;z-index:2;}
+ .bad{background:#8c1c13;}
+ /* Dark-emerald holographic foil on the "issued" bar. */
+ .ok{background:#0b3d2e;}
+ .ok::before{content:"";position:absolute;inset:0;z-index:1;
+   background:repeating-linear-gradient(115deg,
+     rgba(0,0,0,.30) 0%, rgba(16,90,64,.55) 5%, rgba(120,235,180,.9) 9%,
+     rgba(16,90,64,.55) 13%, rgba(0,0,0,.30) 18%);
+   background-size:260% 260%;mix-blend-mode:screen;opacity:.55;
+   animation:rtem-holo 21s linear infinite;}
+ .ok::after{content:"";position:absolute;inset:0;z-index:1;
+   background-image:url('<?php echo esc_url($rondel_url); ?>');
+   background-size:44px 44px;background-repeat:repeat;
+   opacity:.08;mix-blend-mode:screen;}
+ @keyframes rtem-holo{from{background-position:0% 50%;}to{background-position:200% 50%;}}
+ @media (prefers-reduced-motion:reduce){.ok::before{animation:none;}}
+ .head h1{margin:0;font-size:18px;} .body{padding:20px 24px;}
+ table{width:100%;border-collapse:collapse;margin:8px 0 16px;} td{padding:6px 4px;border-bottom:1px solid #eee;vertical-align:top;}
+ td.k{color:#666;width:42%;} .btn{display:inline-block;background:#14508c;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;}
+ .note{font-size:12px;color:#666;margin-top:16px;line-height:1.5;}
+</style></head><body>
+<div class="card">
+<?php if ($row) : ?>
+ <div class="head ok"><h1>&#10003; <?php esc_html_e('A visa invitation letter has been issued', 'rt-event-manager'); ?></h1></div>
+ <div class="body">
+  <table>
+   <tr><td class="k"><?php esc_html_e('Reference', 'rt-event-manager'); ?></td><td><?php echo esc_html($row['reference']); ?></td></tr>
+   <tr><td class="k"><?php esc_html_e('Applicant', 'rt-event-manager'); ?></td><td><?php echo esc_html(isset($applicant['name']) ? $applicant['name'] : '—'); ?></td></tr>
+   <tr><td class="k"><?php esc_html_e('Issued', 'rt-event-manager'); ?></td><td><?php echo esc_html(mysql2date(get_option('date_format', 'Y-m-d'), $row['created_at'])); ?></td></tr>
+   <?php if (!empty($event)) : ?><tr><td class="k"><?php esc_html_e('Host', 'rt-event-manager'); ?></td><td><?php echo esc_html($event); ?></td></tr><?php endif; ?>
+   <?php if ('' !== $signed_by) : ?><tr><td class="k"><?php esc_html_e('Signed by', 'rt-event-manager'); ?></td><td><?php echo esc_html($signed_by); ?></td></tr><?php endif; ?>
+  </table>
+  <p><a class="btn" href="<?php echo esc_url(add_query_arg(array('action' => 'rt_event_manager_visa_verify_pdf', 'token' => $token), admin_url('admin-ajax.php'))); ?>" target="_blank" rel="noopener"><?php esc_html_e('View the stored letter (PDF)', 'rt-event-manager'); ?></a></p>
+  <p class="note"><?php esc_html_e('This page confirms that a letter of invitation with this reference was issued and shows the copy stored in our system so you can compare it with the document presented to you. It does not certify that the presented physical document is unaltered.', 'rt-event-manager'); ?></p>
+ </div>
+<?php else : ?>
+ <div class="head bad"><h1><?php esc_html_e('No matching letter found', 'rt-event-manager'); ?></h1></div>
+ <div class="body"><p><?php esc_html_e('This verification link is invalid or the letter could not be found. Please check the QR code and try again.', 'rt-event-manager'); ?></p></div>
+<?php endif; ?>
+</div>
+</body></html>
+        <?php
+        exit;
+    }
+
+    /** Serve the stored letter PDF for a valid verification token (public). */
+    public function ajax_verify_pdf() {
+        $token     = isset($_GET['token']) ? sanitize_text_field(wp_unslash($_GET['token'])) : '';
+        $reference = self::reference_from_token($token);
+        $row       = $reference ? self::letter_by_reference($reference) : null;
+        if (!$row || empty($row['pdf_enc'])) {
+            status_header(404);
+            wp_die(esc_html__('Letter not found.', 'rt-event-manager'));
+        }
+        $pdf = self::decrypt($row['pdf_enc']);
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: inline; filename="' . sanitize_file_name($row['reference']) . '.pdf"');
+        header('X-Robots-Tag: noindex');
+        echo $pdf; // phpcs:ignore
+        exit;
     }
 
     /* ---------------------------------------------------------------------
@@ -424,6 +570,7 @@ class RT_Event_Manager_Visa {
         echo '<th>' . esc_html__('Created', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('EU/EFTA', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Document', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Verify link', 'rt-event-manager') . '</th>';
         echo '</tr></thead><tbody>';
         foreach ($rows as $r) {
             $applicant = json_decode(self::decrypt($this->get_field($r['id'], 'applicant_enc')), true);
@@ -438,6 +585,8 @@ class RT_Event_Manager_Visa {
             echo '<td>' . esc_html($r['created_at']) . '</td>';
             echo '<td>' . ($r['eu_efta'] ? esc_html__('Yes (no letter required)', 'rt-event-manager') : esc_html__('No', 'rt-event-manager')) . '</td>';
             echo '<td><a class="button" href="' . esc_url($dl) . '" target="_blank" rel="noopener">' . esc_html__('Download PDF', 'rt-event-manager') . '</a></td>';
+            $vlink = self::verify_link($r['reference']);
+            echo '<td><a href="' . esc_url($vlink) . '" target="_blank" rel="noopener">' . esc_html__('Open', 'rt-event-manager') . '</a></td>';
             echo '</tr>';
         }
         echo '</tbody></table></div>';
@@ -474,7 +623,8 @@ class RT_Event_Manager_Visa {
             . '<a class="uk-button uk-button-default" href="https://www.sem.admin.ch/sem/en/home/overview-einreise.html" target="_blank" rel="noopener noreferrer">' . esc_html__('Swiss entry requirements', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a>';
         if (!empty($visa_tickets)) {
             $letter_label = $has_letter ? __('Download / view letter of invitation', 'rt-event-manager') : __('Request letter of invitation', 'rt-event-manager');
-            echo ' <button type="button" class="uk-button uk-button-default" data-rtacc-modal="visa"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> ' . esc_html($letter_label) . '</button>';
+            $letter_btn   = $has_letter ? 'uk-button-default' : 'uk-button-primary';
+            echo ' <button type="button" class="uk-button ' . $letter_btn . '" data-rtacc-modal="visa"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> ' . esc_html($letter_label) . '</button>';
         }
         echo '</p>';
 
@@ -806,13 +956,15 @@ class RT_Event_Manager_Visa {
 
         $eu_efta = self::is_eu_efta($nationality) || ($country && self::is_eu_efta($country));
 
-        $pdf = $this->build_pdf($applicant, absint($t['order_id']));
+        // Reference is generated first so its verification QR can be printed on
+        // the letter itself (2.3.0).
+        $reference = 'VISA-' . absint($t['order_id']) . '-' . $ticket_id . '-' . strtoupper(wp_generate_password(4, false));
+        $pdf = $this->build_pdf($applicant, absint($t['order_id']), $reference);
         if (!$pdf) {
             wp_send_json_error(__('Could not generate the PDF.', 'rt-event-manager'));
         }
 
         global $wpdb;
-        $reference = 'VISA-' . absint($t['order_id']) . '-' . $ticket_id . '-' . strtoupper(wp_generate_password(4, false));
         $wpdb->insert(self::table(), array(
             'ticket_id'     => $ticket_id,
             'order_id'      => absint($t['order_id']),
@@ -912,7 +1064,7 @@ class RT_Event_Manager_Visa {
      * PDF build
      * ------------------------------------------------------------------- */
 
-    private function build_pdf($applicant, $order_id) {
+    private function build_pdf($applicant, $order_id, $reference = '') {
         if (!class_exists('Dompdf\\Dompdf')) {
             return false;
         }
@@ -1007,7 +1159,7 @@ class RT_Event_Manager_Visa {
                 . $title_html . '</div>';
         }
         $signature_block = ('' !== $cells[0] || '' !== $cells[1])
-            ? '<table class="rti-sign" style="width:100%;margin-top:0;page-break-inside:avoid;"><tr>'
+            ? '<table class="rti-sign" style="width:100%;margin-top:-16px;page-break-inside:avoid;"><tr>'
                 . '<td style="width:50%;padding:0;">' . $cells[0] . '</td>'
                 . '<td style="width:50%;padding:0;">' . $cells[1] . '</td>'
                 . '</tr></table>'
@@ -1022,6 +1174,24 @@ class RT_Event_Manager_Visa {
                 // position:fixed repeats on every page; the negative offsets cancel
                 // the @page margins so the letterhead bleeds full A4 edge-to-edge.
                 $bg_html = '<div style="position:fixed;top:-45mm;left:-30mm;width:210mm;height:297mm;z-index:0;"><img src="' . esc_attr($bg_path) . '" style="width:210mm;height:297mm;" /></div>';
+            }
+        }
+
+        // Verification QR footer (2.3.0): pinned into the bottom page margin. It
+        // sits within the 20mm @page bottom margin so it never overlaps the body.
+        $verify_footer = '';
+        if ('' !== $reference && class_exists('RT_Event_Manager_Badge_Generator')) {
+            $qr = RT_Event_Manager_Badge_Generator::instance()->generate_qr_code(self::verify_link($reference), 200);
+            if ($qr) {
+                $vlink = self::verify_link($reference);
+                $verify_footer = '<div style="position:fixed;bottom:-14mm;left:0;right:0;z-index:2;">'
+                    . '<table style="width:100%;"><tr>'
+                    . '<td style="width:52px;padding:0;"><img src="' . esc_attr($qr) . '" style="width:46px;height:46px;" /></td>'
+                    . '<td style="padding:0 0 0 8px;font-size:7pt;color:#666;vertical-align:middle;line-height:1.4;">'
+                    . esc_html__('Verify this letter: scan the QR code or visit', 'rt-event-manager')
+                    . ' <span style="font-family:\'Source Code Pro\',monospace;">' . esc_html($vlink) . '</span>'
+                    . '<br>' . esc_html__('Reference', 'rt-event-manager') . ': ' . esc_html($reference)
+                    . '</td></tr></table></div>';
             }
         }
 
@@ -1058,6 +1228,7 @@ class RT_Event_Manager_Visa {
             .rti-visa-body table.rti-sign td + td { padding-left: 0 !important; }
         </style></head><body>
             <?php echo $bg_html; // phpcs:ignore — trusted local attachment path ?>
+            <?php echo $verify_footer; // phpcs:ignore — built below from trusted data ?>
             <div class="rti-visa-body">
                 <?php echo wp_kses_post($body); ?>
                 <?php echo wp_kses_post($signature_block); ?>
