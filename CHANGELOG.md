@@ -3,6 +3,15 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.2.5] — 2026-08-28
+
+### Fixed
+- **Blank dashboard for accounts whose email is on many orders** (e.g. the
+  convenor): the 2.2.4 email order-match used `limit => -1`, pulling thousands of
+  order IDs and exhausting memory in `get_tickets_for_user()` before the dashboard
+  rendered. The email lookup is now **bounded (limit 100)** and wrapped fail-safe,
+  so it can never break the portal while still surfacing early / guest tickets.
+
 ## [2.2.4] — 2026-08-28
 
 Post-release fixes (no schema changes).
