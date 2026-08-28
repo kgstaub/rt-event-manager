@@ -67,6 +67,12 @@ class RT_Event_Manager_Badge_Generator {
         if (empty($data)) {
             return false;
         }
+        // Fail safe if the Composer QR library is missing/outdated (a stale
+        // vendor/ must never white-screen a page — just skip the QR image).
+        if (!class_exists('Endroid\\QrCode\\Builder\\Builder')) {
+            error_log('RTI Badge Generator - Endroid QR library not available; check the plugin vendor/ directory.');
+            return false;
+        }
 
         try {
             $result = Builder::create()
@@ -80,7 +86,7 @@ class RT_Event_Manager_Badge_Generator {
 
             return 'data:image/png;base64,' . base64_encode($result->getString());
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             error_log('RTI Badge Generator - QR Code Error: ' . $e->getMessage());
             return false;
         }

@@ -6,6 +6,10 @@ versioning (MAJOR.MINOR.PATCH).
 ## [2.2.6] — 2026-08-28
 
 ### Fixed
+- **White-screen when the QR library is missing/outdated**: `generate_qr_code()`
+  now checks for the Endroid `Builder` class and catches `\Throwable` (a
+  class-not-found is an `Error`, not an `Exception`, so the old catch missed it).
+  A stale `vendor/` now just skips the QR image instead of killing the page.
 - **Critical error on the dashboard for accounts whose email is a billing address
   on many orders**: reverted the 2.2.4/2.2.5 email-based order match — it pulled in
   tickets from orders billed to that address (for other people) and could crash the
