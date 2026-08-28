@@ -830,23 +830,30 @@
     // Ticket rows are read-only until the pencil is clicked. Fields start
     // disabled; entering edit mode enables them (locked fields render as plain
     // text and are never inputs, so they stay uneditable).
+    // Toggle the edit(pencil)/save(disk) buttons for a row. Uses BOTH the
+    // [hidden] attribute and an explicit inline display so it beats the
+    // `.rtacc-edit-controls .rtacc-icon-btn { display:inline-flex }` rule (which
+    // otherwise overrides [hidden]) — regardless of jQuery's show/hide state.
+    function setEditButtons($row, editing) {
+        var $save = $row.find('.rtacc-edit-save');
+        var $tog  = $row.find('.rtacc-edit-toggle');
+        if (editing) {
+            $tog.attr('hidden', 'hidden').css('display', 'none');
+            $save.removeAttr('hidden').css('display', 'inline-flex');
+        } else {
+            $save.attr('hidden', 'hidden').css('display', 'none');
+            $tog.removeAttr('hidden').css('display', 'inline-flex');
+        }
+    }
     function initTicketRows() {
         $('.rtacc-tickets-form tr[data-editable] .rtacc-ticket-field').each(function () {
             if (!$(this).closest('tr').hasClass('rtacc-row-editing')) {
                 $(this).prop('disabled', true);
             }
         });
-        // Force the initial button state with inline display (the [hidden] attr
-        // in the markup is overridden by the buttons' CSS display rule).
         $('.rtacc-tickets-form tr[data-ticket-id]').each(function () {
             var $r = $(this);
-            if ($r.hasClass('rtacc-row-editing')) {
-                $r.find('.rtacc-edit-toggle').hide();
-                $r.find('.rtacc-edit-save').show();
-            } else {
-                $r.find('.rtacc-edit-save').hide();
-                $r.find('.rtacc-edit-toggle').show();
-            }
+            setEditButtons($r, $r.hasClass('rtacc-row-editing'));
         });
     }
     initTicketRows();
@@ -914,12 +921,18 @@
             $tickets.each(function () {
                 var card = this;
                 var holo = card.querySelector('.rtacc-ticket-holo');
-                $(card).on('pointermove', function (e) {
+                // Coalesce pointer writes to one per animation frame: pointermove
+                // can fire far more often than the display refreshes, and each
+                // write repaints a heavy layer (big SVG mask + mix-blend-mode +
+                // 3D transform). Store the latest position and flush on rAF.
+                var pending = false, cx = 0, cy = 0;
+                function flush() {
+                    pending = false;
                     if (!motionOn()) { return; }
                     var r = card.getBoundingClientRect();
                     if (!r.width || !r.height) { return; }
-                    var nx = (e.clientX - r.left) / r.width;   // 0 … 1
-                    var ny = (e.clientY - r.top) / r.height;
+                    var nx = (cx - r.left) / r.width;   // 0 … 1
+                    var ny = (cy - r.top) / r.height;
                     if (holo) {
                         holo.style.setProperty('--rtx', (nx * 100).toFixed(1) + '%');
                         holo.style.setProperty('--rty', (ny * 100).toFixed(1) + '%');
@@ -929,6 +942,11 @@
                     card.style.setProperty('--rt-ry', ((nx - 0.5) * 2 * MAX).toFixed(2) + 'deg');
                     card.style.setProperty('--rt-rx', ((0.5 - ny) * 2 * MAX).toFixed(2) + 'deg');
                     card.style.setProperty('--rt-scale', '0.99');
+                }
+                $(card).on('pointermove', function (e) {
+                    if (!motionOn()) { return; }
+                    cx = e.clientX; cy = e.clientY;
+                    if (!pending) { pending = true; window.requestAnimationFrame(flush); }
                 }).on('pointerleave', function () {
                     card.style.setProperty('--rt-ry', '0deg');
                     card.style.setProperty('--rt-rx', '0deg');
@@ -944,21 +962,125 @@
         }
     })();
 
+    // ---- Find Guest (staff attendee lookup) ----
+    (function initFindGuest() {
+        var form = document.getElementById('rtacc-fg-form');
+        if (!form) { return; }
+        var results = document.getElementById('rtacc-fg-results');
+        var detail  = document.getElementById('rtacc-fg-detail');
+        var input   = document.getElementById('rtacc-fg-q');
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            detail.innerHTML = '';
+            results.innerHTML = '<p class="rtacc-muted">…</p>';
+            $.post(cfg.ajaxUrl, { action: 'rt_event_manager_find_guest', nonce: cfg.findGuestNonce, q: input.value }, function (res) {
+                results.innerHTML = (res && res.success) ? res.data.html
+                    : '<p class="rtacc-muted">' + ((res && res.data) || 'Error') + '</p>';
+            }).fail(function () { results.innerHTML = '<p class="rtacc-muted">Error</p>'; });
+        });
+        $(document).on('click', '.rtacc-fg-item, .rtacc-fg-acctlink', function () {
+            var id = $(this).data('ticket');
+            detail.innerHTML = '<p class="rtacc-muted">…</p>';
+            $.post(cfg.ajaxUrl, { action: 'rt_event_manager_find_guest_profile', nonce: cfg.findGuestNonce, ticket_id: id }, function (res) {
+                detail.innerHTML = (res && res.success) ? res.data.html
+                    : '<p class="rtacc-muted">' + ((res && res.data) || 'Error') + '</p>';
+                if (detail.scrollIntoView) { detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+            }).fail(function () { detail.innerHTML = '<p class="rtacc-muted">Error</p>'; });
+        });
+    })();
+
+    // ---- My Tours: open/complete a tour + confirm boarding manually ----
+    (function initMyTours() {
+        if (!document.querySelector('.rtacc-mytour')) { return; }
+
+        // Extract the clearest possible reason from an AJAX result / failure.
+        function reason(res, xhr) {
+            if (res && res.data && res.data.message) { return res.data.message; }
+            if (res && typeof res.data === 'string' && res.data) { return res.data; }
+            if (res === 0 || res === '0' || res === -1 || res === '-1') {
+                return 'Your session expired or the security check failed — please reload the page and sign in again.';
+            }
+            if (xhr) {
+                if (xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) { return xhr.responseJSON.data.message; }
+                if (xhr.status === 0) { return 'Network error — no response from the server.'; }
+                if (xhr.status) { return 'Server error (HTTP ' + xhr.status + '). ' + (xhr.responseText ? String(xhr.responseText).slice(0, 300) : ''); }
+            }
+            return 'Unknown error.';
+        }
+        function run($b, action, extra, verb) {
+            if (!cfg.checkinNonce) { window.alert('Check-in is not available on this page (missing security token). Please reload.'); return; }
+            $b.prop('disabled', true);
+            var data = { action: action, nonce: cfg.checkinNonce };
+            Object.keys(extra).forEach(function (k) { data[k] = extra[k]; });
+            $.post(cfg.ajaxUrl, data)
+                .done(function (res) {
+                    if (res && res.success) { window.location.reload(); return; }
+                    $b.prop('disabled', false);
+                    window.alert('Could not ' + verb + ':\n\n' + reason(res, null));
+                })
+                .fail(function (xhr) {
+                    $b.prop('disabled', false);
+                    if (window.console) { console.error('RT check-in ' + action + ' failed', xhr); }
+                    window.alert('Could not ' + verb + ':\n\n' + reason(null, xhr));
+                });
+        }
+
+        $(document).on('click', '.rtacc-tour-toggle', function () {
+            var $b   = $(this);
+            var open = $b.data('open') ? 0 : 1; // toggle
+            if (!open && !window.confirm('Complete this tour? Everyone not boarded will be marked as not attended.')) { return; }
+            run($b, 'rt_event_manager_checkin_toggle', { session: $b.data('session'), open: open }, open ? 'open the tour' : 'complete the tour');
+        });
+        $(document).on('click', '.rtacc-tour-board', function () {
+            var $b = $(this);
+            run($b, 'rt_event_manager_checkin_do', { session: $b.data('session'), tour_ticket_id: $b.data('ticket') }, 'confirm boarding');
+        });
+        $(document).on('click', '.rtacc-tour-unboard', function () {
+            var $b = $(this);
+            if (!window.confirm('Off-board this attendee? Their boarding will be removed.')) { return; }
+            run($b, 'rt_event_manager_checkin_do', { session: $b.data('session'), tour_ticket_id: $b.data('ticket'), undo: 1 }, 'off-board the attendee');
+        });
+        // Manager override: set a tour ticket's status directly.
+        $(document).on('change', '.rtacc-tour-status', function () {
+            var $s = $(this);
+            run($s, 'rt_event_manager_checkin_set_status', { session: $s.data('session'), tour_ticket_id: $s.data('ticket'), status: $s.val() }, 'update the status');
+        });
+        // Open an attendee's profile in a modal when their name is clicked.
+        $(document).on('click', '.rtacc-tour-attendee', function () {
+            var $b   = $(this);
+            var $body = $('#rtacc-tour-profile-body');
+            var $modal = $('#rtacc-modal-tour-profile');
+            $body.html('<p class="rtacc-muted">…</p>');
+            $modal.removeAttr('hidden');
+            $.post(cfg.ajaxUrl, {
+                action: 'rt_event_manager_tour_profile',
+                nonce: cfg.findGuestNonce,
+                tour_ticket_id: $b.data('ticket')
+            }).done(function (res) {
+                if (res && res.success && res.data && res.data.html) {
+                    $body.html(res.data.html);
+                } else {
+                    $body.html('<p class="rtacc-alert-secondary">' + reason(res, null) + '</p>');
+                }
+            }).fail(function (xhr) {
+                $body.html('<p class="rtacc-alert-secondary">' + reason(null, xhr) + '</p>');
+            });
+        });
+    })();
+
     // Use .hide()/.show() (inline display) rather than the [hidden] attribute:
     // the edit buttons carry a CSS `display: inline-flex` rule that would
     // otherwise override [hidden] and leave the row looking stuck in edit mode.
     function enterTicketEdit($row) {
         $row.addClass('rtacc-row-editing');
         $row.find('.rtacc-ticket-field').prop('disabled', false);
-        $row.find('.rtacc-edit-toggle').hide();
-        $row.find('.rtacc-edit-save').show();
+        setEditButtons($row, true);
         $row.find('.rtacc-ticket-field').first().trigger('focus');
     }
     function exitTicketEdit($row) {
         $row.removeClass('rtacc-row-editing');
         $row.find('.rtacc-ticket-field').prop('disabled', true);
-        $row.find('.rtacc-edit-save').hide();
-        $row.find('.rtacc-edit-toggle').show();
+        setEditButtons($row, false);
     }
     // Validate a row before saving. Blocks only when Dietary = Allergies but the
     // details are empty; family is flagged (non-blocking) if left unselected.

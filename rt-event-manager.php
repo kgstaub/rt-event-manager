@@ -3,7 +3,7 @@
  * Plugin Name: RT Event Manager
  * Plugin URI: https://www.staub.ee
  * Description: Round Table International event management for WooCommerce — attendee tickets with a full member account portal (dashboard, profile, tours, calendar, visa letters, shop), pretours &amp; day tours, ticket transfers &amp; refunds, Apple &amp; Google Wallet passes with live push updates, and a staff QR check-in web app.
- * Version: 2.1.8
+ * Version: 2.2.0
  * Author: Kenneth Staub, RT Switzerland
  * Author URI: https://www.staub.ee
  * License: GPL v2 or later
@@ -19,8 +19,8 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('RT_EVENT_MANAGER_VERSION', '2.1.8');
-define('RT_EVENT_MANAGER_DB_VERSION', '2.4.0');
+define('RT_EVENT_MANAGER_VERSION', '2.2.0');
+define('RT_EVENT_MANAGER_DB_VERSION', '2.5.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -104,6 +104,8 @@ function rt_event_manager_init() {
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-apple-wallet.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-google-wallet.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-checkin.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-staff.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-user-switch.php';
 
     // Initialize
     RT_Event_Manager::instance();
@@ -128,6 +130,12 @@ function rt_event_manager_init() {
 
     // Initialize the staff check-in PWA
     RT_Event_Manager_Checkin::instance();
+
+    // Initialize the event staff module (roles + admin assignment)
+    RT_Event_Manager_Staff::instance();
+
+    // Initialize admin "log in as member" (user switching)
+    RT_Event_Manager_User_Switch::instance();
 
     // Run one-time ticket migration for old orders
     rt_event_manager_migrate_tickets();
@@ -322,6 +330,7 @@ function rt_event_manager_install_db() {
             qr_code_url varchar(500) NOT NULL DEFAULT '',
             status varchar(20) NOT NULL DEFAULT 'draft',
             owner_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            staff_role varchar(32) NOT NULL DEFAULT '',
             transfer_token varchar(64) NOT NULL DEFAULT '',
             transfer_email varchar(255) NOT NULL DEFAULT '',
             transfer_requested_at datetime NULL DEFAULT NULL,
@@ -371,6 +380,35 @@ function rt_event_manager_install_db() {
                 $wpdb->query("ALTER TABLE $table_name ADD UNIQUE KEY order_ticket (order_id, ticket_index)");
             }
         }
+
+        // Per-event check-in: session state (main + one per tour product/date)
+        // and the individual boarding/attendance records.
+        $sessions_table = $wpdb->prefix . 'rti_checkin_sessions';
+        dbDelta("CREATE TABLE $sessions_table (
+            session_key varchar(80) NOT NULL,
+            status varchar(10) NOT NULL DEFAULT 'closed',
+            opened_by bigint(20) unsigned NOT NULL DEFAULT 0,
+            opened_at datetime NULL DEFAULT NULL,
+            closed_by bigint(20) unsigned NOT NULL DEFAULT 0,
+            closed_at datetime NULL DEFAULT NULL,
+            PRIMARY KEY  (session_key)
+        ) $charset_collate;");
+
+        $checkins_table = $wpdb->prefix . 'rti_checkins';
+        dbDelta("CREATE TABLE $checkins_table (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            session_key varchar(80) NOT NULL,
+            ticket_id bigint(20) unsigned NOT NULL,
+            attendee_ticket_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            attended tinyint(1) NOT NULL DEFAULT 1,
+            boarded_at datetime NULL DEFAULT NULL,
+            checked_in_by bigint(20) unsigned NOT NULL DEFAULT 0,
+            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            UNIQUE KEY sess_ticket (session_key, ticket_id),
+            KEY session_key (session_key),
+            KEY ticket_id (ticket_id)
+        ) $charset_collate;");
 
         // Schedule status recalculation for later when WooCommerce is fully loaded
         update_option('wc_rti_needs_status_recalc', 'yes');
@@ -424,6 +462,42 @@ function rt_event_manager_install_db() {
             }
         }
     }
+
+    // Always ensure the check-in tables exist, regardless of the version gate.
+    // (A file-only update can leave the stored DB version current while these
+    // never got created, which silently breaks opening/closing tours.)
+    $charset_collate = $wpdb->get_charset_collate();
+    $sessions_table  = $wpdb->prefix . 'rti_checkin_sessions';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $sessions_table)) !== $sessions_table) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta("CREATE TABLE $sessions_table (
+            session_key varchar(80) NOT NULL,
+            status varchar(10) NOT NULL DEFAULT 'closed',
+            opened_by bigint(20) unsigned NOT NULL DEFAULT 0,
+            opened_at datetime NULL DEFAULT NULL,
+            closed_by bigint(20) unsigned NOT NULL DEFAULT 0,
+            closed_at datetime NULL DEFAULT NULL,
+            PRIMARY KEY  (session_key)
+        ) $charset_collate;");
+    }
+    $checkins_table = $wpdb->prefix . 'rti_checkins';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $checkins_table)) !== $checkins_table) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta("CREATE TABLE $checkins_table (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            session_key varchar(80) NOT NULL,
+            ticket_id bigint(20) unsigned NOT NULL,
+            attendee_ticket_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            attended tinyint(1) NOT NULL DEFAULT 1,
+            boarded_at datetime NULL DEFAULT NULL,
+            checked_in_by bigint(20) unsigned NOT NULL DEFAULT 0,
+            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            UNIQUE KEY sess_ticket (session_key, ticket_id),
+            KEY session_key (session_key),
+            KEY ticket_id (ticket_id)
+        ) $charset_collate;");
+    }
 }
 
 /**
@@ -463,8 +537,9 @@ function rt_event_manager_recalculate_all_ticket_statuses() {
         ), ARRAY_A);
 
         foreach ($tickets as $ticket) {
-            // Never overwrite terminal states set deliberately.
-            if (isset($ticket['status']) && in_array($ticket['status'], array('checked_in', 'cancelled', 'refunded'), true)) {
+            // Never overwrite terminal / deliberately-set states (incl. tour
+            // attendance: on_tour / attended / no_show).
+            if (isset($ticket['status']) && in_array($ticket['status'], array('checked_in', 'on_tour', 'attended', 'no_show', 'cancelled', 'refunded'), true)) {
                 continue;
             }
             $status = rt_event_manager_determine_ticket_status($order, $ticket['holder_name']);

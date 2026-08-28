@@ -60,6 +60,9 @@ class RT_Event_Manager_Account {
         add_action('wp_ajax_rt_event_manager_decline_transfer', array($this, 'ajax_decline_transfer'));
         add_action('wp_ajax_rt_event_manager_withdraw_transfer', array($this, 'ajax_withdraw_transfer'));
         add_action('wp_ajax_rt_event_manager_pp_accept', array($this, 'ajax_pp_accept'));
+        add_action('wp_ajax_rt_event_manager_find_guest', array($this, 'ajax_find_guest'));
+        add_action('wp_ajax_rt_event_manager_find_guest_profile', array($this, 'ajax_find_guest_profile'));
+        add_action('wp_ajax_rt_event_manager_tour_profile', array($this, 'ajax_tour_attendee_profile'));
 
         // Automatically withdraw pending transfers older than the expiry window.
         add_action('init', array($this, 'maybe_schedule_transfer_expiry'));
@@ -172,12 +175,48 @@ class RT_Event_Manager_Account {
             }
         }
 
-        // Calendar, tours and Travel & Visa only apply once the member holds an
-        // event ticket.
+        // Calendar, tours and Travel & Visa normally require an event ticket —
+        // but a staff member assigned a pre/day-tour duty (guide/supervisor)
+        // holds that tour and must still see its menu.
         if (!RT_Event_Manager::instance()->user_has_event_ticket($uid)) {
-            foreach (array('calendar', 'pretour', 'daytour', 'travel') as $key) {
-                unset($tabs[$key]);
+            $has_pretour = false;
+            $has_daytour = false;
+            foreach (RT_Event_Manager::get_tickets_for_user($uid) as $t) {
+                $k = RT_Event_Manager::get_ticket_kind($t);
+                if ('pretour' === $k) {
+                    $has_pretour = true;
+                } elseif ('daytour' === $k) {
+                    $has_daytour = true;
+                }
             }
+            // Travel & Visa stays event-ticket-only. Calendar is shown to staff
+            // too (a later release adds their work / shift assignments there).
+            unset($tabs['travel']);
+            $is_staff_user = class_exists('RT_Event_Manager_Staff') && RT_Event_Manager_Staff::is_staff($uid);
+            if (!$is_staff_user) {
+                unset($tabs['calendar']);
+            }
+            if (!$has_pretour) {
+                unset($tabs['pretour']);
+            }
+            if (!$has_daytour) {
+                unset($tabs['daytour']);
+            }
+        }
+
+        // Event Management tabs. Check-in: users with a check-in capability.
+        // Find Guest: users who may view profiles (event operators and above).
+        if (class_exists('RT_Event_Manager_Checkin')) {
+            if (RT_Event_Manager_Checkin::user_can_checkin($uid)) {
+                $tabs['checkin'] = __('Check-in', 'rt-event-manager');
+            }
+            if (RT_Event_Manager_Checkin::can_view_profiles($uid)) {
+                $tabs['findguest'] = __('Find Guest', 'rt-event-manager');
+            }
+        }
+        // My Tours: only for staff assigned as guide/supervisor on a tour.
+        if (class_exists('RT_Event_Manager_Staff') && !empty(RT_Event_Manager_Staff::operator_tour_products($uid))) {
+            $tabs['mytours'] = __('My Tours', 'rt-event-manager');
         }
 
         return $tabs;
@@ -231,6 +270,11 @@ class RT_Event_Manager_Account {
     public function maybe_enqueue_assets() {
         if (function_exists('is_account_page') && (is_account_page() || is_cart())) {
             $this->enqueue_assets();
+            // The embedded staff check-in tab needs the scanner CSS/JS in the head.
+            $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : '';
+            if ('checkin' === $tab && class_exists('RT_Event_Manager_Checkin') && RT_Event_Manager_Checkin::user_can_checkin()) {
+                RT_Event_Manager_Checkin::instance()->enqueue_assets();
+            }
         }
     }
 
@@ -288,6 +332,8 @@ class RT_Event_Manager_Account {
             'acceptNonce'  => wp_create_nonce('rt_event_manager_accept_transfer'),
             'declineNonce' => wp_create_nonce('rt_event_manager_decline_transfer'),
             'withdrawNonce' => wp_create_nonce('rt_event_manager_withdraw_transfer'),
+            'findGuestNonce' => wp_create_nonce('rt_event_manager_find_guest'),
+            'checkinNonce'   => wp_create_nonce('rt_event_manager_checkin'),
             'visaNonce'    => wp_create_nonce('rt_event_manager_visa'),
             'visaEventDate' => RT_Event_Manager::get_event_date(),
             'visaChildMax' => RT_Event_Manager_Visa::child_letter_max_age(),
@@ -631,7 +677,31 @@ class RT_Event_Manager_Account {
     private function render_portal() {
         $tab = $this->current_tab();
 
-        echo '<div class="rtacc">';
+        // Ticket foil style: 'text' (two-line micro-print), 'dots' (rondel field),
+        // or 'custom' (admin-uploaded image used as the mask).
+        $foil = get_option('rt_event_manager_foil_style', 'text');
+        if (!in_array($foil, array('text', 'dots', 'custom'), true)) {
+            $foil = 'text';
+        }
+        $custom_css = '';
+        if ('custom' === $foil) {
+            $cid = absint(get_option('rt_event_manager_foil_custom', 0));
+            $url = $cid ? wp_get_attachment_url($cid) : '';
+            if ($url) {
+                $w    = absint(get_option('rt_event_manager_foil_custom_w', 0));
+                $size = $w > 0 ? ($w . 'px auto') : 'auto';
+                $custom_css = '.rtacc-foil-custom .rtacc-ticket-holo{'
+                    . "--holo-mask:url('" . esc_url($url) . "');"
+                    . '-webkit-mask-size:' . $size . ';mask-size:' . $size . ';'
+                    . '-webkit-mask-repeat:repeat;mask-repeat:repeat;}';
+            } else {
+                $foil = 'text'; // No image uploaded yet — fall back.
+            }
+        }
+        echo '<div class="rtacc rtacc-foil-' . esc_attr($foil) . '">';
+        if ('' !== $custom_css) {
+            echo '<style>' . $custom_css . '</style>';
+        }
 
         // Prompt for privacy-policy re-consent when it has been updated.
         $this->render_pp_modal();
@@ -682,6 +752,15 @@ class RT_Event_Manager_Account {
             case 'shop':
                 $this->render_shop();
                 break;
+            case 'checkin':
+                $this->render_checkin();
+                break;
+            case 'findguest':
+                $this->render_find_guest();
+                break;
+            case 'mytours':
+                $this->render_my_tours();
+                break;
             case 'dashboard':
             default:
                 $this->render_dashboard();
@@ -696,6 +775,500 @@ class RT_Event_Manager_Account {
         echo '<nav class="rtacc-nav" aria-label="' . esc_attr__('Account navigation', 'rt-event-manager') . '">';
         echo $this->nav_items_html($current);
         echo '</nav>';
+    }
+
+    /**
+     * Embed the staff check-in scanner inside the portal (so the navigation
+     * stays visible). Only users with a check-in capability reach this tab.
+     */
+    private function render_checkin() {
+        if (!class_exists('RT_Event_Manager_Checkin') || !RT_Event_Manager_Checkin::user_can_checkin()) {
+            echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Check-in', 'rt-event-manager') . '</h2>';
+            echo '<p>' . esc_html__('You do not have access to check-in.', 'rt-event-manager') . '</p>';
+            return;
+        }
+        // Make sure the scanner assets are present (footer JS prints even when
+        // enqueued at render time; CSS is also enqueued on wp_enqueue_scripts).
+        RT_Event_Manager_Checkin::instance()->enqueue_assets();
+        echo '<div class="rtacc-checkin-embed">';
+        echo RT_Event_Manager_Checkin::instance()->render_shortcode();
+        echo '</div>';
+    }
+
+    /* ---------------------------------------------------------------------
+     * My Tours — a guide's assigned tours + their attendee rosters
+     * ------------------------------------------------------------------- */
+
+    private function render_my_tours() {
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('My Tours', 'rt-event-manager') . '</h2>';
+
+        if (!class_exists('RT_Event_Manager_Staff') || !class_exists('RT_Event_Manager_Checkin')) {
+            echo '<p>' . esc_html__('Unavailable.', 'rt-event-manager') . '</p>';
+            return;
+        }
+        $uid   = get_current_user_id();
+        $prods = RT_Event_Manager_Staff::operator_tour_products($uid);
+        if (empty($prods)) {
+            echo '<p>' . esc_html__('You are not assigned as a guide to any tours.', 'rt-event-manager') . '</p>';
+            return;
+        }
+
+        echo '<p class="rtacc-hint">' . esc_html__('Tours you are assigned to, with their attendee roster and boarding count.', 'rt-event-manager') . '</p>';
+
+        $labels = $this->status_labels();
+        // Show tours in start-time order.
+        usort($prods, function ($a, $b) {
+            list($sa) = RT_Event_Manager::tour_product_range($a);
+            list($sb) = RT_Event_Manager::tour_product_range($b);
+            return (($sa ?: PHP_INT_MAX) <=> ($sb ?: PHP_INT_MAX));
+        });
+        foreach ($prods as $pid) {
+            $pid     = absint($pid);
+            $product = wc_get_product($pid);
+            $pname   = $product ? RT_Event_Manager::product_title($product->get_id()) : ('#' . $pid);
+            list($start, $end) = RT_Event_Manager::tour_product_range($pid);
+            $date    = $start ? gmdate('Y-m-d', $start) : '';
+            $key     = 'tour:' . $pid . ':' . $date;
+            // Start–end range with times (drop the repeated date when same day),
+            // rendered in the event timezone.
+            $tz    = RT_Event_Manager::event_timezone();
+            $range = '';
+            if ($start) {
+                $range = wp_date('j M Y, H:i', $start, $tz);
+                if ($end && $end !== $start) {
+                    $range .= ' – ' . (wp_date('Y-m-d', $end, $tz) === wp_date('Y-m-d', $start, $tz)
+                        ? wp_date('H:i', $end, $tz)
+                        : wp_date('j M Y, H:i', $end, $tz));
+                }
+            }
+            $counts  = RT_Event_Manager_Checkin::session_counts($key, $pid);
+            $state   = RT_Event_Manager_Checkin::session_state($key);
+            $open    = (isset($state['status']) && 'open' === $state['status']);
+            $roster  = RT_Event_Manager_Checkin::session_attendees($key, $pid);
+
+            echo '<div class="rtacc-panel uk-card uk-card-default uk-card-body rtacc-mytour">';
+            echo '<div class="rtacc-mytour-head">';
+            echo '<h3 class="rtacc-subtitle" style="margin:0;">' . esc_html($pname) . ('' !== $range ? ' <span class="rtacc-muted">— ' . esc_html($range) . '</span>' : '') . '</h3>';
+            echo '<div class="rtacc-mytour-actions">';
+            echo '<span class="rtacc-badge rtacc-badge--' . ($open ? 'valid' : 'draft') . '">' . ($open ? esc_html__('Open', 'rt-event-manager') : esc_html__('Closed', 'rt-event-manager')) . '</span>';
+            // Open / Complete toggle — only for staff who may open/close, and only
+            // from 2 hours before the tour starts.
+            if (RT_Event_Manager_Checkin::can_manage_tour($pid)) {
+                $label   = $open ? __('Complete tour', 'rt-event-manager') : __('Open tour', 'rt-event-manager');
+                $btn_cls = $open ? 'uk-button-danger' : 'uk-button-primary';
+                // Opening is only allowed from 2 hours before departure — disable
+                // the Open button until then (Complete stays available once open).
+                // The rule is also enforced server-side.
+                $start_abs = RT_Event_Manager::tour_start_timestamp($pid);
+                $too_early = (!$open && $start_abs
+                    && !RT_Event_Manager_Checkin::can_bypass_tour_window()
+                    && (time() < ($start_abs - 2 * HOUR_IN_SECONDS)));
+                $tip = '';
+                if ($too_early) {
+                    $open_at = '';
+                    try {
+                        $dt = (new DateTime('@' . ($start_abs - 2 * HOUR_IN_SECONDS)))->setTimezone(RT_Event_Manager::event_timezone());
+                        $open_at = $dt->format('j M Y, H:i');
+                    } catch (\Exception $e) {
+                        $open_at = '';
+                    }
+                    $tip = $open_at
+                        ? sprintf(__('Opens from %s (2 hours before departure).', 'rt-event-manager'), $open_at)
+                        : __('Opens 2 hours before the tour departs.', 'rt-event-manager');
+                }
+                echo '<button type="button" class="uk-button uk-button-small rtacc-tour-toggle ' . $btn_cls . '"'
+                    . ' data-session="' . esc_attr($key) . '" data-open="' . ($open ? '1' : '0') . '"'
+                    . ($too_early ? ' disabled title="' . esc_attr($tip) . '"' : '')
+                    . '>' . esc_html($label) . '</button>';
+            }
+            echo '</div>';
+            echo '</div>';
+
+            echo '<p class="rtacc-mytour-count"><strong>' . esc_html(sprintf(__('%1$d of %2$d boarded', 'rt-event-manager'), $counts['boarded'], $counts['total'])) . '</strong></p>';
+
+            if (empty($roster)) {
+                echo '<p class="rtacc-muted">' . esc_html__('No attendees booked yet.', 'rt-event-manager') . '</p>';
+            } else {
+                // Managers (open/close-capable staff, admins/managers) may set the
+                // status directly; guides get the quick Board / Off-board buttons.
+                $is_manager = RT_Event_Manager_Checkin::can_open_close() || RT_Event_Manager_Checkin::can_bypass_tour_window();
+                $status_opts = array(
+                    'valid'    => __('Awaiting', 'rt-event-manager'),
+                    'on_tour'  => __('On tour', 'rt-event-manager'),
+                    'attended' => __('Attended', 'rt-event-manager'),
+                    'no_show'  => __('No show', 'rt-event-manager'),
+                );
+                // Order the roster so each minor sits directly beneath its guardian.
+                $roster = $this->order_roster_by_guardian($roster);
+
+                echo '<table class="rtacc-table rtacc-mytour-table uk-table uk-table-divider uk-table-middle">';
+                echo '<thead><tr>';
+                echo '<th>' . esc_html__('Attendee', 'rt-event-manager') . '</th>';
+                echo '<th>' . esc_html__('Phone', 'rt-event-manager') . '</th>';
+                echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
+                echo '<th style="text-align:right;">' . esc_html__('Boarding', 'rt-event-manager') . '</th>';
+                echo '</tr></thead><tbody>';
+                foreach ($roster as $r) {
+                    $name = ('' !== $r['holder_name']) ? $r['holder_name'] : ('#' . $r['id']);
+                    $is_minor_row = !empty($r['_is_minor']);
+
+                    // Boarding badge (+ quick Board / Off-board for non-manager guides).
+                    if (null === $r['attended']) {
+                        $board = '<span class="rtacc-badge rtacc-badge--draft">' . esc_html__('Awaiting boarding', 'rt-event-manager') . '</span>';
+                    } elseif ((int) $r['attended'] === 1) {
+                        $board = '<span class="rtacc-badge rtacc-badge--valid">' . esc_html__('Boarded', 'rt-event-manager') . '</span>';
+                    } else {
+                        $board = '<span class="rtacc-badge rtacc-badge--cancelled">' . esc_html__('Not attended', 'rt-event-manager') . '</span>';
+                    }
+                    if (!$is_manager && $open && (int) $r['attended'] !== 1) {
+                        $board .= ' <button type="button" class="uk-button uk-button-primary uk-button-small rtacc-tour-board" data-session="' . esc_attr($key) . '" data-ticket="' . esc_attr($r['id']) . '">' . esc_html__('Board', 'rt-event-manager') . '</button>';
+                    } elseif (!$is_manager && $open && (int) $r['attended'] === 1) {
+                        $board .= ' <button type="button" class="uk-button uk-button-default uk-button-small rtacc-tour-unboard" data-session="' . esc_attr($key) . '" data-ticket="' . esc_attr($r['id']) . '">' . esc_html__('Off-board', 'rt-event-manager') . '</button>';
+                    }
+
+                    // Status cell: a dropdown for managers, otherwise a status badge.
+                    $tstatus = isset($labels[$r['status']]) ? $labels[$r['status']] : $r['status'];
+                    if ($is_manager) {
+                        $cur = in_array($r['status'], array('on_tour', 'attended', 'no_show'), true) ? $r['status'] : 'valid';
+                        $status_cell = '<select class="rtacc-tour-status rtacc-status-select rtacc-status-select--' . esc_attr($cur) . '" data-session="' . esc_attr($key) . '" data-ticket="' . esc_attr($r['id']) . '">';
+                        foreach ($status_opts as $val => $lbl) {
+                            $status_cell .= '<option value="' . esc_attr($val) . '"' . selected($cur, $val, false) . '>' . esc_html($lbl) . '</option>';
+                        }
+                        $status_cell .= '</select>';
+                    } else {
+                        $status_cell = '<span class="rtacc-badge rtacc-badge--' . esc_attr($r['status']) . '">' . esc_html($tstatus) . '</span>';
+                    }
+
+                    // Minor rows are indented under their guardian with a ↳ icon.
+                    $rel_icon = $is_minor_row
+                        ? '<i class="fa-solid fa-arrow-turn-down-right rtacc-mytour-childicon" aria-hidden="true"></i> '
+                        : '';
+                    $name_btn = $rel_icon . '<button type="button" class="rtacc-linkbtn rtacc-tour-attendee" data-ticket="' . esc_attr($r['id']) . '">' . esc_html($name) . '</button>';
+                    $phone = isset($r['phone']) ? trim((string) $r['phone']) : '';
+                    $phone_cell = ('' !== $phone)
+                        ? '<a href="tel:' . esc_attr(preg_replace('/[^0-9+]/', '', $phone)) . '">' . esc_html($phone) . '</a>'
+                        : '<span class="rtacc-muted">—</span>';
+                    echo '<tr' . ($is_minor_row ? ' class="rtacc-mytour-child"' : '') . '>'
+                        . '<td data-title="' . esc_attr__('Attendee', 'rt-event-manager') . '">' . $name_btn . '</td>'
+                        . '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '">' . $phone_cell . '</td>'
+                        . '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '">' . $status_cell . '</td>'
+                        . '<td data-title="' . esc_attr__('Boarding', 'rt-event-manager') . '" style="text-align:right;">' . $board . '</td>'
+                        . '</tr>';
+                }
+                echo '</tbody></table>';
+            }
+            echo '</div>';
+        }
+
+        // Attendee profile modal (filled + opened via JS on name click).
+        echo '<div class="rtacc-modal" id="rtacc-modal-tour-profile" hidden>';
+        echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
+        echo '<div class="rtacc-modal-dialog">';
+        echo '<button type="button" class="rtacc-modal-x" data-rtacc-close aria-label="' . esc_attr__('Close', 'rt-event-manager') . '">&times;</button>';
+        echo '<div id="rtacc-tour-profile-body" class="rtacc-tour-profile-body"></div>';
+        echo '</div></div>';
+    }
+
+    /**
+     * Reorder a tour roster so each minor attendee sits directly beneath their
+     * guardian, and flag minor rows with `_is_minor`. A tour ticket's holder is a
+     * minor when its main ticket (parent_ticket_id) is of kind "minor"; the
+     * guardian is that minor's own parent, matched to another tour row on the
+     * same tour. Minors whose guardian is not on the tour are appended at the end.
+     *
+     * @param array $roster rows from RT_Event_Manager_Checkin::session_attendees()
+     * @return array
+     */
+    private function order_roster_by_guardian($roster) {
+        // Map each row's main ticket id → row index, and resolve minor/guardian.
+        $main_to_row = array();
+        foreach ($roster as $i => $r) {
+            $main_to_row[absint($r['parent_ticket_id'])] = $i;
+        }
+        $adults = array();
+        $minors_by_guardian_row = array(); // guardian tour-row id → [minor rows]
+        $orphan_minors = array();
+        foreach ($roster as $r) {
+            $main  = absint($r['parent_ticket_id']) ? RT_Event_Manager::get_ticket_by_id(absint($r['parent_ticket_id'])) : null;
+            $minor = ($main && 'minor' === RT_Event_Manager::get_ticket_kind($main));
+            $r['_is_minor'] = $minor;
+            if ($minor && $main && absint($main['parent_ticket_id']) && isset($main_to_row[absint($main['parent_ticket_id'])])) {
+                $gid = absint($roster[$main_to_row[absint($main['parent_ticket_id'])]]['id']);
+                $minors_by_guardian_row[$gid][] = $r;
+            } elseif ($minor) {
+                $orphan_minors[] = $r;
+            } else {
+                $adults[] = $r;
+            }
+        }
+        // Adults keep the query's name order; each is followed by its minors.
+        $ordered = array();
+        foreach ($adults as $a) {
+            $ordered[] = $a;
+            $aid = absint($a['id']);
+            if (!empty($minors_by_guardian_row[$aid])) {
+                foreach ($minors_by_guardian_row[$aid] as $m) {
+                    $ordered[] = $m;
+                }
+            }
+        }
+        foreach ($orphan_minors as $m) {
+            $ordered[] = $m;
+        }
+        return $ordered;
+    }
+
+    /* ---------------------------------------------------------------------
+     * Find Guest — staff attendee lookup (read-only profiles)
+     * ------------------------------------------------------------------- */
+
+    private function render_find_guest() {
+        if (!class_exists('RT_Event_Manager_Checkin') || !RT_Event_Manager_Checkin::can_view_profiles()) {
+            echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Find Guest', 'rt-event-manager') . '</h2>';
+            echo '<p>' . esc_html__('You do not have access to guest lookup.', 'rt-event-manager') . '</p>';
+            return;
+        }
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Find Guest', 'rt-event-manager') . '</h2>';
+        echo '<p class="rtacc-hint">' . esc_html__('Search attendees by name, email, phone, order or ticket number.', 'rt-event-manager') . '</p>';
+        echo '<form class="rtacc-fg-form" id="rtacc-fg-form" role="search">';
+        echo '<input type="search" id="rtacc-fg-q" class="uk-input" autocomplete="off" placeholder="' . esc_attr__('Name, email, phone, order #…', 'rt-event-manager') . '" />';
+        echo ' <button type="submit" class="uk-button uk-button-primary">' . esc_html__('Search', 'rt-event-manager') . '</button>';
+        echo '</form>';
+        echo '<div class="rtacc-fg-results" id="rtacc-fg-results" aria-live="polite"></div>';
+        echo '<div class="rtacc-fg-detail" id="rtacc-fg-detail"></div>';
+    }
+
+    /** AJAX: search attendees; returns an HTML result list. */
+    public function ajax_find_guest() {
+        check_ajax_referer('rt_event_manager_find_guest', 'nonce');
+        if (!is_user_logged_in() || !class_exists('RT_Event_Manager_Checkin') || !RT_Event_Manager_Checkin::can_view_profiles()) {
+            wp_send_json_error(__('Not authorised.', 'rt-event-manager'));
+        }
+        $q = isset($_POST['q']) ? trim((string) wp_unslash($_POST['q'])) : '';
+        if (strlen($q) < 2) {
+            wp_send_json_error(__('Enter at least two characters.', 'rt-event-manager'));
+        }
+        global $wpdb;
+        $t    = $wpdb->prefix . 'rti_tickets';
+        $like = '%' . $wpdb->esc_like($q) . '%';
+        $ors    = array('t.holder_name LIKE %s', 't.phone LIKE %s', 'u.user_email LIKE %s', 'u.display_name LIKE %s');
+        $params = array($like, $like, $like, $like);
+        if (is_numeric($q)) {
+            $ors[] = 't.order_id = %d'; $params[] = intval($q);
+            $ors[] = 't.id = %d';       $params[] = intval($q);
+        }
+        $where = "t.ticket_kind IN ('event','minor') AND (" . implode(' OR ', $ors) . ')';
+
+        // Pure event guides only see attendees on the tours they are assigned to.
+        $uid = get_current_user_id();
+        if (!RT_Event_Manager_Checkin::can_main($uid)) {
+            $prods = class_exists('RT_Event_Manager_Staff') ? RT_Event_Manager_Staff::operator_tour_products($uid) : array();
+            if (empty($prods)) {
+                wp_send_json_success(array('html' => '<p class="rtacc-muted">' . esc_html__('No matching guests on your tours.', 'rt-event-manager') . '</p>'));
+            }
+            $in = implode(',', array_fill(0, count($prods), '%d'));
+            $where .= " AND t.id IN (SELECT parent_ticket_id FROM $t WHERE ticket_kind IN ('pretour','daytour') AND product_id IN ($in))";
+            foreach ($prods as $p) { $params[] = absint($p); }
+        }
+
+        $sql  = "SELECT t.* FROM $t t LEFT JOIN {$wpdb->users} u ON u.ID = t.owner_user_id WHERE $where ORDER BY t.holder_name ASC LIMIT 30";
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+        if (empty($rows)) {
+            wp_send_json_success(array('html' => '<p class="rtacc-muted">' . esc_html__('No matches found.', 'rt-event-manager') . '</p>'));
+        }
+        $labels = $this->status_labels();
+        $html = '<ul class="rtacc-fg-list">';
+        foreach ($rows as $r) {
+            $p      = wc_get_product($r['product_id']);
+            $pname  = $p ? RT_Event_Manager::product_title($p->get_id()) : RT_Event_Manager::ticket_kind_label($r);
+            $status = isset($r['status']) ? $r['status'] : 'draft';
+            $slabel = isset($labels[$status]) ? $labels[$status] : $status;
+            $name   = ('' !== $r['holder_name']) ? $r['holder_name'] : ('#' . $r['id']);
+            $html  .= '<li><button type="button" class="rtacc-fg-item" data-ticket="' . esc_attr($r['id']) . '">'
+                . '<span class="rtacc-fg-name">' . esc_html($name) . '</span> '
+                . '<span class="rtacc-fg-meta">' . esc_html($pname) . ' · #' . esc_html($r['order_id']) . ' · ' . esc_html($slabel) . '</span>'
+                . '</button></li>';
+        }
+        $html .= '</ul>';
+        wp_send_json_success(array('html' => $html));
+    }
+
+    /** AJAX: read-only profile for one attendee. */
+    public function ajax_find_guest_profile() {
+        check_ajax_referer('rt_event_manager_find_guest', 'nonce');
+        if (!is_user_logged_in() || !class_exists('RT_Event_Manager_Checkin') || !RT_Event_Manager_Checkin::can_view_profiles()) {
+            wp_send_json_error(__('Not authorised.', 'rt-event-manager'));
+        }
+        $ticket_id = isset($_POST['ticket_id']) ? absint($_POST['ticket_id']) : 0;
+        $ticket    = $ticket_id ? RT_Event_Manager::get_ticket_by_id($ticket_id) : null;
+        if (!$ticket || !in_array(RT_Event_Manager::get_ticket_kind($ticket), array('event', 'minor'), true)) {
+            wp_send_json_error(__('Guest not found.', 'rt-event-manager'));
+        }
+        if (!$this->can_view_attendee($ticket)) {
+            wp_send_json_error(__('You can only view guests on the tours you are assigned to.', 'rt-event-manager'));
+        }
+        wp_send_json_success(array('html' => $this->find_guest_profile_html($ticket)));
+    }
+
+    /**
+     * Profile for an attendee on one of the current user's tours (opened from the
+     * My Tours roster). Resolves the tour ticket to its attendee's main ticket.
+     */
+    public function ajax_tour_attendee_profile() {
+        check_ajax_referer('rt_event_manager_find_guest', 'nonce');
+        if (!is_user_logged_in() || !class_exists('RT_Event_Manager_Checkin')) {
+            wp_send_json_error(__('Not authorised.', 'rt-event-manager'));
+        }
+        $tour_ticket_id = isset($_POST['tour_ticket_id']) ? absint($_POST['tour_ticket_id']) : 0;
+        $tour = $tour_ticket_id ? RT_Event_Manager::get_ticket_by_id($tour_ticket_id) : null;
+        if (!$tour || !in_array($tour['ticket_kind'], array('pretour', 'daytour'), true)) {
+            wp_send_json_error(__('Tour ticket not found.', 'rt-event-manager'));
+        }
+        // Only staff who run this tour may view its attendees.
+        if (!RT_Event_Manager_Checkin::can_manage_tour($tour['product_id'])
+            && !RT_Event_Manager_Checkin::can_scan_tour($tour['product_id'])) {
+            wp_send_json_error(__('You can only view attendees on tours you run.', 'rt-event-manager'));
+        }
+        // Show the attendee's main ticket profile (fall back to the tour ticket).
+        $attendee = $tour;
+        if (absint($tour['parent_ticket_id'])) {
+            $p = RT_Event_Manager::get_ticket_by_id(absint($tour['parent_ticket_id']));
+            if ($p) {
+                $attendee = $p;
+            }
+        }
+        wp_send_json_success(array('html' => $this->find_guest_profile_html($attendee)));
+    }
+
+    /**
+     * Whether the current user may view a given attendee's profile. Managers /
+     * registration managers (and shop managers/admins) see everyone; a pure
+     * event guide only sees attendees booked on a tour they are assigned to.
+     */
+    private function can_view_attendee($ticket) {
+        $uid = get_current_user_id();
+        if (RT_Event_Manager_Checkin::can_main($uid)) {
+            return true;
+        }
+        if (!RT_Event_Manager_Checkin::can_tours($uid)) {
+            return false;
+        }
+        $prods = class_exists('RT_Event_Manager_Staff') ? RT_Event_Manager_Staff::operator_tour_products($uid) : array();
+        if (empty($prods)) {
+            return false;
+        }
+        global $wpdb;
+        $t      = $wpdb->prefix . 'rti_tickets';
+        $in     = implode(',', array_fill(0, count($prods), '%d'));
+        $params = array_map('absint', $prods);
+        $params[] = absint($ticket['id']);
+        $sql = "SELECT COUNT(*) FROM $t WHERE ticket_kind IN ('pretour','daytour') AND product_id IN ($in) AND parent_ticket_id = %d";
+        return (int) $wpdb->get_var($wpdb->prepare($sql, $params)) > 0;
+    }
+
+    /** Build the read-only guest profile HTML for the Find Guest detail pane. */
+    private function find_guest_profile_html($ticket) {
+        $labels = $this->status_labels();
+        $badge  = function ($status) use ($labels) {
+            $l = isset($labels[$status]) ? $labels[$status] : $status;
+            return '<span class="rtacc-badge rtacc-badge--' . esc_attr($status) . '">' . esc_html($l) . '</span>';
+        };
+        $data = RT_Event_Manager_Checkin::instance()->build_guest_profile($ticket);
+        $a    = $data['attendee'];
+        $acct = $data['account'];
+        $row  = function ($label, $value) {
+            return '<tr><th>' . esc_html($label) . '</th><td>' . $value . '</td></tr>';
+        };
+
+        $h  = '<div class="rtacc-fg-card uk-card uk-card-default uk-card-body">';
+        $h .= '<h3 class="rtacc-subtitle">' . esc_html($a['holder']) . ' ' . $badge($a['status']) . '</h3>';
+        $h .= '<table class="rtacc-fg-table">';
+        $h .= $row(__('Ticket', 'rt-event-manager'), esc_html($a['product']));
+        if ('' !== $a['phone'])    { $h .= $row(__('Phone', 'rt-event-manager'), '<a href="tel:' . esc_attr($a['phone']) . '">' . esc_html($a['phone']) . '</a>'); }
+        if ('' !== $a['dietary'])  { $h .= $row(__('Dietary', 'rt-event-manager'), esc_html($a['dietary'])); }
+        if ('' !== $a['family'])   { $h .= $row(__('Club / Family', 'rt-event-manager'), esc_html($a['family'])); }
+        if ('' !== $a['guardian']) { $h .= $row(__('Guardian', 'rt-event-manager'), esc_html($a['guardian'])); }
+        if (!empty($a['pretours'])) { $h .= $row(__('Pretours', 'rt-event-manager'), esc_html(implode(', ', $a['pretours']))); }
+        if (!empty($a['daytours'])) { $h .= $row(__('Day tours', 'rt-event-manager'), esc_html(implode(', ', $a['daytours']))); }
+
+        // Purchasing (main) account — shown as a link when this is not the
+        // account's own primary ticket. Clicking opens that account's profile
+        // (only linked when the viewer is allowed to see it).
+        $owner = absint($ticket['owner_user_id']);
+        if ($owner) {
+            $primary_id = $this->own_event_ticket_id(RT_Event_Manager::get_tickets_for_user($owner));
+            if ($primary_id && $primary_id !== absint($ticket['id'])) {
+                $primary = RT_Event_Manager::get_ticket_by_id($primary_id);
+                if ($primary) {
+                    $acct_name = ('' !== $primary['holder_name']) ? $primary['holder_name'] : ($acct ? $acct['name'] : ('#' . $primary_id));
+                    if ($this->can_view_attendee($primary)) {
+                        $val = '<button type="button" class="rtacc-fg-acctlink" data-ticket="' . esc_attr($primary_id) . '">' . esc_html($acct_name) . '</button>';
+                    } else {
+                        $val = esc_html($acct_name);
+                    }
+                    $h .= $row(__('Purchased by', 'rt-event-manager'), $val);
+                }
+            }
+        }
+        $h .= '</table>';
+
+        // Minors this attendee is guardian for.
+        global $wpdb;
+        $t = $wpdb->prefix . 'rti_tickets';
+        $minors = $wpdb->get_results($wpdb->prepare("SELECT * FROM $t WHERE ticket_kind = 'minor' AND parent_ticket_id = %d", absint($ticket['id'])), ARRAY_A);
+        if ($minors) {
+            $h .= '<h4 class="rtacc-fg-h">' . esc_html__('Accompanying (guardian for)', 'rt-event-manager') . '</h4>';
+            foreach ($minors as $m) {
+                $mp = RT_Event_Manager_Checkin::instance()->build_guest_profile($m)['attendee'];
+                $h .= '<div class="rtacc-fg-minor"><strong>' . esc_html($mp['holder']) . '</strong> ' . $badge($mp['status']);
+                $bits = array();
+                if ('' !== $mp['dietary'])   { $bits[] = esc_html__('Dietary', 'rt-event-manager') . ': ' . esc_html($mp['dietary']); }
+                if (!empty($mp['pretours'])) { $bits[] = esc_html__('Pretours', 'rt-event-manager') . ': ' . esc_html(implode(', ', $mp['pretours'])); }
+                if (!empty($mp['daytours'])) { $bits[] = esc_html__('Day tours', 'rt-event-manager') . ': ' . esc_html(implode(', ', $mp['daytours'])); }
+                if ($bits) { $h .= '<div class="rtacc-fg-minor-meta">' . implode(' · ', $bits) . '</div>'; }
+                $h .= '</div>';
+            }
+        }
+
+        // Emergency contacts (account holder).
+        if ($acct && !empty($acct['emergency'])) {
+            $h .= '<h4 class="rtacc-fg-h">' . esc_html__('Emergency contacts', 'rt-event-manager') . '</h4>';
+            foreach ($acct['emergency'] as $c) {
+                $h .= '<div class="rtacc-fg-emergency"><strong>' . esc_html($c['name']) . '</strong>';
+                if (!empty($c['relationship'])) { $h .= ' <span class="rtacc-muted">· ' . esc_html($c['relationship']) . '</span>'; }
+                if (!empty($c['phone'])) { $h .= '<div><a href="tel:' . esc_attr($c['phone']) . '">' . esc_html($c['phone']) . '</a></div>'; }
+                if (!empty($c['email'])) { $h .= '<div><a href="mailto:' . esc_attr($c['email']) . '">' . esc_html($c['email']) . '</a></div>'; }
+                $h .= '</div>';
+            }
+        }
+
+        // The account's tickets and their statuses.
+        if ($acct && !empty($acct['tickets'])) {
+            $h .= '<h4 class="rtacc-fg-h">' . esc_html__('Account tickets', 'rt-event-manager') . '</h4><table class="rtacc-fg-table">';
+            foreach ($acct['tickets'] as $tt) {
+                $h .= '<tr><td>' . esc_html($tt['holder']) . '</td><td>' . esc_html($tt['product'])
+                    . ($tt['dietary'] ? ' <span class="rtacc-muted">(' . esc_html($tt['dietary']) . ')</span>' : '')
+                    . '</td><td>' . $badge($tt['status']) . '</td></tr>';
+            }
+            $h .= '</table>';
+        }
+
+        // Admins + the highest staff group: log in as this member to verify issues.
+        $target = absint($ticket['owner_user_id']);
+        if ($target && class_exists('RT_Event_Manager_User_Switch')
+            && RT_Event_Manager_User_Switch::user_can_switch()
+            && !RT_Event_Manager_User_Switch::user_can_switch($target)) {
+            $h .= '<h4 class="rtacc-fg-h">' . esc_html__('Admin', 'rt-event-manager') . '</h4>';
+            $h .= '<p><a class="uk-button uk-button-danger uk-button-small" href="'
+                . esc_url(RT_Event_Manager_User_Switch::switch_to_url($target)) . '">'
+                . esc_html__('Log in as this member', 'rt-event-manager') . '</a>'
+                . ' <span class="rtacc-muted" style="font-size:12px;">'
+                . esc_html__('Opens their account in a support session; return via the banner.', 'rt-event-manager')
+                . '</span></p>';
+        }
+
+        $h .= '</div>';
+        return $h;
     }
 
     /** The navigation <ul> (reused by the desktop sidebar and the off-canvas). */
@@ -761,9 +1334,48 @@ class RT_Event_Manager_Account {
         );
         $tabs = $this->get_tabs();
 
+        // Event Management block (staff only): the in-portal check-in scanner, the
+        // Find Guest lookup and My Tours, under a section heading. Built here so it
+        // can be slotted in between the Dashboard and My Profile groups below.
+        // Shown only to event operators and above — never to attendees.
+        $has_em  = isset($tabs['checkin']) || isset($tabs['findguest']) || isset($tabs['mytours']);
+        $em_html = '';
+        if ($has_em) {
+            $em_html .= '<li class="rtacc-nav-heading">' . esc_html__('Event Management', 'rt-event-manager') . '</li>';
+            if (isset($tabs['checkin'])) {
+                $ci_active = ('checkin' === $current);
+                $em_html  .= $item(
+                    $icon_tag(($ci_active ? 'fa-solid' : $fa_style) . ' fa-qrcode'),
+                    $this->tab_url('checkin'),
+                    $tabs['checkin'],
+                    trim(($ci_active ? 'uk-active ' : '') . 'rtacc-nav-em rtacc-nav-checkin')
+                );
+            }
+            if (isset($tabs['findguest'])) {
+                $fg_active = ('findguest' === $current);
+                $em_html  .= $item(
+                    $icon_tag(($fg_active ? 'fa-solid' : $fa_style) . ' fa-user-magnifying-glass'),
+                    $this->tab_url('findguest'),
+                    $tabs['findguest'],
+                    trim(($fg_active ? 'uk-active ' : '') . 'rtacc-nav-em rtacc-nav-findguest')
+                );
+            }
+            if (isset($tabs['mytours'])) {
+                $mt_active = ('mytours' === $current);
+                $em_html  .= $item(
+                    $icon_tag(($mt_active ? 'fa-solid' : $fa_style) . ' fa-user-pilot'),
+                    $this->tab_url('mytours'),
+                    $tabs['mytours'],
+                    trim(($mt_active ? 'uk-active ' : '') . 'rtacc-nav-em rtacc-nav-mytours')
+                );
+            }
+        }
+
         $out = '<ul class="uk-nav uk-nav-default">';
         $rendered_any = false;
-        foreach ($groups as $group) {
+        $skip_next_sep = false;
+        $em_inserted   = false;
+        foreach ($groups as $gi => $group) {
             $group_html = '';
             foreach ($group as $key) {
                 if (!isset($tabs[$key])) {
@@ -798,12 +1410,30 @@ class RT_Event_Manager_Account {
             if ('' === $group_html) {
                 continue;
             }
-            if ($rendered_any) {
+            if ($rendered_any && !$skip_next_sep) {
                 $out .= '<li class="rtacc-nav-sep" aria-hidden="true"></li>';
             }
+            $skip_next_sep = false;
             $out .= $group_html;
             $rendered_any = true;
+
+            // Slot the Event Management block in right after the Dashboard group,
+            // bracketed by blue rules (before My Profile follows).
+            if (0 === $gi && $has_em) {
+                $out .= '<li class="rtacc-nav-rule" aria-hidden="true"></li>';
+                $out .= $em_html;
+                $out .= '<li class="rtacc-nav-rule" aria-hidden="true"></li>';
+                $em_inserted   = true;
+                $skip_next_sep = true; // the rule already separates EM from the next group
+            }
         }
+        // Fallback: if the Dashboard group was not rendered, still show the block.
+        if ($has_em && !$em_inserted) {
+            $out .= '<li class="rtacc-nav-rule" aria-hidden="true"></li>';
+            $out .= $em_html;
+            $rendered_any = true;
+        }
+
         // Log out sits on its own, separated from the last group by a gap.
         if ($rendered_any) {
             $out .= '<li class="rtacc-nav-sep" aria-hidden="true"></li>';
@@ -832,7 +1462,12 @@ class RT_Event_Manager_Account {
 
         $display_name = !empty($sso['name']) ? $sso['name'] : $user->display_name;
 
-        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html(sprintf(__('Welcome, %s', 'rt-event-manager'), $display_name)) . '</h2>';
+        // Event staff get a blue "Event Staff" badge next to the greeting.
+        $staff_badge = '';
+        if (class_exists('RT_Event_Manager_Staff') && RT_Event_Manager_Staff::is_staff($user->ID)) {
+            $staff_badge = ' <span class="rtacc-staff-badge">' . esc_html__('Event Staff', 'rt-event-manager') . '</span>';
+        }
+        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html(sprintf(__('Welcome, %s', 'rt-event-manager'), $display_name)) . $staff_badge . '</h2>';
 
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Your tickets', 'rt-event-manager') . '</h3>';
         if (empty($tickets)) {
@@ -846,8 +1481,15 @@ class RT_Event_Manager_Account {
             }
 
             // The account owner's own group is expanded by default; the rest are
-            // collapsed and expandable.
-            $own_id     = $this->own_event_ticket_id($tickets);
+            // collapsed and expandable. Event staff have no event ticket, so their
+            // staff ticket stands in as the account's primary.
+            $own_id = $this->own_event_ticket_id($tickets);
+            if (!$own_id && class_exists('RT_Event_Manager_Staff')) {
+                $staff_t = RT_Event_Manager_Staff::get_staff_ticket_for_user(get_current_user_id());
+                if ($staff_t) {
+                    $own_id = absint($staff_t['id']);
+                }
+            }
             $own_holder = '';
             foreach ($tickets as $t) {
                 if (absint($t['id']) === $own_id) {
@@ -867,20 +1509,53 @@ class RT_Event_Manager_Account {
                     }
                     return $this->event_start_ts($a['product_id']) <=> $this->event_start_ts($b['product_id']);
                 });
-                $open = ($own_holder !== '' && $holder === $own_holder) ? ' open' : '';
-                echo '<details class="rtacc-dash-group"' . $open . '>';
-                echo '<summary class="rtacc-dash-summary">' . esc_html($holder) . ' <span class="rtacc-dash-count">' . esc_html(sprintf(_n('%d ticket', '%d tickets', count($rows), 'rt-event-manager'), count($rows))) . '</span></summary>';
-                // Main event / Future-member tickets render as visual tickets
-                // (QR stub); any pretours / day tours follow in a compact table.
+                // Split each person's rows into main tickets (event/minor/staff)
+                // and tours (pretour/daytour). Mains render as visual tickets (QR
+                // stub); tours follow in a compact table.
                 $mains = array();
                 $tours = array();
                 foreach ($rows as $t) {
-                    if (in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor'), true)) {
+                    if (in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'minor', 'staff'), true)) {
                         $mains[] = $t;
                     } else {
                         $tours[] = $t;
                     }
                 }
+                // Summary line: the person's main ticket type, plus the names of any
+                // pretours / day tours they hold (replaces a bare ticket count).
+                $main_labels = array();
+                foreach ($mains as $t) {
+                    $p = wc_get_product($t['product_id']);
+                    if ($p) {
+                        $main_labels[] = RT_Event_Manager::product_title($p->get_id());
+                    } else {
+                        // No product (e.g. an order-0 staff ticket): use the kind.
+                        $k = RT_Event_Manager::get_ticket_kind($t);
+                        if ('staff' === $k) {
+                            $main_labels[] = __('Staff ticket', 'rt-event-manager');
+                        } elseif ('event' === $k) {
+                            $main_labels[] = __('Event ticket', 'rt-event-manager');
+                        } else {
+                            $main_labels[] = RT_Event_Manager::ticket_kind_label($t);
+                        }
+                    }
+                }
+                $tour_names = array();
+                foreach ($tours as $t) {
+                    $p = wc_get_product($t['product_id']);
+                    $tour_names[] = $p ? RT_Event_Manager::product_title($p->get_id()) : RT_Event_Manager::ticket_kind_label($t);
+                }
+                $summary = $main_labels
+                    ? implode(', ', $main_labels)
+                    : sprintf(_n('%d ticket', '%d tickets', count($rows), 'rt-event-manager'), count($rows));
+                if ($tour_names) {
+                    /* translators: %s: comma-separated list of tour names */
+                    $summary .= ' · ' . sprintf(__('includes: %s', 'rt-event-manager'), implode(', ', $tour_names));
+                }
+
+                $open = ($own_holder !== '' && $holder === $own_holder) ? ' open' : '';
+                echo '<details class="rtacc-dash-group"' . $open . '>';
+                echo '<summary class="rtacc-dash-summary">' . esc_html($holder) . ' <span class="rtacc-dash-count">' . esc_html($summary) . '</span></summary>';
                 if (!empty($mains)) {
                     echo '<div class="rtacc-ticket-list">';
                     foreach ($mains as $t) {
@@ -900,7 +1575,12 @@ class RT_Event_Manager_Account {
                     foreach ($tours as $t) {
                         $status     = isset($t['status']) ? $t['status'] : 'draft';
                         $product    = wc_get_product($t['product_id']);
-                        $what       = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
+                        $what       = $product ? RT_Event_Manager::product_title($product->get_id()) : RT_Event_Manager::ticket_kind_label($t);
+                        // Staff tour duties (guide/supervisor) are flagged inline.
+                        $duty = isset($t['staff_role']) ? $t['staff_role'] : '';
+                        if ('' !== $duty && class_exists('RT_Event_Manager_Staff')) {
+                            $what .= ' · ' . RT_Event_Manager_Staff::duty_label($duty);
+                        }
                         $event_date = $this->ticket_event_date($t['product_id']);
                         echo '<tr class="rtacc-trow-' . esc_attr(RT_Event_Manager::get_ticket_kind($t)) . '">';
                         echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($what) . '</td>';
@@ -939,7 +1619,11 @@ class RT_Event_Manager_Account {
         $voided   = in_array($status, array('cancelled', 'refunded', 'invalid'), true);
         $holder   = ($t['holder_name'] !== '') ? $t['holder_name'] : __('Attendee', 'rt-event-manager');
         $number   = absint($t['ticket_index']) + 1;
-        $ticket_no = '#' . absint($t['order_id']) . ' · ' . $number;
+        $is_staff = ('staff' === RT_Event_Manager::get_ticket_kind($t));
+        $is_minor = ('minor' === RT_Event_Manager::get_ticket_kind($t));
+        $ticket_no = $is_staff
+            ? __('STAFF', 'rt-event-manager')
+            : '#' . absint($t['order_id']) . ' · ' . $number;
 
         $labels     = $this->status_labels();
         $event_name = get_option('rt_event_manager_wallet_event_name', __('RTI Half-Year Meeting 2027', 'rt-event-manager'));
@@ -949,6 +1633,10 @@ class RT_Event_Manager_Account {
 
         $has_apple  = class_exists('RT_Event_Manager_Apple_Wallet');
         $org        = $has_apple ? RT_Event_Manager_Apple_Wallet::org_line($t) : '';
+        if ($is_staff && class_exists('RT_Event_Manager_Staff')) {
+            // Staff tickets show their role (or its custom label) where the club would be.
+            $org = RT_Event_Manager_Staff::display_role($t);
+        }
         $status_lbl = $has_apple ? RT_Event_Manager_Apple_Wallet::status_label($t) : (isset($labels[$status]) ? $labels[$status] : $status);
         $has_pre    = !empty(RT_Event_Manager::get_child_pretours($id));
         $has_day    = !empty(RT_Event_Manager::get_child_daytours($id));
@@ -976,7 +1664,7 @@ class RT_Event_Manager_Account {
 
         $lbl = function ($text) { return '<span class="rtacc-ticket-lbl">' . esc_html($text) . '</span>'; };
 
-        echo '<div class="rtacc-ticket' . ($voided ? ' rtacc-ticket--void' : '') . '">';
+        echo '<div class="rtacc-ticket' . ($voided ? ' rtacc-ticket--void' : '') . ($is_staff ? ' rtacc-ticket--staff' : '') . ($is_minor ? ' rtacc-ticket--minor' : '') . '">';
 
         // Holographic foil overlay across the whole ticket (body + stub):
         // repeating, staggered micro-printed event text that shimmers red as the
@@ -1007,9 +1695,10 @@ class RT_Event_Manager_Account {
         echo '<div class="rtacc-ta-right">' . $lbl(__('TICKET', 'rt-event-manager')) . '<span class="rtacc-ticket-val">' . esc_html($ticket_no) . '</span></div>';
         echo '</div>';
 
-        // Row 2: Club | Includes (aligned under the ticket, right).
+        // Row 2: Club/Role | Includes (aligned under the ticket, right).
         echo '<div class="rtacc-ticket-grid rtacc-ticket-grid--2">';
-        echo '<div>' . $lbl(__('CLUB', 'rt-event-manager')) . '<span class="rtacc-ticket-val">' . esc_html('' !== $org ? $org : '—') . '</span></div>';
+        $org_label = $is_staff ? __('ROLE', 'rt-event-manager') : __('CLUB', 'rt-event-manager');
+        echo '<div>' . $lbl($org_label) . '<span class="rtacc-ticket-val">' . esc_html('' !== $org ? $org : '—') . '</span></div>';
         if ('' !== $tours) {
             echo '<div class="rtacc-ta-right">' . $lbl(__('INCLUDES', 'rt-event-manager')) . '<span class="rtacc-ticket-val">' . esc_html($tours) . '</span></div>';
         }
@@ -1463,7 +2152,7 @@ class RT_Event_Manager_Account {
 
         foreach ($rows as $t) {
             $product = wc_get_product($t['product_id']);
-            $pname   = $product ? $product->get_name() : RT_Event_Manager::ticket_kind_label($t);
+            $pname   = $product ? RT_Event_Manager::product_title($product->get_id()) : RT_Event_Manager::ticket_kind_label($t);
             $rs      = isset($t['refund_status']) ? $t['refund_status'] : '';
             $rlabel  = isset($labels[$rs]) ? $labels[$rs] : $rs;
             $amount  = wc_price(RT_Event_Manager::get_ticket_paid_amount($t), array('currency' => RT_Event_Manager::get_ticket_currency($t)));
@@ -1633,9 +2322,20 @@ class RT_Event_Manager_Account {
             }
         }
 
+        $is_staff_user = class_exists('RT_Event_Manager_Staff') && RT_Event_Manager_Staff::is_staff($user_id);
+
         // The purchaser's own ticket — new co-travellers link to it so their
         // checkout collects the traveller's own details rather than the buyer's.
+        // Event staff have no regular ticket, so their staff ticket stands in as
+        // the primary (satisfying the "must have a primary ticket" requirement,
+        // and becoming the parent the co-traveller links to at checkout).
         $primary_id = !empty($mine) ? absint($mine[0]['id']) : 0;
+        if (!$primary_id && $is_staff_user) {
+            $staff_ticket = RT_Event_Manager_Staff::get_staff_ticket_for_user($user_id);
+            if ($staff_ticket) {
+                $primary_id = absint($staff_ticket['id']);
+            }
+        }
 
         // Add buttons live inside their respective section (co-travellers under
         // "Travelling with me", Future members under "Future members").
@@ -1643,8 +2343,18 @@ class RT_Event_Manager_Account {
         $future_options    = $this->ticket_options($event_parents);
         $future_button     = $this->future_add_button($future_options);
 
-        // With no own ticket yet, offer a straight-to-checkout purchase button.
-        $buy_own_button = empty($mine) ? $this->buy_own_ticket_button() : '';
+        // With no own ticket: offer a buy-own button — unless the member is event
+        // staff, who are covered by their staff ticket (they may still add other
+        // tickets below).
+        if (!empty($mine)) {
+            $buy_own_button = '';
+        } elseif ($is_staff_user) {
+            $buy_own_button = '<div class="rtacc-notice rtacc-alert-secondary" uk-alert><p>'
+                . esc_html__('You have a staff ticket assigned and do not need to purchase a regular ticket for yourself.', 'rt-event-manager')
+                . '</p></div>';
+        } else {
+            $buy_own_button = $this->buy_own_ticket_button();
+        }
 
         $this->render_editable_sections('rtacc-tickets-form', array(
             array('label' => __('My Ticket', 'rt-event-manager'), 'tickets' => $mine, 'empty' => __('You do not have a ticket assigned to yourself yet.', 'rt-event-manager'), 'after' => $buy_own_button),
@@ -1705,8 +2415,13 @@ class RT_Event_Manager_Account {
 
         $mine       = array();
         $companions = array();
+        $duty_tours = array(); // guide/supervisor assignments (shown separately)
         foreach ($tickets as $t) {
             if ($kind !== $this->effective_kind($t)) {
+                continue;
+            }
+            if (!empty($t['staff_role'])) {
+                $duty_tours[] = $t;
                 continue;
             }
             $parent = absint($t['parent_ticket_id']);
@@ -1748,6 +2463,34 @@ class RT_Event_Manager_Account {
         echo '</div>';
 
         $this->maybe_cutoff_notice($can_edit);
+
+        // Staff duty tours (guide/supervisor) are listed on their own with a note
+        // that staff cannot buy tours for themselves.
+        if (!empty($duty_tours)) {
+            $duty_labels = array();
+            foreach ($duty_tours as $dt) {
+                $dl = class_exists('RT_Event_Manager_Staff') ? RT_Event_Manager_Staff::duty_label($dt['staff_role']) : '';
+                if ('' !== $dl) {
+                    $duty_labels[$dl] = true;
+                }
+            }
+            $roles_txt = implode(' / ', array_keys($duty_labels));
+            if ('' === $roles_txt) {
+                $roles_txt = __('event staff', 'rt-event-manager');
+            }
+            echo '<div class="rtacc-notice rtacc-alert-secondary" uk-alert>';
+            echo '<p>' . esc_html(sprintf(__('You have been assigned as %s to the following tours. As event staff you cannot purchase tours for yourself.', 'rt-event-manager'), $roles_txt)) . '</p>';
+            echo '<ul class="rtacc-duty-list">';
+            foreach ($duty_tours as $dt) {
+                $p     = wc_get_product($dt['product_id']);
+                $pname = $p ? RT_Event_Manager::product_title($p->get_id()) : RT_Event_Manager::ticket_kind_label($dt);
+                list($s) = RT_Event_Manager::tour_product_range($dt['product_id']);
+                $date  = $s ? ' — ' . date_i18n('j M Y', $s) : '';
+                $dl    = class_exists('RT_Event_Manager_Staff') ? RT_Event_Manager_Staff::duty_label($dt['staff_role']) : '';
+                echo '<li>' . esc_html($pname . $date) . ($dl ? ' · <strong>' . esc_html($dl) . '</strong>' : '') . '</li>';
+            }
+            echo '</ul></div>';
+        }
 
         // Day tours are ordered by their tour's start time within each section.
         if ($is_day) {
@@ -1830,7 +2573,7 @@ class RT_Event_Manager_Account {
             $end     = get_post_meta($pid, '_rti_end', true);
             $product = wc_get_product($pid);
             $items[] = array(
-                'title'    => $product ? $product->get_name() : ('#' . $pid),
+                'title'    => $product ? RT_Event_Manager::product_title($product->get_id()) : ('#' . $pid),
                 'start'    => strtotime($start),
                 'end'      => ('' !== $end) ? strtotime($end) : strtotime($start),
                 'cat'      => RT_Event_Manager::get_calendar_category($pid),
@@ -2214,7 +2957,7 @@ class RT_Event_Manager_Account {
         echo '<ul class="rtacc-transfer-list">';
         foreach ($items as $it) {
             $pp = wc_get_product($it['product_id']);
-            echo '<li>' . esc_html($pp ? $pp->get_name() : __('Ticket', 'rt-event-manager')) . '</li>';
+            echo '<li>' . esc_html($pp ? RT_Event_Manager::product_title($pp->get_id()) : __('Ticket', 'rt-event-manager')) . '</li>';
         }
         echo '</ul>';
 
@@ -2325,11 +3068,9 @@ class RT_Event_Manager_Account {
      * @return string 'event' | 'pretour' | 'minor'
      */
     private function effective_kind($t) {
-        $k = isset($t['ticket_kind']) ? $t['ticket_kind'] : '';
-        if (in_array($k, array('pretour', 'minor'), true)) {
-            return $k;
-        }
-        return RT_Event_Manager::get_ticket_kind_for_product($t['product_id']);
+        // Delegate to the canonical resolver so staff / daytour kinds are not
+        // misclassified as 'event' (they have no ticket product).
+        return RT_Event_Manager::get_ticket_kind($t);
     }
 
     /**
@@ -2342,7 +3083,7 @@ class RT_Event_Manager_Account {
         $opts = array();
         foreach ($tickets as $t) {
             $product = wc_get_product($t['product_id']);
-            $pname   = $product ? $product->get_name() : __('ticket', 'rt-event-manager');
+            $pname   = $product ? RT_Event_Manager::product_title($product->get_id()) : __('ticket', 'rt-event-manager');
             $opts[absint($t['id'])] = ($t['holder_name'] !== '') ? $t['holder_name'] : $pname;
         }
         return $opts;
@@ -2435,7 +3176,7 @@ class RT_Event_Manager_Account {
             foreach ($tickets as $t) {
                 $status  = isset($t['status']) ? $t['status'] : 'draft';
                 $product = wc_get_product($t['product_id']);
-                $pname   = $product ? $product->get_name() : __('(deleted product)', 'rt-event-manager');
+                $pname   = $product ? RT_Event_Manager::product_title($product->get_id()) : __('(deleted product)', 'rt-event-manager');
                 $guardian = $guardian_of($t);
 
                 $range = $this->tour_time_range($t['product_id']);
@@ -2506,7 +3247,7 @@ class RT_Event_Manager_Account {
 
             if ($show_product) {
                 $product = wc_get_product($t['product_id']);
-                $pname   = $product ? $product->get_name() : __('(deleted product)', 'rt-event-manager');
+                $pname   = $product ? RT_Event_Manager::product_title($product->get_id()) : __('(deleted product)', 'rt-event-manager');
                 echo '<td data-title="' . esc_attr__('Tour', 'rt-event-manager') . '">' . esc_html($pname) . '</td>';
             }
 
@@ -2662,6 +3403,10 @@ class RT_Event_Manager_Account {
         $can_transfer         = RT_Event_Manager::instance()->is_frontend_editing_allowed();
         // Transfer and cancellation are offered only for confirmed tickets.
         $is_confirmed         = ('valid' === $status);
+        // Staff tickets and staff tour duties (guide/supervisor) are assigned by
+        // an organiser — they cannot be transferred or refunded by the member.
+        $is_staff_row = ('staff' === $kind)
+            || (in_array($kind, array('pretour', 'daytour'), true) && !empty($t['staff_role']));
 
         $out = '<div class="rtacc-row-actions">' . $edit_control;
 
@@ -2708,7 +3453,7 @@ class RT_Event_Manager_Account {
 
         // Options menu (gear): transfer / withdraw / cancel.
         $opt_items = array();
-        if (in_array($kind, array('event', 'pretour', 'daytour'), true)) {
+        if (!$is_staff_row && in_array($kind, array('event', 'pretour', 'daytour'), true)) {
             if ($has_pending_transfer) {
                 // Withdrawing a pending offer stays available even after the deadline.
                 $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-withdraw-transfer-btn" data-ticket="' . esc_attr($id) . '" role="menuitem"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> ' . esc_html($withdraw_label) . '</button>';
@@ -2716,7 +3461,7 @@ class RT_Event_Manager_Account {
                 $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" role="menuitem"><i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i> ' . esc_html($transfer_label) . '</button>';
             }
         }
-        if ($is_confirmed) {
+        if ($is_confirmed && !$is_staff_row) {
             $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-menu-item--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" role="menuitem"><i class="fa-solid fa-circle-xmark" aria-hidden="true"></i> ' . esc_html($cancel_label) . '</button>';
         }
         if ($opt_items) {
@@ -3234,6 +3979,9 @@ class RT_Event_Manager_Account {
             'draft'      => __('Pending Confirmation', 'rt-event-manager'),
             'invalid'    => __('Invalid', 'rt-event-manager'),
             'checked_in' => __('Checked In', 'rt-event-manager'),
+            'on_tour'    => __('On tour', 'rt-event-manager'),
+            'attended'   => __('Attended', 'rt-event-manager'),
+            'no_show'    => __('No show', 'rt-event-manager'),
             'cancelled'  => __('Cancelled', 'rt-event-manager'),
             'refunded'   => __('Refunded', 'rt-event-manager'),
         );
@@ -3424,6 +4172,9 @@ class RT_Event_Manager_Account {
         if (!in_array(RT_Event_Manager::get_ticket_kind($t), array('event', 'pretour', 'daytour'), true)) {
             wp_send_json_error(__('Only event, pretour and day tour tickets can be transferred. Future member tickets must be cancelled instead.', 'rt-event-manager'));
         }
+        if (!empty($t['staff_role'])) {
+            wp_send_json_error(__('Staff tickets and tour duties cannot be transferred.', 'rt-event-manager'));
+        }
         if (!RT_Event_Manager::instance()->is_frontend_editing_allowed()) {
             wp_send_json_error(__('The deadline has passed — tickets can no longer be transferred.', 'rt-event-manager'));
         }
@@ -3445,7 +4196,7 @@ class RT_Event_Manager_Account {
         ));
 
         $product = wc_get_product($t['product_id']);
-        $pname   = $product ? $product->get_name() : __('an event ticket', 'rt-event-manager');
+        $pname   = $product ? RT_Event_Manager::product_title($product->get_id()) : __('an event ticket', 'rt-event-manager');
         $hours   = max(1, round(RT_Event_Manager::transfer_expiry_seconds() / HOUR_IN_SECONDS));
 
         wp_send_json_success(array(
@@ -3467,6 +4218,9 @@ class RT_Event_Manager_Account {
         $t = $ticket_id ? RT_Event_Manager::get_ticket_by_id($ticket_id) : null;
         if (!$t || !$this->user_owns_ticket($t, $user_id)) {
             wp_send_json_error(__('Ticket not found.', 'rt-event-manager'));
+        }
+        if (!empty($t['staff_role'])) {
+            wp_send_json_error(__('Staff tickets and tour duties cannot be cancelled here.', 'rt-event-manager'));
         }
         if ('valid' !== $t['status']) {
             wp_send_json_error(__('Only confirmed tickets can be cancelled.', 'rt-event-manager'));
@@ -3592,6 +4346,40 @@ class RT_Event_Manager_Account {
     }
 
     /** Accept a pending transfer: reassign the package to the logged-in user. */
+    /** Next free ticket_index in the order_id = 0 (no-order) namespace. */
+    private function next_order0_index() {
+        global $wpdb;
+        $t = $wpdb->prefix . 'rti_tickets';
+        return (int) $wpdb->get_var("SELECT MAX(ticket_index) FROM $t WHERE order_id = 0") + 1;
+    }
+
+    /**
+     * "Recode" a ticket on transfer: insert a NEW row in the order_id = 0
+     * namespace (fresh ticket number → fresh check-in QR) copying the original,
+     * with the given overrides applied. Returns the new ticket id.
+     *
+     * @param array $original Original ticket row.
+     * @param array $data     Field overrides (owner, holder, status, …).
+     * @return int
+     */
+    private function recode_transfer_ticket($original, $data) {
+        global $wpdb;
+        $t = $wpdb->prefix . 'rti_tickets';
+        $row = array(
+            'order_id'         => 0,
+            'product_id'       => absint($original['product_id']),
+            'combination_id'   => absint(isset($original['combination_id']) ? $original['combination_id'] : 0),
+            'parent_ticket_id' => absint(isset($original['parent_ticket_id']) ? $original['parent_ticket_id'] : 0),
+            'ticket_kind'      => RT_Event_Manager::get_ticket_kind($original),
+            'minor_type'       => isset($original['minor_type']) ? (string) $original['minor_type'] : '',
+            'ticket_index'     => $this->next_order0_index(),
+            'status'           => 'valid',
+        );
+        $row = array_merge($row, $data);
+        $wpdb->insert($t, $row);
+        return absint($wpdb->insert_id);
+    }
+
     public function ajax_accept_transfer() {
         check_ajax_referer('rt_event_manager_accept_transfer', 'nonce');
         if (!is_user_logged_in()) {
@@ -3651,52 +4439,74 @@ class RT_Event_Manager_Account {
             }
             $host   = RT_Event_Manager::get_ticket_by_id($host_id);
             $holder = ($host && $host['holder_name'] !== '') ? $host['holder_name'] : $new_name;
-            $mgr->update_ticket(absint($event['id']), array(
-                'owner_user_id'            => $user_id,
+            $now    = current_time('mysql');
+            // Recode: new order-0 tour ticket for the recipient; cancel the original.
+            $new_id = $this->recode_transfer_ticket($event, array(
                 'parent_ticket_id'         => $host_id,
                 'holder_name'              => $holder,
-                'transfer_token'           => '',
-                'transfer_email'           => '',
-                'status'                   => $order ? rt_event_manager_determine_ticket_status($order, $holder) : 'draft',
+                'phone'                    => '',
+                'owner_user_id'            => $user_id,
+                'status'                   => 'valid',
                 'transferred_from_user_id' => $from_owner,
-                'transferred_at'           => current_time('mysql'),
+                'transferred_at'           => $now,
             ));
+            $mgr->update_ticket(absint($event['id']), array(
+                'status'          => 'cancelled',
+                'transfer_token'  => '',
+                'transfer_email'  => '',
+                'transferred_at'  => $now,
+            ));
+            if (function_exists('rt_event_manager_notify_wallets')) { rt_event_manager_notify_wallets($new_id); }
             wp_send_json_success(array(
                 'redirect' => add_query_arg('tab', ('daytour' === $kind) ? 'daytour' : 'pretour', wc_get_page_permalink('myaccount')),
             ));
         }
 
-        // Overwrite the event ticket to the new owner; personal fields are reset.
-        $mgr->update_ticket(absint($event['id']), array(
-            'owner_user_id'   => $user_id,
-            'holder_name'     => $new_name,
-            'phone'           => '',
-            'rti_family'      => $new_family,
-            'rti_club'        => $new_club,
-            'world_id'        => $new_world,
-            'qr_code_url'     => $qr,
-            'dietary'         => 'none',
-            'allergy_details' => '',
-            'transfer_token'  => '',
-            'transfer_email'  => '',
-            'status'          => $status,
+        $now = current_time('mysql');
+        // Recode: issue a NEW ticket (order 0, new number → new check-in QR) for
+        // the new holder, then mark the original as transferred (cancelled).
+        $new_id = $this->recode_transfer_ticket($event, array(
+            'holder_name'              => $new_name,
+            'phone'                    => '',
+            'rti_family'               => $new_family,
+            'rti_club'                 => $new_club,
+            'world_id'                 => $new_world,
+            'qr_code_url'              => $qr,
+            'dietary'                  => 'none',
+            'allergy_details'          => '',
+            'owner_user_id'            => $user_id,
+            'status'                   => 'valid',
             'transferred_from_user_id' => $from_owner,
-            'transferred_at'  => current_time('mysql'),
+            'transferred_at'           => $now,
         ));
 
-        // The pretour and day-tour package follows the same person.
+        // The pretour / day-tour package follows to the recoded ticket (also
+        // recoded to order 0); their originals are cancelled with the parent.
         $child_tours = array_merge(
             RT_Event_Manager::get_child_pretours(absint($event['id'])),
             RT_Event_Manager::get_child_daytours(absint($event['id']))
         );
         foreach ($child_tours as $child) {
-            $mgr->update_ticket(absint($child['id']), array(
-                'owner_user_id' => $user_id,
-                'holder_name'   => $new_name,
-                'phone'         => '',
-                'status'        => $order ? rt_event_manager_determine_ticket_status($order, $new_name) : 'draft',
+            $this->recode_transfer_ticket($child, array(
+                'parent_ticket_id'         => $new_id,
+                'holder_name'              => $new_name,
+                'phone'                    => '',
+                'owner_user_id'            => $user_id,
+                'status'                   => 'valid',
+                'transferred_from_user_id' => $from_owner,
+                'transferred_at'           => $now,
             ));
+            $mgr->update_ticket(absint($child['id']), array('status' => 'cancelled', 'transferred_at' => $now));
         }
+
+        // Mark the original as transferred (cancelled) and clear the offer.
+        $mgr->update_ticket(absint($event['id']), array(
+            'status'          => 'cancelled',
+            'transfer_token'  => '',
+            'transfer_email'  => '',
+            'transferred_at'  => $now,
+        ));
+        if (function_exists('rt_event_manager_notify_wallets')) { rt_event_manager_notify_wallets($new_id); }
 
         wp_send_json_success(array(
             'redirect' => add_query_arg('tab', 'tickets', wc_get_page_permalink('myaccount')),
@@ -3761,7 +4571,7 @@ class RT_Event_Manager_Account {
             return;
         }
         $product = wc_get_product($ticket['product_id']);
-        $pname   = $product ? $product->get_name() : __('your event ticket', 'rt-event-manager');
+        $pname   = $product ? RT_Event_Manager::product_title($product->get_id()) : __('your event ticket', 'rt-event-manager');
         $invitee = isset($ticket['transfer_email']) ? $ticket['transfer_email'] : '';
 
         $subject = __('Your ticket transfer was declined', 'rt-event-manager');
@@ -3793,7 +4603,7 @@ class RT_Event_Manager_Account {
         foreach ($cancelled as $c) {
             $p    = wc_get_product($c['product_id']);
             $name = ($c['holder_name'] !== '') ? $c['holder_name'] : ('#' . $c['id']);
-            $lines[] = '- ' . ($p ? $p->get_name() : ('#' . $c['id'])) . ' — ' . $name;
+            $lines[] = '- ' . ($p ? RT_Event_Manager::product_title($p->get_id()) : ('#' . $c['id'])) . ' — ' . $name;
         }
         $lines[] = '';
         $lines[] = sprintf(__('Cancelled by: %1$s (user #%2$d)', 'rt-event-manager'), $who, $user_id);
