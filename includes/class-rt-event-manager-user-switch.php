@@ -106,7 +106,8 @@ class RT_Event_Manager_User_Switch {
             return 0;
         }
         $token = preg_replace('/[^A-Za-z0-9]/', '', (string) $_COOKIE[self::COOKIE]);
-        $orig  = $token ? (int) get_transient('rtem_switch_' . $token) : 0;
+        $data  = $token ? get_transient('rtem_switch_' . $token) : false;
+        $orig  = is_array($data) ? absint($data['uid']) : absint($data); // back-compat
         // The stored original must still be allowed to switch.
         return ($orig && self::user_can_switch($orig)) ? $orig : 0;
     }
@@ -180,9 +181,17 @@ class RT_Event_Manager_User_Switch {
 
         $original = get_current_user_id();
 
-        // Remember who to return to, server-side, keyed by a random cookie token.
+        // Where to return the admin afterwards: the page they switched from (e.g.
+        // the front-end Find Guest tab), falling back to a sensible default.
+        $return = wp_get_referer();
+        if (!$return) {
+            $return = user_can($original, 'list_users') ? admin_url('users.php') : $this->member_landing();
+        }
+
+        // Remember who to return to (and where), server-side, keyed by a random
+        // cookie token.
         $token = wp_generate_password(43, false, false);
-        set_transient('rtem_switch_' . $token, $original, self::TTL);
+        set_transient('rtem_switch_' . $token, array('uid' => $original, 'return' => $return), self::TTL);
         $this->set_cookie($token, time() + self::TTL);
 
         /**
@@ -206,10 +215,12 @@ class RT_Event_Manager_User_Switch {
     private function do_switch_back() {
         check_admin_referer('rtem_switch_back');
         $token = empty($_COOKIE[self::COOKIE]) ? '' : preg_replace('/[^A-Za-z0-9]/', '', (string) $_COOKIE[self::COOKIE]);
-        $original = $token ? (int) get_transient('rtem_switch_' . $token) : 0;
+        $data  = $token ? get_transient('rtem_switch_' . $token) : false;
+        $original = is_array($data) ? absint($data['uid']) : absint($data); // back-compat
         if (!$original || !self::user_can_switch($original)) {
             wp_die(esc_html__('Could not switch back — please log in again.', 'rt-event-manager'));
         }
+        $return = (is_array($data) && !empty($data['return'])) ? $data['return'] : '';
 
         delete_transient('rtem_switch_' . $token);
         $this->set_cookie('', time() - 3600);
@@ -220,10 +231,10 @@ class RT_Event_Manager_User_Switch {
         wp_set_current_user($original);
         wp_set_auth_cookie($original, false);
 
-        // WP admins go back to the Users list; staff managers (no wp-admin access)
-        // return to the account portal.
-        $dest = user_can($original, 'list_users') ? admin_url('users.php') : $this->member_landing();
-        wp_safe_redirect($dest);
+        // Return to the page the switch started from; fall back to the Users list
+        // for wp-admins or the account portal for staff managers.
+        $fallback = user_can($original, 'list_users') ? admin_url('users.php') : $this->member_landing();
+        wp_safe_redirect(wp_validate_redirect($return, $fallback));
         exit;
     }
 

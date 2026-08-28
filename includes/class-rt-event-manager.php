@@ -2787,7 +2787,19 @@ class RT_Event_Manager {
             'limit'       => -1,
             'return'      => 'ids',
         ));
-        $order_ids = array_map('absint', (array) $order_ids);
+        // Also match orders placed as a guest with this account's email (e.g. early
+        // sales bought before the account existed / without logging in), so their
+        // tickets surface in the portal even when customer_id was never linked.
+        $user = get_userdata($user_id);
+        if ($user && $user->user_email) {
+            $by_email = wc_get_orders(array(
+                'customer' => $user->user_email,
+                'limit'    => -1,
+                'return'   => 'ids',
+            ));
+            $order_ids = array_merge((array) $order_ids, (array) $by_email);
+        }
+        $order_ids = array_values(array_unique(array_map('absint', (array) $order_ids)));
 
         // A ticket belongs to the user when it is explicitly owned by them
         // (owner_user_id) OR — for legacy rows with no owner recorded — when it

@@ -217,8 +217,12 @@ class RT_Event_Manager_Staff {
         $table = $wpdb->prefix . 'rti_tickets';
 
         if ('' === $holder) {
-            $user   = get_userdata($user_id);
-            $holder = $user ? $user->display_name : '';
+            $user = get_userdata($user_id);
+            if ($user) {
+                // Prefer the full name (first + last); fall back to display name.
+                $full   = trim($user->first_name . ' ' . $user->last_name);
+                $holder = ('' !== $full) ? $full : $user->display_name;
+            }
         }
         // Custom role display name is stored in the (otherwise unused) rti_club.
         $role_display = sanitize_text_field($role_display);

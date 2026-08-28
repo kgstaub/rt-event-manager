@@ -1254,17 +1254,31 @@ class RT_Event_Manager_Account {
         }
 
         // Admins + the highest staff group: log in as this member to verify issues.
+        // owner_user_id is empty on legacy tickets — fall back to the order's
+        // customer so the control still appears.
         $target = absint($ticket['owner_user_id']);
-        if ($target && class_exists('RT_Event_Manager_User_Switch')
-            && RT_Event_Manager_User_Switch::user_can_switch()
-            && !RT_Event_Manager_User_Switch::user_can_switch($target)) {
+        if (!$target && !empty($ticket['order_id']) && function_exists('wc_get_order')) {
+            $ord = wc_get_order(absint($ticket['order_id']));
+            if ($ord) {
+                $target = absint($ord->get_customer_id());
+            }
+        }
+        if (class_exists('RT_Event_Manager_User_Switch') && RT_Event_Manager_User_Switch::user_can_switch()) {
             $h .= '<h4 class="rtacc-fg-h">' . esc_html__('Admin', 'rt-event-manager') . '</h4>';
-            $h .= '<p><a class="uk-button uk-button-danger uk-button-small" href="'
-                . esc_url(RT_Event_Manager_User_Switch::switch_to_url($target)) . '">'
-                . esc_html__('Log in as this member', 'rt-event-manager') . '</a>'
-                . ' <span class="rtacc-muted" style="font-size:12px;">'
-                . esc_html__('Opens their account in a support session; return via the banner.', 'rt-event-manager')
-                . '</span></p>';
+            if ($target && !RT_Event_Manager_User_Switch::user_can_switch($target)) {
+                $h .= '<p><a class="uk-button uk-button-danger uk-button-small" href="'
+                    . esc_url(RT_Event_Manager_User_Switch::switch_to_url($target)) . '">'
+                    . esc_html__('Log in as this member', 'rt-event-manager') . '</a>'
+                    . ' <span class="rtacc-muted" style="font-size:12px;">'
+                    . esc_html__('Opens their account in a support session; return via the banner.', 'rt-event-manager')
+                    . '</span></p>';
+            } else {
+                // Explain why the control is unavailable instead of hiding silently.
+                $why = !$target
+                    ? __('This ticket has no linked member account, so support login is unavailable.', 'rt-event-manager')
+                    : __('This account is an administrator or manager, so support login is unavailable.', 'rt-event-manager');
+                $h .= '<p class="rtacc-muted" style="font-size:12px;">' . esc_html($why) . '</p>';
+            }
         }
 
         $h .= '</div>';
