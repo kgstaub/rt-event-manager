@@ -3,6 +3,25 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.2.4] — 2026-08-28
+
+Post-release fixes (no schema changes).
+
+### Fixed
+- **Early-bird / guest-checkout tickets not shown in the account portal**:
+  `get_tickets_for_user()` now also matches the account's orders by **email**, so
+  tickets from orders whose `customer_id`/`owner_user_id` were never linked still
+  appear.
+- **Staff ticket showed only the first name**: assignment now defaults the holder
+  to the member's **full name** (first + last), falling back to the display name.
+  (Existing staff tickets refresh when re-assigned.)
+- **"Log in as member" missing on some profiles**: the target now falls back to
+  the **order customer** when a ticket has no `owner_user_id` (legacy rows), and
+  an admin-only note explains any remaining reason it is unavailable.
+- **"Return to your account" always went to wp-admin**: switching back now returns
+  to the **page the support session started from** (e.g. Find Guest), falling back
+  to the Users list (wp-admins) or the account portal (managers).
+
 ## [2.2.0] — 2026-08-28
 
 Event Staff & per-event check-in. Adds a `staff_role` column to the tickets
