@@ -4077,7 +4077,7 @@ class RT_Event_Manager {
      * @param int $order_id Order ID
      */
     public function on_order_trashed($order_id) {
-        $this->set_all_tickets_status($order_id, 'invalid');
+        $this->void_order_tickets($order_id);
     }
 
     /**
@@ -4086,7 +4086,7 @@ class RT_Event_Manager {
      * @param int $order_id Order ID
      */
     public function on_order_deleted($order_id) {
-        $this->set_all_tickets_status($order_id, 'invalid');
+        $this->void_order_tickets($order_id);
     }
 
     /**
@@ -4096,8 +4096,25 @@ class RT_Event_Manager {
      */
     public function on_order_post_trashed($post_id) {
         if (get_post_type($post_id) === 'shop_order') {
-            $this->set_all_tickets_status($post_id, 'invalid');
+            $this->void_order_tickets($post_id);
         }
+    }
+
+    /**
+     * A deleted/trashed order's tickets are marked invalid AND any pending refund
+     * request is cleared — the request is moot once the order is gone, so it must
+     * not linger in the customer's Refunds tab.
+     */
+    private function void_order_tickets($order_id) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rti_tickets';
+        $wpdb->update(
+            $table_name,
+            array('status' => 'invalid', 'refund_status' => '', 'refund_note' => ''),
+            array('order_id' => absint($order_id)),
+            array('%s', '%s', '%s'),
+            array('%d')
+        );
     }
 
     /**
