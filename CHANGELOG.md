@@ -3,6 +3,16 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.2.7] — 2026-08-28
+
+### Fixed
+- **Orphaned refund request after an order is deleted**: deleting/trashing an
+  order now also **clears** the tickets' refund request (not just marks them
+  invalid), so it no longer lingers in the customer's Refunds tab while being
+  absent from the backend. The front-end Refunds tab also **hides** any refund
+  whose order no longer exists (handles already-orphaned records without a data
+  migration).
+
 ## [2.2.6] — 2026-08-28
 
 ### Fixed

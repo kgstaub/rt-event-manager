@@ -2103,9 +2103,14 @@ class RT_Event_Manager_Account {
         // Refunds live on cancelled/refunded (terminal) tickets, so include them.
         foreach (RT_Event_Manager::get_tickets_for_user($user_id, true) as $t) {
             $rs = isset($t['refund_status']) ? $t['refund_status'] : '';
-            if (in_array($rs, array('requested', 'confirmed', 'declined'), true)) {
-                return true;
+            if (!in_array($rs, array('requested', 'confirmed', 'declined'), true)) {
+                continue;
             }
+            // Ignore orphaned refunds whose order was deleted.
+            if (empty($t['order_id']) || !wc_get_order(absint($t['order_id']))) {
+                continue;
+            }
+            return true;
         }
         return false;
     }
@@ -2118,6 +2123,14 @@ class RT_Event_Manager_Account {
         $processed = array();
         foreach (RT_Event_Manager::get_tickets_for_user($user_id, true) as $t) {
             $rs = isset($t['refund_status']) ? $t['refund_status'] : '';
+            if ('' === $rs) {
+                continue;
+            }
+            // Skip refunds whose order has been deleted — the request is orphaned
+            // and no longer actionable (it is absent from the backend too).
+            if (empty($t['order_id']) || !wc_get_order(absint($t['order_id']))) {
+                continue;
+            }
             if ('requested' === $rs) {
                 $requested[] = $t;
             } elseif (in_array($rs, array('confirmed', 'declined'), true)) {
