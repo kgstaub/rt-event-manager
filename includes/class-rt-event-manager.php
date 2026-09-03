@@ -3188,27 +3188,27 @@ class RT_Event_Manager {
         echo '<tr data-ticket-id="' . esc_attr($ticket['id']) . '">';
 
         // Ticket number
-        echo '<td class="rti-ticket-num">' . esc_html($ticket_num) . '</td>';
+        echo '<td class="rti-ticket-num" data-title="' . esc_attr__('#', 'rt-event-manager') . '">' . esc_html($ticket_num) . '</td>';
 
         // Type (Event / Pretour / Future Tabler|Circler)
-        echo '<td>' . esc_html(self::ticket_kind_label($ticket)) . '</td>';
+        echo '<td data-title="' . esc_attr__('Type', 'rt-event-manager') . '">' . esc_html(self::ticket_kind_label($ticket)) . '</td>';
 
         // Product name (read-only)
-        echo '<td>' . esc_html($product_name) . '</td>';
+        echo '<td data-title="' . esc_attr__('Product', 'rt-event-manager') . '">' . esc_html($product_name) . '</td>';
 
         // Parent event/pretour ticket (for pretour and future co-travellers)
         $parent_label = self::ticket_parent_label($ticket);
-        echo '<td>' . ($parent_label !== '' ? esc_html($parent_label) : '<span style="color:#999;">&mdash;</span>') . '</td>';
+        echo '<td data-title="' . esc_attr__('Main ticket / Guardian', 'rt-event-manager') . '">' . ($parent_label !== '' ? esc_html($parent_label) : '<span style="color:#999;">&mdash;</span>') . '</td>';
 
         // Holder name
-        echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][holder_name]" value="' . esc_attr($ticket['holder_name']) . '" style="width:100%;" /></td>';
+        echo '<td data-title="' . esc_attr__('Holder Name', 'rt-event-manager') . '"><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][holder_name]" value="' . esc_attr($ticket['holder_name']) . '" style="width:100%;" /></td>';
 
         // Phone (international format)
         $ticket_phone = isset($ticket['phone']) ? $ticket['phone'] : '';
-        echo '<td><input type="tel" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][phone]" value="' . esc_attr($ticket_phone) . '" style="width:100%;" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" /></td>';
+        echo '<td data-title="' . esc_attr__('Ticket Phone', 'rt-event-manager') . '"><input type="tel" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][phone]" value="' . esc_attr($ticket_phone) . '" style="width:100%;" pattern="\+[0-9\s()\-]{7,}" inputmode="tel" placeholder="+41791234567" title="' . esc_attr__('International format, e.g. +41791234567', 'rt-event-manager') . '" /></td>';
 
         // RTI Family dropdown
-        echo '<td><select class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][rti_family]" style="width:100%;">';
+        echo '<td data-title="' . esc_attr__('RTI Family', 'rt-event-manager') . '"><select class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][rti_family]" style="width:100%;">';
         echo '<option value="">' . esc_html__('— Select —', 'rt-event-manager') . '</option>';
         foreach (self::$family_options as $key => $label) {
             echo '<option value="' . esc_attr($key) . '" ' . selected($ticket['rti_family'], (string) $key, false) . '>' . esc_html($label) . '</option>';
@@ -3216,10 +3216,10 @@ class RT_Event_Manager {
         echo '</select></td>';
 
         // Club
-        echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][rti_club]" value="' . esc_attr($ticket['rti_club']) . '" style="width:100%;" /></td>';
+        echo '<td data-title="' . esc_attr__('Club', 'rt-event-manager') . '"><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][rti_club]" value="' . esc_attr($ticket['rti_club']) . '" style="width:100%;" /></td>';
 
         // Dietary (+ conditional allergy details)
-        echo '<td><select class="rti-ticket-field rti-dietary-select" name="rti_ticket[' . esc_attr($ticket['id']) . '][dietary]" style="width:100%;">';
+        echo '<td data-title="' . esc_attr__('Dietary', 'rt-event-manager') . '"><select class="rti-ticket-field rti-dietary-select" name="rti_ticket[' . esc_attr($ticket['id']) . '][dietary]" style="width:100%;">';
         $dietary_options = self::get_dietary_options(true);
         foreach ($dietary_options as $dkey => $dlabel) {
             echo '<option value="' . esc_attr($dkey) . '" ' . selected($ticket['dietary'], $dkey, false) . '>' . esc_html($dlabel) . '</option>';
@@ -3240,10 +3240,10 @@ class RT_Event_Manager {
         echo '</td>';
 
         // .WORLD ID
-        echo '<td><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][world_id]" value="' . esc_attr($ticket['world_id']) . '" style="width:100%;" /></td>';
+        echo '<td data-title="' . esc_attr__('.WORLD ID', 'rt-event-manager') . '"><input type="text" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][world_id]" value="' . esc_attr($ticket['world_id']) . '" style="width:100%;" /></td>';
 
         // QR Code URL (display only — auto-generated from world_id)
-        echo '<td class="rti-qr-cell">';
+        echo '<td class="rti-qr-cell" data-title="' . esc_attr__('QR Code', 'rt-event-manager') . '">';
         if (!empty($ticket['qr_code_url'])) {
             echo '<code style="font-size:11px;word-break:break-all;">' . esc_html($ticket['qr_code_url']) . '</code>';
         } else {
@@ -3257,16 +3257,16 @@ class RT_Event_Manager {
         $status_colors = array('valid' => '#00a32a', 'draft' => '#dba617', 'invalid' => '#d63638', 'checked_in' => '#2271b1', 'cancelled' => '#8c8f94', 'refunded' => '#8250df');
         $badge_color = isset($status_colors[$ticket_status]) ? $status_colors[$ticket_status] : '#999';
         $badge_label = isset($status_labels[$ticket_status]) ? $status_labels[$ticket_status] : ucfirst($ticket_status);
-        echo '<td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;color:#fff;background:' . esc_attr($badge_color) . ';">' . esc_html($badge_label) . '</span></td>';
+        echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;color:#fff;background:' . esc_attr($badge_color) . ';">' . esc_html($badge_label) . '</span></td>';
 
         // Buyer info columns (only on first ticket of the order)
         $is_first_ticket = intval($ticket['ticket_index']) === 0;
         $voucher_val  = isset($this->_order_buyer_voucher) ? $this->_order_buyer_voucher : '';
         $phone_val    = isset($this->_order_buyer_phone) ? $this->_order_buyer_phone : '';
         $function_val = isset($this->_order_buyer_function) ? $this->_order_buyer_function : '';
-        echo '<td>' . esc_html($is_first_ticket ? ($voucher_val ?: '—') : '') . '</td>';
-        echo '<td>' . esc_html($is_first_ticket ? ($phone_val ?: '—') : '') . '</td>';
-        echo '<td>' . esc_html($is_first_ticket ? ($function_val ?: '—') : '') . '</td>';
+        echo '<td data-title="' . esc_attr__('Voucher', 'rt-event-manager') . '">' . esc_html($is_first_ticket ? ($voucher_val ?: '—') : '') . '</td>';
+        echo '<td data-title="' . esc_attr__('Phone', 'rt-event-manager') . '">' . esc_html($is_first_ticket ? ($phone_val ?: '—') : '') . '</td>';
+        echo '<td data-title="' . esc_attr__('Function / Role', 'rt-event-manager') . '">' . esc_html($is_first_ticket ? ($function_val ?: '—') : '') . '</td>';
 
         // Print badge button (admin only)
         if (current_user_can('manage_options')) {
@@ -3275,7 +3275,7 @@ class RT_Event_Manager {
                 'ticket_id' => $ticket['id'],
                 'nonce'     => wp_create_nonce('rti_print_badge'),
             ), admin_url('admin-ajax.php'));
-            echo '<td style="text-align:center;">';
+            echo '<td style="text-align:center;" data-title="' . esc_attr__('Print', 'rt-event-manager') . '">';
             echo '<a href="' . esc_url($print_url) . '" target="_blank" class="button button-small rti-print-badge-btn" title="' . esc_attr__('Print Badge', 'rt-event-manager') . '">';
             echo '<span class="dashicons dashicons-printer" style="vertical-align:middle;margin-top:2px;"></span>';
             echo '</a>';
@@ -3327,7 +3327,30 @@ class RT_Event_Manager {
             }
         }
 
-        echo '<table class="rti-tickets-table widefat striped">';
+        // Stacked card layout for readability (16 columns is unreadable as a table).
+        echo '<style>
+            .rti-tickets-table.rti-tickets-stacked { border-collapse: collapse; background: transparent; border: 0; }
+            .rti-tickets-table.rti-tickets-stacked thead { display: none; }
+            .rti-tickets-table.rti-tickets-stacked tbody tr {
+                display: grid; grid-template-columns: 1fr 1fr; gap: 2px 20px;
+                border: 1px solid #dcdcde; border-radius: 6px; margin: 0 0 12px;
+                padding: 12px 16px; background: #fff;
+            }
+            .rti-tickets-table.rti-tickets-stacked tbody tr:nth-child(odd) { background: #fbfbfc; }
+            .rti-tickets-table.rti-tickets-stacked tbody td {
+                display: grid; grid-template-columns: 130px 1fr; align-items: center;
+                gap: 10px; border: 0 !important; padding: 5px 0; min-width: 0;
+            }
+            .rti-tickets-table.rti-tickets-stacked tbody td::before {
+                content: attr(data-title); font-weight: 600; color: #50575e; font-size: 12px;
+            }
+            .rti-tickets-table.rti-tickets-stacked tbody td.rti-qr-cell { grid-column: 1 / -1; }
+            .rti-tickets-table.rti-tickets-stacked tbody td.rti-qr-cell code { font-size: 11px; }
+            @media (max-width: 900px) {
+                .rti-tickets-table.rti-tickets-stacked tbody tr { grid-template-columns: 1fr; }
+            }
+        </style>';
+        echo '<table class="rti-tickets-table rti-tickets-stacked widefat">';
         echo '<thead><tr>';
         echo '<th>' . esc_html__('#', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Type', 'rt-event-manager') . '</th>';
@@ -4554,7 +4577,24 @@ class RT_Event_Manager {
         check_admin_referer('rti_refund_action');
         $tid      = absint($_POST['rti_ticket_id']);
         $decision = sanitize_key(wp_unslash($_POST['rti_refund_action']));
-        if ($tid && in_array($decision, array('confirm', 'decline'), true)) {
+        if (!$tid) {
+            return;
+        }
+        // Reactivate a declined-refund ticket: put it (and any tours cancelled with
+        // it) back to confirmed and clear the refund record.
+        if ('reactivate' === $decision) {
+            $this->update_ticket($tid, array('status' => 'valid', 'refund_status' => '', 'refund_note' => ''));
+            global $wpdb;
+            $table = $wpdb->prefix . 'rti_tickets';
+            $wpdb->query($wpdb->prepare(
+                "UPDATE $table SET status = 'valid', refund_status = '', refund_note = ''
+                 WHERE parent_ticket_id = %d AND ticket_kind IN ('pretour','daytour') AND status = 'cancelled'",
+                $tid
+            ));
+            $this->set_admin_flash(sprintf(__('Ticket #%d reactivated.', 'rt-event-manager'), $tid), 'success');
+            return;
+        }
+        if (in_array($decision, array('confirm', 'decline'), true)) {
             $new  = ('confirm' === $decision) ? 'confirmed' : 'declined';
             // Keep the decline reason (single line); clear it when confirming.
             $note = ('decline' === $decision)
@@ -4592,9 +4632,7 @@ class RT_Event_Manager {
         echo '<th>' . esc_html__('Amount paid', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Cancelled', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Refund', 'rt-event-manager') . '</th>';
-        if ($actionable) {
-            echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
-        }
+        echo '<th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
         echo '</tr></thead><tbody>';
 
         foreach ($rows as $r) {
@@ -4617,15 +4655,26 @@ class RT_Event_Manager {
                 echo '<br><span class="description">' . esc_html($rnote) . '</span>';
             }
             echo '</td>';
-            if ($actionable) {
-                echo '<td><form method="post">';
+            echo '<td>';
+            if ('requested' === $r['refund_status']) {
+                echo '<form method="post">';
                 wp_nonce_field('rti_refund_action');
                 echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
                 echo '<input type="text" name="rti_refund_note" class="regular-text" style="width:100%;margin-bottom:6px;" placeholder="' . esc_attr__('Reason (shown to the member if declined)', 'rt-event-manager') . '" />';
                 echo '<button type="submit" class="button button-primary" name="rti_refund_action" value="confirm">' . esc_html__('Confirm refund', 'rt-event-manager') . '</button> ';
                 echo '<button type="submit" class="button" name="rti_refund_action" value="decline">' . esc_html__('Decline', 'rt-event-manager') . '</button>';
-                echo '</form></td>';
+                echo '</form>';
+            } elseif ('declined' === $r['refund_status']) {
+                // A declined refund can be reactivated so the member keeps the ticket.
+                echo '<form method="post" onsubmit="return confirm(\'' . esc_js(__('Reactivate this ticket? It (and any tours cancelled with it) will be confirmed again.', 'rt-event-manager')) . '\');">';
+                wp_nonce_field('rti_refund_action');
+                echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
+                echo '<button type="submit" class="button" name="rti_refund_action" value="reactivate"><span class="dashicons dashicons-update" style="vertical-align:middle;margin-top:-2px;"></span> ' . esc_html__('Reactivate ticket', 'rt-event-manager') . '</button>';
+                echo '</form>';
+            } else {
+                echo '<span class="description">—</span>';
             }
+            echo '</td>';
             echo '</tr>';
         }
         echo '</tbody></table>';
