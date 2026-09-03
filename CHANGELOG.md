@@ -3,6 +3,24 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.2.9] — 2026-08-28
+
+### Added
+- **Reactivate a declined-refund ticket**: the backend *Refunds & Cancellations*
+  page now shows a **Reactivate ticket** action on declined refunds, restoring the
+  ticket (and any tours cancelled with it) to confirmed and clearing the refund
+  record.
+
+### Changed
+- **Order Tickets metabox** redesigned as **stacked cards** (label: value per
+  field) for readability instead of a 16-column table; new rows added via *Add
+  Ticket* use the same layout.
+
+### Fixed
+- **Cancelling a ticket with a pending transfer**: the **Cancel** action is now
+  hidden (and blocked server-side) while a transfer offer is pending — withdraw
+  the transfer first. Prevents a confusing failed transfer.
+
 ## [2.2.8] — 2026-08-28
 
 ### Fixed

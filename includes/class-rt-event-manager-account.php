@@ -3488,7 +3488,9 @@ class RT_Event_Manager_Account {
                 $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-transfer-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" role="menuitem"><i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i> ' . esc_html($transfer_label) . '</button>';
             }
         }
-        if ($is_confirmed && !$is_staff_row) {
+        // Cancellation is hidden while a transfer offer is pending — the member
+        // must withdraw the transfer first (cancelling would break the offer).
+        if ($is_confirmed && !$is_staff_row && !$has_pending_transfer) {
             $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-menu-item--danger rtacc-cancel-btn" data-ticket="' . esc_attr($id) . '" data-name="' . esc_attr($name) . '" data-kind="' . esc_attr($kind) . '" role="menuitem"><i class="fa-solid fa-circle-xmark" aria-hidden="true"></i> ' . esc_html($cancel_label) . '</button>';
         }
         if ($opt_items) {
@@ -4251,6 +4253,9 @@ class RT_Event_Manager_Account {
         }
         if ('valid' !== $t['status']) {
             wp_send_json_error(__('Only confirmed tickets can be cancelled.', 'rt-event-manager'));
+        }
+        if (!empty($t['transfer_token'])) {
+            wp_send_json_error(__('This ticket has a pending transfer. Withdraw the transfer before cancelling.', 'rt-event-manager'));
         }
         if ($this->host_is_checked_in($t)) {
             wp_send_json_error(__('This tour is locked — the attendee has already checked in.', 'rt-event-manager'));
