@@ -166,6 +166,10 @@ class RT_Event_Manager {
         add_action('wp_ajax_rti_add_ticket', array($this, 'ajax_add_ticket'));
         add_action('wp_ajax_rti_export_tickets_xlsx', array($this, 'ajax_export_tickets_xlsx'));
 
+        // Admin-only: reactivate a cancelled/refunded/invalid ticket from the
+        // order-edit metabox (WooCommerce orders and accepted-transfer tickets).
+        add_action('admin_post_rti_reactivate_ticket', array($this, 'handle_reactivate_ticket_post'));
+
         // Frontend ticket display on order view (My Account > Orders > View)
         add_action('woocommerce_order_details_after_order_table', array($this, 'render_frontend_tickets'), 10, 1);
 
@@ -3257,7 +3261,19 @@ class RT_Event_Manager {
         $status_colors = array('valid' => '#00a32a', 'draft' => '#dba617', 'invalid' => '#d63638', 'checked_in' => '#2271b1', 'cancelled' => '#8c8f94', 'refunded' => '#8250df');
         $badge_color = isset($status_colors[$ticket_status]) ? $status_colors[$ticket_status] : '#999';
         $badge_label = isset($status_labels[$ticket_status]) ? $status_labels[$ticket_status] : ucfirst($ticket_status);
-        echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;color:#fff;background:' . esc_attr($badge_color) . ';">' . esc_html($badge_label) . '</span></td>';
+        echo '<td data-title="' . esc_attr__('Status', 'rt-event-manager') . '"><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;color:#fff;background:' . esc_attr($badge_color) . ';">' . esc_html($badge_label) . '</span>';
+        // Admins can reactivate a cancelled/refunded/invalid ticket in place.
+        if (current_user_can('manage_options') && in_array($ticket_status, array('cancelled', 'refunded', 'invalid'), true)) {
+            $reactivate_url = wp_nonce_url(
+                add_query_arg(array(
+                    'action'    => 'rti_reactivate_ticket',
+                    'ticket_id' => absint($ticket['id']),
+                ), admin_url('admin-post.php')),
+                'rti_reactivate_ticket_' . absint($ticket['id'])
+            );
+            echo '<br><a href="' . esc_url($reactivate_url) . '" class="button button-small" style="margin-top:6px;" onclick="return confirm(\'' . esc_js(__('Reactivate this ticket? It (and any tours cancelled with it) will be set back to valid.', 'rt-event-manager')) . '\');"><span class="dashicons dashicons-update" style="vertical-align:middle;margin-top:-2px;font-size:15px;"></span> ' . esc_html__('Reactivate', 'rt-event-manager') . '</a>';
+        }
+        echo '</td>';
 
         // Buyer info columns (only on first ticket of the order)
         $is_first_ticket = intval($ticket['ticket_index']) === 0;
@@ -4584,18 +4600,18 @@ class RT_Event_Manager {
         if (!$tid) {
             return;
         }
-        // Reactivate a declined-refund ticket: put it (and any tours cancelled with
-        // it) back to confirmed and clear the refund record.
+        // Reactivate a cancelled/refunded/invalid ticket (Admins only): put it
+        // (and any tours cancelled with it) back to confirmed and clear any
+        // refund record. Covers tickets from a WooCommerce order and orderless
+        // tickets from accepted transfers (order_id = 0).
         if ('reactivate' === $decision) {
-            $this->update_ticket($tid, array('status' => 'valid', 'refund_status' => '', 'refund_note' => ''));
-            global $wpdb;
-            $table = $wpdb->prefix . 'rti_tickets';
-            $wpdb->query($wpdb->prepare(
-                "UPDATE $table SET status = 'valid', refund_status = '', refund_note = ''
-                 WHERE parent_ticket_id = %d AND ticket_kind IN ('pretour','daytour') AND status = 'cancelled'",
-                $tid
-            ));
-            $this->set_admin_flash(sprintf(__('Ticket #%d reactivated.', 'rt-event-manager'), $tid), 'success');
+            if (!current_user_can('manage_options')) {
+                $this->set_admin_flash(__('Only administrators can reactivate a ticket.', 'rt-event-manager'), 'error');
+                return;
+            }
+            if ($this->reactivate_ticket($tid)) {
+                $this->set_admin_flash(sprintf(__('Ticket #%d reactivated.', 'rt-event-manager'), $tid), 'success');
+            }
             return;
         }
         if (in_array($decision, array('confirm', 'decline'), true)) {
@@ -4612,6 +4628,57 @@ class RT_Event_Manager {
                 $tid
             ), 'success');
         }
+    }
+
+    /**
+     * Reactivate a single ticket and any tours cancelled alongside it.
+     *
+     * Restores the ticket to a confirmed ('valid') state and clears any refund
+     * record. Works for both order-bound tickets and orderless tickets created
+     * by an accepted transfer (order_id = 0). Callers are responsible for the
+     * capability check.
+     *
+     * @param int $tid Ticket ID.
+     * @return bool True when a ticket was reactivated.
+     */
+    public function reactivate_ticket($tid) {
+        $tid = absint($tid);
+        if (!$tid) {
+            return false;
+        }
+        $this->update_ticket($tid, array('status' => 'valid', 'refund_status' => '', 'refund_note' => ''));
+        global $wpdb;
+        $table = $wpdb->prefix . 'rti_tickets';
+        // Reactivate any pretour/day-tour children cancelled together with it.
+        $wpdb->query($wpdb->prepare(
+            "UPDATE $table SET status = 'valid', refund_status = '', refund_note = ''
+             WHERE parent_ticket_id = %d AND ticket_kind IN ('pretour','daytour') AND status = 'cancelled'",
+            $tid
+        ));
+        return true;
+    }
+
+    /**
+     * admin-post handler: reactivate a ticket from the order-edit Tickets
+     * metabox (or any admin link). Administrators only.
+     */
+    public function handle_reactivate_ticket_post() {
+        $tid = isset($_GET['ticket_id']) ? absint($_GET['ticket_id']) : 0;
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to reactivate tickets.', 'rt-event-manager'));
+        }
+        check_admin_referer('rti_reactivate_ticket_' . $tid);
+
+        if ($tid && $this->reactivate_ticket($tid)) {
+            $this->set_admin_flash(sprintf(__('Ticket #%d reactivated.', 'rt-event-manager'), $tid), 'success');
+        }
+
+        $redirect = isset($_GET['redirect']) ? esc_url_raw(wp_unslash($_GET['redirect'])) : '';
+        if (!$redirect || false === strpos($redirect, admin_url())) {
+            $redirect = wp_get_referer() ?: admin_url();
+        }
+        wp_safe_redirect($redirect);
+        exit;
     }
 
     /** Render a cancelled-tickets table; $actionable adds Confirm/Decline. */
@@ -4648,7 +4715,14 @@ class RT_Event_Manager {
             $pname    = $r['product_name'] ? $r['product_name'] : ('#' . $r['product_id']);
 
             echo '<tr>';
-            echo '<td>' . ($order_link ? '<a href="' . esc_url($order_link) . '">#' . esc_html($order_id) . '</a>' : ('#' . esc_html($order_id))) . '</td>';
+            if (0 === $order_id) {
+                $order_cell = esc_html__('Transfer (no order)', 'rt-event-manager');
+            } elseif ($order_link) {
+                $order_cell = '<a href="' . esc_url($order_link) . '">#' . esc_html($order_id) . '</a>';
+            } else {
+                $order_cell = '#' . esc_html($order_id);
+            }
+            echo '<td>' . $order_cell . '</td>';
             echo '<td>' . esc_html($r['holder_name'] !== '' ? $r['holder_name'] : '—') . '</td>';
             echo '<td>' . esc_html($pname . ' (' . self::ticket_kind_label($r) . ')') . '</td>';
             echo '<td>' . wp_kses_post($amount) . '</td>';
@@ -4668,9 +4742,11 @@ class RT_Event_Manager {
                 echo '<button type="submit" class="button button-primary" name="rti_refund_action" value="confirm">' . esc_html__('Confirm refund', 'rt-event-manager') . '</button> ';
                 echo '<button type="submit" class="button" name="rti_refund_action" value="decline">' . esc_html__('Decline', 'rt-event-manager') . '</button>';
                 echo '</form>';
-            } elseif ('declined' === $r['refund_status']) {
-                // A declined refund can be reactivated so the member keeps the ticket.
-                echo '<form method="post" onsubmit="return confirm(\'' . esc_js(__('Reactivate this ticket? It (and any tours cancelled with it) will be confirmed again.', 'rt-event-manager')) . '\');">';
+            } elseif (current_user_can('manage_options')) {
+                // Admins can reactivate any cancelled/refunded ticket — whether it
+                // came from a WooCommerce order or from an accepted transfer — so
+                // the holder keeps (or regains) the ticket.
+                echo '<form method="post" onsubmit="return confirm(\'' . esc_js(__('Reactivate this ticket? It (and any tours cancelled with it) will be set back to valid.', 'rt-event-manager')) . '\');">';
                 wp_nonce_field('rti_refund_action');
                 echo '<input type="hidden" name="rti_ticket_id" value="' . esc_attr($r['id']) . '" />';
                 echo '<button type="submit" class="button" name="rti_refund_action" value="reactivate"><span class="dashicons dashicons-update" style="vertical-align:middle;margin-top:-2px;"></span> ' . esc_html__('Reactivate ticket', 'rt-event-manager') . '</button>';

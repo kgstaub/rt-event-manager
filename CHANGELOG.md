@@ -3,6 +3,19 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.2.11] — 2026-09-05
+
+### Added
+- **Reactivate cancelled tickets (Admins only)**: administrators can now restore
+  a cancelled, refunded or invalid ticket to *valid* directly from two places:
+  the **Tickets** metabox on the WooCommerce order-edit screen (a *Reactivate*
+  button next to the status badge), and the **Refunds & Cancellations** page
+  (previously limited to declined-refund rows). This covers tickets from a
+  WooCommerce order as well as orderless tickets from accepted transfers, which
+  now appear on the Refunds & Cancellations page labelled *Transfer (no order)*.
+  Reactivation also restores any pretours / day tours cancelled alongside the
+  ticket. Non-administrators no longer see the reactivate action.
+
 ## [2.2.10] — 2026-09-05
 
 ### Fixed
