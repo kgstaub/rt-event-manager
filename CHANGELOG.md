@@ -3,6 +3,18 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.2.10] — 2026-09-05
+
+### Fixed
+- **Staff & transferred tickets cancelling themselves**: orderless tickets (event
+  staff assignments and recoded transfer tickets, stored under `order_id = 0`)
+  were silently flagged **invalid** by the status recalculation — it tried to load
+  a WooCommerce order 0, got nothing, and treated the ticket as belonging to a
+  dead order. The account stayed marked as staff but the ticket disappeared, and
+  the same fault made accepted transfers land as an invalid ticket for the
+  recipient. Both recalc paths now skip `order_id = 0`, and a one-time repair
+  restores any order-0 tickets already wrongly invalidated.
+
 ## [2.2.9] — 2026-08-28
 
 ### Added

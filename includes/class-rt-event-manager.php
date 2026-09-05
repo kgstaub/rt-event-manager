@@ -4178,6 +4178,10 @@ class RT_Event_Manager {
      * @param int $order_id Order ID
      */
     public function recalculate_order_ticket_statuses($order_id) {
+        // Order-0 tickets (staff / recoded transfers) are orderless by design.
+        if (0 === absint($order_id)) {
+            return;
+        }
         global $wpdb;
         $table_name = $wpdb->prefix . 'rti_tickets';
 
