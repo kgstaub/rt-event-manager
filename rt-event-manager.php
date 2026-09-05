@@ -3,7 +3,7 @@
  * Plugin Name: RT Event Manager
  * Plugin URI: https://www.staub.ee
  * Description: Round Table International event management for WooCommerce — attendee tickets with a full member account portal (dashboard, profile, tours, calendar, visa letters, shop), pretours &amp; day tours, ticket transfers &amp; refunds, Apple &amp; Google Wallet passes with live push updates, and a staff QR check-in web app.
- * Version: 2.2.9
+ * Version: 2.2.10
  * Author: Kenneth Staub, RT Switzerland
  * Author URI: https://www.staub.ee
  * License: GPL v2 or later
@@ -19,7 +19,7 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('RT_EVENT_MANAGER_VERSION', '2.2.9');
+define('RT_EVENT_MANAGER_VERSION', '2.2.10');
 define('RT_EVENT_MANAGER_DB_VERSION', '2.5.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -498,6 +498,21 @@ function rt_event_manager_install_db() {
             KEY ticket_id (ticket_id)
         ) $charset_collate;");
     }
+
+    // One-time repair: order-0 tickets (staff assignments and recoded transfer
+    // tickets) were being wrongly flagged 'invalid' by the status recalc, which
+    // called wc_get_order(0) => false => "invalid". The recalc is now guarded to
+    // skip order 0, but any tickets already invalidated need restoring. Only
+    // touch 'invalid' rows — deliberate 'cancelled'/'refunded' and terminal
+    // check-in states (on_tour/attended/no_show) are left alone.
+    if (get_option('rt_event_manager_order0_status_repaired_v1') !== 'yes') {
+        $tickets_table = $wpdb->prefix . 'rti_tickets';
+        $wpdb->query(
+            "UPDATE $tickets_table SET status = 'valid'
+             WHERE order_id = 0 AND status = 'invalid'"
+        );
+        update_option('rt_event_manager_order0_status_repaired_v1', 'yes', false);
+    }
 }
 
 /**
@@ -529,6 +544,12 @@ function rt_event_manager_recalculate_all_ticket_statuses() {
     $order_ids = $wpdb->get_col("SELECT DISTINCT order_id FROM $tickets_table");
 
     foreach ($order_ids as $order_id) {
+        // Order-0 tickets (staff assignments, recoded transfer tickets) are not
+        // tied to a WooCommerce order — never derive their status from one, or
+        // they'd be wrongly invalidated.
+        if (0 === absint($order_id)) {
+            continue;
+        }
         $order = wc_get_order($order_id);
 
         $tickets = $wpdb->get_results($wpdb->prepare(
