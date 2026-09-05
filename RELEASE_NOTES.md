@@ -1,5 +1,62 @@
 # RT Event Manager — Release Notes
 
+## 2.2.11 — 5 September 2026
+
+The **2.2 line** adds an Event Staff module, staff check-in, ticket "recoding" on
+transfer, visa-letter QR verification and "log in as member", followed by a run
+of production fixes. **Backward compatible** — the custom tables self-heal on
+load (DB version 2.5.0); no manual migration is required. Safe to update in place.
+
+> Patch numbers follow the project convention: the cumulative count of individual
+> changes since 2.2.0.
+
+### ✨ Highlights (since 2.2.0)
+
+- **Event Staff module** (*RT Event → Event Staff*) — assign a staff ticket to any
+  member, with a custom role label, navy staff-styled tickets and wallet passes,
+  an "Event Staff" dashboard badge, and staff tour duties (Guide).
+- **Per-event staff check-in** in the QR check-in PWA, plus **Find Guest** to
+  search attendees by name, email, phone or club.
+- **Log in as member (user switching)** — administrators and the event manager can
+  step into a member's account from *Find Guest* and safely switch back, with no
+  password exposure.
+- **Visa-letter QR verification** — every letter of invitation carries a QR to a
+  public page confirming it was issued, with the stored letter to compare against.
+
+### 🆕 New in 2.2.11
+
+- **Reactivate cancelled tickets (Admins only)** — restore a cancelled, refunded
+  or invalid ticket to *valid* from the **Tickets** metabox on the order-edit
+  screen, or from **Refunds & Cancellations**. Covers tickets from a WooCommerce
+  order and orderless tickets from accepted transfers (shown as *Transfer (no
+  order)*); any pretours/day tours cancelled with the ticket are restored too.
+
+### 🐛 Notable fixes across 2.2.x
+
+- **Staff & transferred tickets no longer self-cancel** (2.2.10) — orderless
+  tickets (`order_id = 0`) were wrongly flagged *invalid* by the status recalc;
+  both recalc paths now skip them and a one-time repair restores any already
+  affected. This also fixed accepted transfers landing as an invalid ticket.
+- **Cancelling a ticket with a pending transfer is blocked** (2.2.9), and a
+  **declined refund can be reactivated** so the member keeps the ticket.
+- **Order Tickets metabox redesigned as stacked cards** (2.2.9) for readability.
+- **Invalid / dead-order tickets hidden from the portal** (2.2.8) and **orphaned
+  refund requests cleared** when an order is deleted (2.2.7).
+- **White-screen when the QR library is missing/outdated** guarded (2.2.6);
+  **staff ticket names** resolve to the full name; **early-bird/guest-checkout**
+  portal visibility and **dashboard performance** fixes (2.2.4–2.2.6).
+
+### 📋 For administrators / upgrading
+
+- Upload the plugin zip (which bundles `vendor/`) or `composer install` so the
+  QR/PDF libraries are present. The DB self-heals on load.
+- Reactivation is **administrator-only** (`manage_options`); managers no longer
+  see the action.
+
+See [CHANGELOG.md](CHANGELOG.md) for the itemised change list.
+
+---
+
 ## 2.1.8 — 22 August 2026
 
 An admin-usability, checkout and dashboard release. **Backward compatible** — no
