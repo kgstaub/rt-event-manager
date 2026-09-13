@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Travelling with me">
+  <rect width="640" height="420" fill="#f7f8fa"/>
+  <rect x="48" y="56" width="544" height="308" rx="16" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+  <text x="72" y="96" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#CC0B24">Travelling with me</text>
+  <!-- rows -->
+  <g>
+    <rect x="72" y="120" width="496" height="56" rx="10" fill="#fbfbfc" stroke="#eef0f3"/>
+    <circle cx="104" cy="148" r="16" fill="#12233d"/>
+    <rect x="136" y="134" width="120" height="12" rx="6" fill="#3a4658"/>
+    <rect x="136" y="154" width="80" height="10" rx="5" fill="#c9ced4"/>
+    <rect x="300" y="140" width="150" height="12" rx="6" fill="#c9ced4"/>
+    <rect x="486" y="136" width="24" height="24" rx="6" fill="#f2f4f7"/>
+    <rect x="518" y="136" width="24" height="24" rx="6" fill="#f2f4f7"/>
+  </g>
+  <g transform="translate(0,72)">
+    <rect x="72" y="120" width="496" height="56" rx="10" fill="#fbfbfc" stroke="#eef0f3"/>
+    <circle cx="104" cy="148" r="16" fill="#12233d"/>
+    <rect x="136" y="134" width="140" height="12" rx="6" fill="#3a4658"/>
+    <rect x="136" y="154" width="70" height="10" rx="5" fill="#c9ced4"/>
+    <rect x="300" y="140" width="150" height="12" rx="6" fill="#c9ced4"/>
+    <rect x="486" y="136" width="24" height="24" rx="6" fill="#fde7ea"/>
+    <rect x="518" y="136" width="24" height="24" rx="6" fill="#f2f4f7"/>
+  </g>
+  <g transform="translate(0,144)">
+    <rect x="72" y="120" width="496" height="56" rx="10" fill="#fbfbfc" stroke="#eef0f3"/>
+    <circle cx="104" cy="148" r="16" fill="#12233d"/>
+    <rect x="136" y="134" width="110" height="12" rx="6" fill="#3a4658"/>
+    <rect x="136" y="154" width="90" height="10" rx="5" fill="#c9ced4"/>
+    <rect x="300" y="140" width="150" height="12" rx="6" fill="#c9ced4"/>
+    <rect x="486" y="136" width="24" height="24" rx="6" fill="#f2f4f7"/>
+    <rect x="518" y="136" width="24" height="24" rx="6" fill="#f2f4f7"/>
+  </g>
+</svg>

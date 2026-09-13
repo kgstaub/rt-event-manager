@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Tours and personal calendar">
+  <rect width="640" height="420" fill="#f7f8fa"/>
+  <!-- map / tour panel -->
+  <rect x="48" y="70" width="250" height="280" rx="14" fill="#12233d"/>
+  <path d="M48 260 q60 -40 120 0 t130 -10" stroke="#2b3a52" stroke-width="6" fill="none"/>
+  <path d="M70 120 q40 30 90 10 t120 20" stroke="#2b3a52" stroke-width="6" fill="none"/>
+  <!-- pin -->
+  <path d="M173 150 c0 -26 -40 -26 -40 0 c0 20 20 40 20 40 c0 0 20 -20 20 -40 z" fill="#CC0B24"/>
+  <circle cx="153" cy="150" r="8" fill="#ffffff"/>
+  <text x="72" y="312" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#FFF0C4">Matterhorn Pretour</text>
+  <rect x="72" y="322" width="110" height="8" rx="4" fill="#8792a3"/>
+  <!-- calendar -->
+  <rect x="322" y="70" width="270" height="280" rx="14" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+  <rect x="322" y="70" width="270" height="44" rx="14" fill="#CC0B24"/>
+  <text x="346" y="100" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#ffffff">September 2026</text>
+  <g fill="#eef0f3">
+    <rect x="346" y="132" width="52" height="40" rx="6"/><rect x="410" y="132" width="52" height="40" rx="6"/><rect x="474" y="132" width="52" height="40" rx="6"/><rect x="538" y="132" width="30" height="40" rx="6"/>
+    <rect x="346" y="184" width="52" height="40" rx="6"/><rect x="474" y="184" width="52" height="40" rx="6"/><rect x="538" y="184" width="30" height="40" rx="6"/>
+    <rect x="346" y="236" width="52" height="40" rx="6"/><rect x="410" y="236" width="52" height="40" rx="6"/><rect x="538" y="236" width="30" height="40" rx="6"/>
+    <rect x="410" y="288" width="52" height="40" rx="6"/><rect x="474" y="288" width="52" height="40" rx="6"/>
+  </g>
+  <!-- booked events -->
+  <rect x="410" y="184" width="52" height="40" rx="6" fill="#fde7ea"/>
+  <rect x="474" y="236" width="52" height="40" rx="6" fill="#FFF0C4"/>
+  <rect x="346" y="288" width="52" height="40" rx="6" fill="#fde7ea"/>
+</svg>

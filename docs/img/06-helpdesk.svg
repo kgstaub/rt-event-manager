@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Helpdesk chat">
+  <rect width="640" height="420" fill="#f7f8fa"/>
+  <rect x="48" y="48" width="544" height="324" rx="16" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+  <text x="72" y="92" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#CC0B24">Support Ticket #12345</text>
+  <!-- incoming bubble -->
+  <rect x="72" y="120" width="300" height="60" rx="14" fill="#f1f3f5"/>
+  <rect x="92" y="136" width="120" height="10" rx="5" fill="#3a4658"/>
+  <rect x="92" y="156" width="240" height="8" rx="4" fill="#c9ced4"/>
+  <!-- outgoing bubble (member) -->
+  <rect x="268" y="200" width="300" height="76" rx="14" fill="#fde7ea"/>
+  <rect x="288" y="216" width="120" height="10" rx="5" fill="#740800"/>
+  <rect x="288" y="236" width="248" height="8" rx="4" fill="#e39aa6"/>
+  <rect x="288" y="252" width="150" height="8" rx="4" fill="#e39aa6"/>
+  <!-- incoming bubble 2 -->
+  <rect x="72" y="292" width="260" height="44" rx="14" fill="#f1f3f5"/>
+  <rect x="92" y="308" width="200" height="10" rx="5" fill="#c9ced4"/>
+  <!-- unread badge -->
+  <circle cx="556" cy="92" r="16" fill="#CC0B24"/>
+  <text x="556" y="98" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#ffffff">3</text>
+</svg>

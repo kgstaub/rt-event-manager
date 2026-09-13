@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 470" role="img" aria-label="RT Event Manager highlights">
+  <defs>
+    <!-- blur applied ONLY to shadow shapes, so card content stays crisp vector -->
+    <filter id="blur" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="11"/>
+    </filter>
+  </defs>
+  <rect width="680" height="470" fill="#ffffff"/>
+  <!-- soft brand blob -->
+  <path d="M120 120 C60 200 40 300 140 360 C240 420 420 430 540 380 C640 338 660 220 590 150 C520 80 380 60 280 78 C210 90 170 70 120 120 Z" fill="#FCE9EC"/>
+
+  <!-- soft shadows (blurred shapes only) -->
+  <rect x="28" y="82" width="330" height="256" rx="16" fill="#12233d" opacity="0.16" filter="url(#blur)"/>
+  <rect x="372" y="64" width="284" height="232" rx="16" fill="#12233d" opacity="0.16" filter="url(#blur)"/>
+  <rect x="452" y="312" width="196" height="44" rx="22" fill="#12233d" opacity="0.14" filter="url(#blur)"/>
+  <rect x="232" y="162" width="216" height="268" rx="16" fill="#12233d" opacity="0.20" filter="url(#blur)"/>
+
+  <!-- LEFT WINDOW: member portal -->
+  <g>
+    <rect x="28" y="70" width="330" height="256" rx="16" fill="#ffffff" stroke="#eceef1" stroke-width="2"/>
+    <path d="M28 86 a16 16 0 0 1 16 -16 h298 a16 16 0 0 1 16 16 v22 h-330 z" fill="#fbfbfc"/>
+    <rect x="46" y="80" width="22" height="18" rx="5" fill="#CC0B24"/>
+    <rect x="82" y="86" width="70" height="7" rx="3" fill="#d7dbe0"/><rect x="166" y="86" width="46" height="7" rx="3" fill="#d7dbe0"/>
+    <rect x="28" y="108" width="86" height="218" fill="#fbfbfc"/>
+    <rect x="44" y="128" width="58" height="20" rx="6" fill="#fde7ea"/><rect x="52" y="134" width="34" height="8" rx="4" fill="#CC0B24"/>
+    <g fill="#d7dbe0"><rect x="44" y="160" width="60" height="8" rx="4"/><rect x="44" y="182" width="52" height="8" rx="4"/><rect x="44" y="204" width="58" height="8" rx="4"/><rect x="44" y="226" width="48" height="8" rx="4"/></g>
+    <text x="130" y="140" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#CC0B24">Welcome</text>
+    <rect x="130" y="156" width="204" height="80" rx="10" fill="#12233d"/>
+    <text x="146" y="182" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#ffffff">RTI HYM 2027</text>
+    <rect x="146" y="194" width="90" height="7" rx="3" fill="#8792a3"/>
+    <rect x="146" y="210" width="70" height="7" rx="3" fill="#FFF0C4"/>
+    <rect x="290" y="172" width="30" height="30" rx="5" fill="#ffffff"/>
+    <g fill="#d7dbe0"><rect x="130" y="252" width="90" height="8" rx="4"/><rect x="130" y="272" width="204" height="8" rx="4"/><rect x="130" y="292" width="150" height="8" rx="4"/></g>
+  </g>
+
+  <!-- RIGHT WINDOW: staff check-in -->
+  <g>
+    <rect x="372" y="52" width="284" height="232" rx="16" fill="#ffffff" stroke="#eceef1" stroke-width="2"/>
+    <path d="M372 68 a16 16 0 0 1 16 -16 h252 a16 16 0 0 1 16 16 v20 h-284 z" fill="#fbfbfc"/>
+    <circle cx="392" cy="63" r="5" fill="#e0868f"/><circle cx="408" cy="63" r="5" fill="#f0c9a0"/><circle cx="424" cy="63" r="5" fill="#bfe0c2"/>
+    <text x="392" y="118" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#CC0B24">Check-in</text>
+    <rect x="392" y="132" width="104" height="104" rx="10" fill="#12233d"/>
+    <rect x="406" y="146" width="22" height="22" fill="#ffffff"/><rect x="460" y="146" width="22" height="22" fill="#ffffff"/><rect x="406" y="200" width="22" height="22" fill="#ffffff"/><rect x="448" y="186" width="16" height="16" fill="#ffffff"/>
+    <path d="M388 132 v-8 h8 M496 132 v-8 h-8 M388 236 v8 h8 M496 236 v8 h-8" stroke="#CC0B24" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <circle cx="524" cy="146" r="10" fill="#1a8a34"/><path d="M519 146 l3.5 3.5 l6 -7" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="542" y="141" width="96" height="9" rx="4" fill="#c9ced4"/>
+    <circle cx="524" cy="180" r="10" fill="#1a8a34"/><path d="M519 180 l3.5 3.5 l6 -7" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="542" y="175" width="80" height="9" rx="4" fill="#c9ced4"/>
+    <circle cx="524" cy="214" r="10" fill="#e7e9ec"/>
+    <rect x="542" y="209" width="90" height="9" rx="4" fill="#e2e5e9"/>
+  </g>
+
+  <!-- floating chip: .WORLD sync (behind centre card, right side) -->
+  <g>
+    <rect x="452" y="300" width="196" height="44" rx="22" fill="#FFF0C4"/>
+    <circle cx="478" cy="322" r="10" fill="#CC0B24"/><path d="M473 322 l4 4 l7 -8" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="496" y="327" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#740800">Synced from .WORLD</text>
+  </g>
+
+  <!-- CENTRE CARD: the digital ticket (front) -->
+  <g>
+    <path d="M244 150 h150 l52 52 v212 a12 12 0 0 1 -12 12 h-190 a12 12 0 0 1 -12 -12 v-252 a12 12 0 0 1 12 -12 z" fill="#ffffff" stroke="#12233d" stroke-width="2.5"/>
+    <path d="M394 150 l52 52 h-52 z" fill="#e9edf3"/>
+    <rect x="272" y="180" width="52" height="52" rx="12" fill="#CC0B24"/>
+    <rect x="286" y="198" width="24" height="18" rx="3" fill="#ffffff"/><circle cx="286" cy="207" r="3" fill="#CC0B24"/><circle cx="310" cy="207" r="3" fill="#CC0B24"/>
+    <text x="272" y="272" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#12233d">RTI HYM 2027</text>
+    <text x="272" y="296" font-family="Arial, sans-serif" font-size="14" fill="#5c6672">Digital ticket</text>
+    <rect x="272" y="312" width="96" height="96" rx="8" fill="#f7f8fa" stroke="#e7e9ec"/>
+    <rect x="284" y="324" width="20" height="20" fill="#12233d"/><rect x="336" y="324" width="20" height="20" fill="#12233d"/><rect x="284" y="376" width="20" height="20" fill="#12233d"/><rect x="322" y="360" width="14" height="14" fill="#12233d"/>
+    <rect x="384" y="312" width="46" height="22" rx="6" fill="#12233d"/><text x="407" y="327" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#fff">Apple</text>
+    <rect x="384" y="342" width="46" height="22" rx="6" fill="#12233d"/><text x="407" y="357" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#fff">Google</text>
+    <rect x="384" y="386" width="46" height="22" rx="6" fill="#CC0B24"/><text x="407" y="401" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#fff">PDF</text>
+  </g>
+</svg>
