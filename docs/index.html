@@ -8,6 +8,8 @@
 <meta property="og:title" content="RT Event Manager">
 <meta property="og:description" content="A complete Round Table event platform for WordPress + WooCommerce.">
 <meta property="og:type" content="website">
+<link rel="icon" type="image/svg+xml" href="img/rondel.svg">
+<link rel="apple-touch-icon" href="img/rondel.svg">
 <style>
   :root{
     --red:#CC0B24; --red-dark:#740800; --navy:#12233d; --cream:#FFF0C4;
@@ -36,7 +38,7 @@
     background:color-mix(in srgb, var(--bg) 82%, transparent); border-bottom:1px solid var(--line)}
   .nav .wrap{display:flex; align-items:center; justify-content:space-between; height:62px}
   .brand{display:flex; align-items:center; gap:10px; font-weight:800; letter-spacing:-.02em}
-  .brand .dot{width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 30% 30%,var(--red),var(--red-dark))}
+  .brand .dot{width:28px;height:28px;display:block}
   .nav nav a{color:var(--ink); font-weight:600; font-size:.92rem; margin-left:22px}
   .nav nav a:hover{color:var(--red); text-decoration:none}
   @media(max-width:720px){ .nav nav{display:none} }
@@ -81,6 +83,8 @@
   @media(max-width:520px){ .grid{grid-template-columns:1fr} }
   .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:22px}
   .card .ico{font-size:1.5rem; margin-bottom:10px}
+  img.emoji{height:1em; width:1em; margin:0 .05em 0 .1em; vertical-align:-.12em; display:inline-block}
+  .card .ico img.emoji{height:1.5rem; width:1.5rem; vertical-align:top}
   .card h3{font-size:1.05rem; margin-bottom:.3em}
   .card p{margin:0; color:var(--muted); font-size:.92rem}
   .soon{display:inline-block; font-size:.64rem; font-weight:800; text-transform:uppercase;
@@ -121,7 +125,7 @@
 
 <header class="nav">
   <div class="wrap">
-    <span class="brand"><span class="dot"></span> RT Event Manager</span>
+    <span class="brand"><img class="dot" src="img/rondel.svg" alt="" width="28" height="28"> RT Event Manager</span>
     <nav>
       <a href="#features">Features</a>
       <a href="#portal">Member portal</a>
@@ -431,5 +435,16 @@
   </div>
 </footer>
 
+<!-- Twemoji: render emoji consistently across platforms -->
+<script src="https://cdn.jsdelivr.net/npm/@twemoji/api@15.1.0/dist/twemoji.min.js" crossorigin="anonymous"></script>
+<script>
+  if (window.twemoji) {
+    twemoji.parse(document.body, {
+      folder: 'svg',
+      ext: '.svg',
+      base: 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/'
+    });
+  }
+</script>
 </body>
 </html>
