@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RT Event Manager — Round Table event platform for WordPress &amp; WooCommerce</title>
+<meta name="description" content="RT Event Manager turns WooCommerce into a complete Round Table event platform: attendee tickets, a member account portal, Apple &amp; Google Wallet passes, staff QR check-in, visa letters, a helpdesk and more.">
+<meta property="og:title" content="RT Event Manager">
+<meta property="og:description" content="A complete Round Table event platform for WordPress + WooCommerce.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --red:#CC0B24; --red-dark:#740800; --navy:#12233d; --cream:#FFF0C4;
+    --ink:#1c2430; --muted:#5c6672; --line:#e7e9ec; --bg:#ffffff; --panel:#f7f8fa;
+    --radius:14px; --maxw:1100px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --ink:#e9edf2; --muted:#9aa4b1; --line:#25303c; --bg:#0e141b; --panel:#151d26; --cream:#2a2410; }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--red); text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 20px}
+  h1,h2,h3{line-height:1.15; letter-spacing:-.02em; margin:0 0 .4em}
+  h2{font-size:clamp(1.5rem,3.5vw,2.2rem); margin-top:0}
+  .eyebrow{ text-transform:uppercase; letter-spacing:.14em; font-size:.72rem; font-weight:700; color:var(--red); margin:0 0 .8em }
+
+  /* Top bar */
+  header.nav{position:sticky; top:0; z-index:20; backdrop-filter:saturate(1.4) blur(8px);
+    background:color-mix(in srgb, var(--bg) 82%, transparent); border-bottom:1px solid var(--line)}
+  .nav .wrap{display:flex; align-items:center; justify-content:space-between; height:62px}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:800; letter-spacing:-.02em}
+  .brand .dot{width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 30% 30%,var(--red),var(--red-dark))}
+  .nav nav a{color:var(--ink); font-weight:600; font-size:.92rem; margin-left:22px}
+  .nav nav a:hover{color:var(--red); text-decoration:none}
+  @media(max-width:720px){ .nav nav{display:none} }
+
+  /* Hero */
+  .hero{padding:72px 0 40px; background:
+      radial-gradient(1200px 400px at 80% -10%, color-mix(in srgb,var(--red) 12%, transparent), transparent 60%);}
+  .hero .wrap{display:grid; grid-template-columns:1.05fr 1fr; gap:48px; align-items:center}
+  .hero h1{font-size:clamp(2.1rem,5vw,3.4rem); font-weight:850}
+  .hero p.lede{font-size:1.16rem; color:var(--muted); max-width:34ch}
+  .cta{display:flex; gap:12px; flex-wrap:wrap; margin-top:26px}
+  .btn{display:inline-block; padding:12px 20px; border-radius:999px; font-weight:700; font-size:.95rem}
+  .btn.primary{background:var(--red); color:#fff}
+  .btn.primary:hover{background:var(--red-dark); text-decoration:none}
+  .btn.ghost{border:1.5px solid var(--line); color:var(--ink)}
+  .btn.ghost:hover{border-color:var(--red); color:var(--red); text-decoration:none}
+  .pill{display:inline-block; background:var(--cream); color:var(--red-dark); font-weight:700;
+    font-size:.74rem; padding:5px 12px; border-radius:999px; margin-bottom:18px}
+  @media(max-width:820px){ .hero .wrap{grid-template-columns:1fr; gap:28px} .hero p.lede{max-width:none} }
+
+  /* Screenshot slots */
+  figure.shot{margin:0}
+  .ph{
+    border:2px dashed color-mix(in srgb,var(--red) 40%, var(--line));
+    border-radius:var(--radius); background:
+      repeating-linear-gradient(45deg, transparent, transparent 12px, color-mix(in srgb,var(--red) 5%, transparent) 12px, color-mix(in srgb,var(--red) 5%, transparent) 24px),
+      var(--panel);
+    min-height:230px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:22px; color:var(--muted);
+  }
+  .ph .emoji{font-size:2rem; margin-bottom:8px}
+  .ph .cap{font-weight:700; color:var(--ink)}
+  .ph code{font-size:.78rem; background:color-mix(in srgb,var(--ink) 8%, transparent); padding:2px 7px; border-radius:6px; margin-top:8px; display:inline-block}
+  figure.shot img{width:100%; height:auto; display:block; border-radius:var(--radius); border:1px solid var(--line)}
+  figure.shot figcaption{color:var(--muted); font-size:.85rem; margin-top:8px; text-align:center}
+  .hero .ph{min-height:320px}
+
+  /* Feature grid */
+  section{padding:56px 0; border-top:1px solid var(--line)}
+  .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px}
+  @media(max-width:820px){ .grid{grid-template-columns:1fr 1fr} }
+  @media(max-width:520px){ .grid{grid-template-columns:1fr} }
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:22px}
+  .card .ico{font-size:1.5rem; margin-bottom:10px}
+  .card h3{font-size:1.05rem; margin-bottom:.3em}
+  .card p{margin:0; color:var(--muted); font-size:.92rem}
+  .soon{display:inline-block; font-size:.64rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:.08em; color:var(--red-dark); background:var(--cream); padding:2px 8px;
+    border-radius:999px; vertical-align:middle; margin-left:6px}
+
+  /* Alternating feature rows */
+  .row{display:grid; grid-template-columns:1fr 1fr; gap:44px; align-items:center; margin-top:40px}
+  .row:first-of-type{margin-top:24px}
+  .row.rev .txt{order:2}
+  @media(max-width:820px){ .row{grid-template-columns:1fr; gap:22px} .row.rev .txt{order:0} }
+  .row ul{margin:.6em 0 0; padding-left:1.1em; color:var(--muted)}
+  .row ul li{margin:.25em 0}
+
+  .kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-top:8px}
+  @media(max-width:640px){ .kpis{grid-template-columns:1fr 1fr} }
+  .kpi{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:18px; text-align:center}
+  .kpi b{display:block; font-size:1.5rem; color:var(--red)}
+  .kpi span{font-size:.82rem; color:var(--muted)}
+
+  .fam{display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:4px}
+  .fam span{background:var(--panel); border:1px solid var(--line); color:var(--ink);
+    font-weight:700; font-size:.92rem; padding:9px 16px; border-radius:999px}
+
+  .codes{display:grid; grid-template-columns:auto 1fr; gap:10px 20px; align-items:baseline; margin-top:22px}
+  @media(max-width:560px){ .codes{grid-template-columns:1fr; gap:4px 0} .codes .desc{margin-bottom:10px} }
+  .codes code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.9rem;
+    background:color-mix(in srgb,var(--red) 8%, transparent); color:var(--red-dark);
+    padding:5px 10px; border-radius:8px; white-space:nowrap}
+  @media (prefers-color-scheme: dark){ .codes code{color:#ff8fa0} }
+  .codes .desc{color:var(--muted); font-size:.94rem}
+
+  footer{padding:40px 0; border-top:1px solid var(--line); color:var(--muted); font-size:.9rem}
+  footer .wrap{display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:center}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <span class="brand"><span class="dot"></span> RT Event Manager</span>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#portal">Member portal</a>
+      <a href="#wallet">Wallet &amp; check-in</a>
+      <a href="#staff">For staff</a>
+      <a href="#organisers">For organisers</a>
+      <a href="https://github.com/kgstaub/rt-event-manager">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="wrap">
+    <div>
+      <span class="pill">WordPress + WooCommerce</span>
+      <h1>The event platform built for Round Table.</h1>
+      <p class="lede">RT Event Manager turns your WooCommerce store into a complete meeting platform — attendee tickets, a member account portal, mobile wallet passes, staff check-in, visa letters and a built-in helpdesk.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/kgstaub/rt-event-manager">Get it on GitHub</a>
+        <a class="btn ghost" href="#features">See the features</a>
+      </div>
+    </div>
+    <figure class="shot">
+      <div class="ph"><span class="emoji">🎟️</span><span class="cap">Hero: Holographic dashboard ticket</span>
+        <span>The member's physical-style ticket with QR stub, mascot &amp; Add-to-Wallet buttons.</span>
+        <code>img/01-dashboard-ticket.png</code></div>
+    </figure>
+  </div>
+</div>
+
+<!-- KPIs -->
+<section style="border-top:none; padding-top:8px">
+  <div class="wrap">
+    <div class="kpis">
+      <div class="kpi"><b>8</b><span>member portal tabs</span></div>
+      <div class="kpi"><b>2</b><span>wallet platforms, live-updating</span></div>
+      <div class="kpi"><b>QR</b><span>staff check-in web app</span></div>
+      <div class="kpi"><b>.WORLD</b><span>single sign-on built in</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- FAMILY BANNER -->
+<section style="text-align:center">
+  <div class="wrap">
+    <p class="eyebrow" style="text-align:center">Ready for the entire RT family</p>
+    <h2 style="font-size:clamp(1.4rem,3vw,2rem)">One platform for all five organisations</h2>
+    <p style="color:var(--muted); max-width:62ch; margin:.4em auto 22px">Round Table, Club 41, Ladies Circle, Agora Club and Tangent Club — each with its own associations, <em>Sign in with .WORLD</em> provider and branding, out of the box.</p>
+    <div class="fam">
+      <span>Round Table</span><span>Club 41</span><span>Ladies Circle</span><span>Agora Club</span><span>Tangent Club</span>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURE GRID -->
+<section id="features">
+  <div class="wrap">
+    <p class="eyebrow">Everything, in one plugin</p>
+    <h2>One platform for the whole event</h2>
+    <div class="grid" style="margin-top:26px">
+      <div class="card"><div class="ico">🎫</div><h3>Attendee ticketing</h3><p>Event, Future-member, pretour and day-tour tickets on top of WooCommerce, with per-holder details.</p></div>
+      <div class="card"><div class="ico">🗺️</div><h3>Pretours &amp; day tours</h3><p>Add-on tours that attach to an attendee — one pretour each, day tours that stack without time clashes.</p></div>
+      <div class="card"><div class="ico">🧒</div><h3>Children &amp; Future members</h3><p>Future Tabler / Future Lady tickets for accompanying children, linked to a guardian with automatic age checks.</p></div>
+      <div class="card"><div class="ico">📅</div><h3>Personalized calendar</h3><p>Each member gets their own event calendar: the official agenda plus the exact tours they've booked.</p></div>
+      <div class="card"><div class="ico">📨</div><h3>Personalised message inbox <span class="soon">Coming soon</span></h3><p>An in-portal inbox delivering event information tailored to each member's ticket and booked add-ons — the right updates reach the right attendees.</p></div>
+      <div class="card"><div class="ico">👤</div><h3>Member account portal</h3><p>A purpose-built My Account: dashboard, profile, tickets, tours, calendar, orders, travel &amp; visa, and shop.</p></div>
+      <div class="card"><div class="ico">🚑</div><h3>Emergency contacts</h3><p>Members store up to two emergency contacts — reachable by organisers from the guest profile if anything happens on site.</p></div>
+      <div class="card"><div class="ico">🧑‍✈️</div><h3>Staff roles &amp; permissions</h3><p>A front-end management app for staff, with graded access — Manager, Registration manager, Event operator.</p></div>
+      <div class="card"><div class="ico">🕵️</div><h3>Log in as member</h3><p>Admins and Managers can step into a member's account to fix things or give support, then safely switch back — no password sharing.</p></div>
+      <div class="card"><div class="ico">📱</div><h3>Wallet passes &amp; PDF tickets</h3><p>Add-to-wallet passes that update on the device when a ticket changes — or download the ticket as a print-ready PDF.</p></div>
+      <div class="card"><div class="ico">✅</div><h3>Staff QR check-in</h3><p>A mobile web app for door staff that scans a signed ticket QR and marks attendance per session.</p></div>
+      <div class="card"><div class="ico">🪪</div><h3>Attendee name badges <span class="soon">Coming soon</span></h3><p>A configurable badge template &amp; generator (name, club, QR) for on-site printing — with check-in set to trigger the badge print automatically.</p></div>
+      <div class="card"><div class="ico">🔁</div><h3>Transfers &amp; refunds</h3><p>Members transfer a ticket by email or request a cancellation; organisers confirm, decline or reactivate.</p></div>
+      <div class="card"><div class="ico">🛂</div><h3>Visa letters</h3><p>Generate signed letters of invitation as PDFs, each carrying a QR to a public verification page.</p></div>
+      <div class="card"><div class="ico">💬</div><h3>Built-in helpdesk</h3><p>A “Get help” tab powered by <a href="https://freescout.net/">FreeScout</a> — members open tickets and chat with support, files included. <em>Requires a FreeScout instance.</em></p></div>
+      <div class="card"><div class="ico">🪙</div><h3>Numbered coins</h3><p>Sell a limited coin where every number is bought only once, reserved at cart and claimed at checkout.</p></div>
+      <div class="card"><div class="ico">🔐</div><h3>Live .WORLD sync</h3><p>Members sign in with .WORLD and their name, club, family and association sync automatically — kept accurate, never re-typed.</p></div>
+      <div class="card"><div class="ico">🎨</div><h3>Theme-friendly</h3><p>Built with <strong>YOOtheme Pro</strong> &amp; <strong>UIkit</strong> in mind, but works with any WordPress theme — and drops in anywhere via shortcodes.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- MEMBER PORTAL -->
+<section id="portal">
+  <div class="wrap">
+    <p class="eyebrow">For members</p>
+    <h2>A member portal they'll actually use</h2>
+
+    <div class="row">
+      <div class="txt">
+        <h3>Their whole event, on one page</h3>
+        <p>The dashboard greets each member and shows their holographic ticket, status and quick links. Everything else lives one tab away.</p>
+        <ul>
+          <li>Profile with read-only .WORLD data and editable local fields</li>
+          <li>Emergency contacts, on hand for organisers if needed on site</li>
+          <li>Event tickets &amp; “travelling with me” companions</li>
+          <li>Pretours, day tours and a personal event calendar</li>
+          <li>Order history with downloadable PDF receipts</li>
+        </ul>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">🧭</span><span class="cap">Member dashboard &amp; sidebar</span>
+        <span>The full account portal with the left navigation and dashboard ticket.</span>
+        <code>img/02-portal-dashboard.png</code></div></figure>
+    </div>
+
+    <div class="row rev">
+      <div class="txt">
+        <h3>Manage every attendee</h3>
+        <p>Members edit their companions' details inline — name, phone, family, association, club, function and dietary needs — all validated and saved without leaving the page.</p>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">👥</span><span class="cap">“Travelling with me” ticket management</span>
+        <span>The co-traveller table with editable fields and per-ticket actions.</span>
+        <code>img/03-travelling-with-me.png</code></div></figure>
+    </div>
+
+    <div class="row">
+      <div class="txt">
+        <h3>Bring the family</h3>
+        <p>Accompanying children travel as <strong>Future Tabler</strong> / <strong>Future Lady</strong> tickets — linked to a guardian, checked against the event's age range from their date of birth, and exempt from the adult phone requirement. They join the same tours as their guardian, and get their own letters of invitation for travel.</p>
+        <ul>
+          <li>Guardian linking, so every child is tied to an adult attendee</li>
+          <li>Date-of-birth validated against the configurable min/max age</li>
+          <li>A child who has outgrown the range is prompted for a full ticket</li>
+        </ul>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">🧒</span><span class="cap">Future Tabler / Future Lady tickets</span>
+        <span>The Future members block with guardian + date-of-birth fields.</span>
+        <code>img/12-future-members.png</code></div></figure>
+    </div>
+
+    <div class="row rev">
+      <div class="txt">
+        <h3>Tours &amp; a calendar that's theirs</h3>
+        <p>Pretours and day tours attach to an attendee — and can only be booked by someone who holds an event ticket, so add-ons never sell to non-attendees. Everything a member books flows into a personal event calendar alongside the official agenda.</p>
+        <ul>
+          <li>One pretour per person; day tours stack unless their times clash</li>
+          <li>Companions and Future members can only join their guardian's tour</li>
+          <li>Add-ons require an event ticket — in the cart or already on the account</li>
+        </ul>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">📅</span><span class="cap">Pretours / day tours + personal calendar</span>
+        <span>A tour booking view and the member's event calendar.</span>
+        <code>img/10-tours-calendar.png</code></div></figure>
+    </div>
+  </div>
+</section>
+
+<!-- REGISTRATION & IDENTITY -->
+<section id="registration">
+  <div class="wrap">
+    <p class="eyebrow">Registration &amp; identity</p>
+    <h2>Capture the right data, once</h2>
+
+    <div class="row">
+      <div class="txt">
+        <h3>A WooCommerce checkout built for Round Table</h3>
+        <p>The standard WooCommerce checkout is extended with Round Table fields, so you collect every attendee's details as the order is placed — no chasing forms afterwards.</p>
+        <ul>
+          <li>Per-holder name, phone, family, association, club and function / role</li>
+          <li>Dietary needs — with an allergies detail field — for each attendee</li>
+          <li>Date of birth and guardian for Future Tabler / Future Lady tickets</li>
+          <li>Guests &amp; partners handled cleanly, without club or association</li>
+        </ul>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">🧾</span><span class="cap">WooCommerce checkout — RT member fields</span>
+        <span>The extended checkout collecting per-attendee Round Table data.</span>
+        <code>img/13-checkout-fields.png</code></div></figure>
+    </div>
+
+    <div class="row rev">
+      <div class="txt">
+        <h3>Member data, synced live from .WORLD</h3>
+        <p>Sign in with <em>.WORLD</em> and each member's record is pulled straight from Round Table's own identity service — so names, clubs, families and associations are always accurate and never re-typed. .WORLD stays the single source of truth.</p>
+        <ul>
+          <li>Name, email, club, family and club subdomain synced on every sign-in</li>
+          <li>Association derived automatically from the .WORLD subdomain</li>
+          <li>.WORLD-owned fields stay read-only in the portal — no drift</li>
+          <li>All five identity providers: TABLER · 41ER · CIRCLER · AGORACLUB · TANGENTCLUB</li>
+        </ul>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">🔐</span><span class="cap">Sign in with .WORLD → synced profile</span>
+        <span>The .WORLD login and/or the read-only, synced member profile.</span>
+        <code>img/14-world-sso.png</code></div></figure>
+    </div>
+  </div>
+</section>
+
+<!-- WALLET & CHECK-IN -->
+<section id="wallet">
+  <div class="wrap">
+    <p class="eyebrow">On the day</p>
+    <h2>From phone wallet to the door</h2>
+
+    <div class="row">
+      <div class="txt">
+        <h3>Passes that stay current — or a printable PDF</h3>
+        <p>Members add their ticket to Apple or Google Wallet, and when status, tours or details change the pass is pushed an update automatically. Prefer paper? The same ticket downloads as a print-ready PDF with its QR code.</p>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">📲</span><span class="cap">Wallet passes + PDF ticket</span>
+        <span>Apple &amp; Google Wallet passes (phone mock-up) and/or the PDF ticket.</span>
+        <code>img/04-wallet-passes.png</code></div></figure>
+    </div>
+
+    <div class="row rev">
+      <div class="txt">
+        <h3>Fast, signed check-in</h3>
+        <p>Door staff open a mobile web app, scan the ticket QR — a signed check-in token — and mark attendance for the right session. No native app to install.</p>
+        <p style="margin-top:.6em"><span class="soon">Coming soon</span> Checking an attendee in will automatically print their name badge from the configurable badge template.</p>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">📷</span><span class="cap">Staff QR check-in app (mobile)</span>
+        <span>The check-in scanner screen on a phone.</span>
+        <code>img/05-checkin.png</code></div></figure>
+    </div>
+  </div>
+</section>
+
+<!-- HELPDESK / VISA / SHOP -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow">And more</p>
+    <h2>Support, travel and merch — covered</h2>
+
+    <div class="row">
+      <div class="txt">
+        <h3>Get help without leaving the portal</h3>
+        <p>A “Get help” tab connects to your <a href="https://freescout.net/">FreeScout</a> helpdesk (a required dependency). Members pick a topic, attach files and chat with your team; their club, orders and tickets travel with the request.</p>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">💬</span><span class="cap">Helpdesk chat (Get help tab)</span>
+        <span>The ticket list + chat view with the unread badge.</span>
+        <code>img/06-helpdesk.png</code></div></figure>
+    </div>
+
+    <div class="row rev">
+      <div class="txt">
+        <h3>Visa letters, verifiable</h3>
+        <p>Generate a signed letter of invitation as a PDF. Each carries a QR linking to a public page that confirms it was issued.</p>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">🛂</span><span class="cap">Visa letter PDF + verification page</span>
+        <span>The letterhead PDF, and/or the QR verification screen.</span>
+        <code>img/07-visa-letter.png</code></div></figure>
+    </div>
+
+    <div class="row">
+      <div class="txt">
+        <h3>A shop for regalia &amp; keepsakes</h3>
+        <p>Sell merch from the member portal — including a limited, numbered coin where buyers pick a free number that's theirs alone.</p>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">🪙</span><span class="cap">Shop &amp; numbered coin picker</span>
+        <span>The merch grid and the “choose your number” selector.</span>
+        <code>img/08-shop-coin.png</code></div></figure>
+    </div>
+  </div>
+</section>
+
+<!-- STAFF -->
+<section id="staff">
+  <div class="wrap">
+    <p class="eyebrow">For staff</p>
+    <h2>A management app your team runs from the front end</h2>
+    <div class="row">
+      <div class="txt">
+        <h3>Graded access, right in the portal</h3>
+        <p>Staff get an <strong>Event Management</strong> section inside the same portal — no wp-admin needed — with what they can see and do governed by their role:</p>
+        <ul>
+          <li><strong>Manager</strong> — full access, including “log in as member”</li>
+          <li><strong>Registration manager</strong> — attendee lookup and registration duties</li>
+          <li><strong>Event operator</strong> — check-in and guest profiles</li>
+          <li><strong>Regular staff</strong> — a styled staff ticket, no management access</li>
+        </ul>
+        <p>Assign a pre/day tour to a staff member as a <strong>Guide</strong> or <strong>Supervisor</strong>, and they get a “My Tours” roster with a live check-in view for their group.</p>
+        <p>Need to help someone directly? Managers and admins can <strong>log in as a member</strong> from the guest profile — see exactly what they see, fix it, and switch back safely, with no passwords exchanged.</p>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">🧑‍✈️</span><span class="cap">Staff management front-end</span>
+        <span>Find Guest, My Tours roster, and the Event Management nav for staff.</span>
+        <code>img/11-staff-management.png</code></div></figure>
+    </div>
+  </div>
+</section>
+
+<!-- FOR ORGANISERS -->
+<section id="organisers">
+  <div class="wrap">
+    <p class="eyebrow">For organisers</p>
+    <h2>Run it all from wp-admin</h2>
+    <div class="row">
+      <div class="txt">
+        <h3>Everything in one place</h3>
+        <p>Manage tickets per order, handle refunds and transfers, curate delegates, set the hosting family, and configure wallets, badges, the helpdesk and .WORLD SSO — all inside WordPress.</p>
+        <ul>
+          <li>Per-order Tickets box with stacked, editable attendee cards</li>
+          <li>Refunds &amp; cancellations with confirm / decline / reactivate</li>
+          <li>Delegates overview with a two-per-association limit</li>
+          <li>Attendee badges &amp; PDF receipts for printing</li>
+        </ul>
+      </div>
+      <figure class="shot"><div class="ph"><span class="emoji">🛠️</span><span class="cap">Admin: order tickets &amp; Delegates</span>
+        <span>The order Tickets metabox and/or the Delegates overview page.</span>
+        <code>img/09-admin.png</code></div></figure>
+    </div>
+  </div>
+</section>
+
+<!-- SHORTCODES & THEME -->
+<section id="shortcodes">
+  <div class="wrap">
+    <p class="eyebrow">Drops into any theme</p>
+    <h2>Place it with a shortcode</h2>
+    <p style="color:var(--muted); max-width:64ch">The portal is styled with <strong>UIkit</strong> — the framework behind <strong>YOOtheme&nbsp;Pro</strong> — so it feels native there, and falls back gracefully on any WordPress theme. Add each piece to a page with a shortcode:</p>
+    <div class="codes">
+      <code>[rt_event_manager_account]</code><span class="desc">The full member account portal — set it as your WooCommerce <em>My account</em> page.</span>
+      <code>[rt_event_manager_checkin]</code><span class="desc">The staff QR check-in web app.</span>
+      <code>[world_sso_login]</code><span class="desc">“Sign in with .WORLD” buttons.</span>
+      <code>[world_sso_register]</code><span class="desc">.WORLD registration form.</span>
+      <code>[oauth_sso_login]</code><span class="desc">Generic OAuth SSO login buttons.</span>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section style="text-align:center">
+  <div class="wrap">
+    <h2>Built for RTI HYM 2027 — ready for the entire RT family.</h2>
+    <p style="color:var(--muted); max-width:60ch; margin:0 auto 22px">Open source, self-hosted, and yours to adapt — usable by Round Table, Club 41, Ladies Circle, Agora Club and Tangent Club alike. Requires WooCommerce; the helpdesk tab additionally requires a <a href="https://freescout.net/">FreeScout</a> instance.</p>
+    <a class="btn primary" href="https://github.com/kgstaub/rt-event-manager">View on GitHub</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>RT Event Manager · GPL-2.0-or-later<br>
+      <small>Originally developed by <a href="https://github.com/kgstaub">Kenneth Staub</a> — Round Table Switzerland &amp; RTI TABLER.WORLD Manager 2024–26.</small></span>
+    <span>Adopt · Adapt · Improve</span>
+  </div>
+</footer>
+
+</body>
+</html>
