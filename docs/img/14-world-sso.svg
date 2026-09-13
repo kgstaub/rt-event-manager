@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Sign in with .WORLD and synced profile">
+  <rect width="640" height="420" fill="#f7f8fa"/>
+  <!-- login card -->
+  <rect x="56" y="90" width="240" height="240" rx="16" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+  <text x="176" y="140" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#12233d">Sign in</text>
+  <rect x="88" y="164" width="176" height="30" rx="8" fill="#f2f4f7" stroke="#e7e9ec"/>
+  <rect x="88" y="204" width="176" height="30" rx="8" fill="#f2f4f7" stroke="#e7e9ec"/>
+  <!-- .WORLD button -->
+  <rect x="88" y="256" width="176" height="40" rx="10" fill="#CC0B24"/>
+  <text x="176" y="281" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#ffffff">Sign in with .WORLD</text>
+  <!-- sync arrow -->
+  <path d="M312 210 h44 M348 200 l12 10 l-12 10" stroke="#5c6672" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- synced profile card -->
+  <rect x="372" y="70" width="212" height="280" rx="16" fill="#FFF0C4"/>
+  <circle cx="478" cy="120" r="30" fill="#12233d"/>
+  <text x="478" y="172" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#740800">Kenneth Staub</text>
+  <g fill="#a8823a">
+    <rect x="400" y="196" width="60" height="9" rx="4"/><rect x="400" y="214" width="150" height="9" rx="4"/>
+    <rect x="400" y="240" width="60" height="9" rx="4"/><rect x="400" y="258" width="120" height="9" rx="4"/>
+    <rect x="400" y="284" width="60" height="9" rx="4"/><rect x="400" y="302" width="140" height="9" rx="4"/>
+  </g>
+  <!-- lock (read-only) -->
+  <rect x="540" y="86" width="26" height="22" rx="4" fill="#740800"/>
+  <path d="M545 86 v-6 a8 8 0 0 1 16 0 v6" fill="none" stroke="#740800" stroke-width="3"/>
+</svg>

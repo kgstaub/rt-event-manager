@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Shop and numbered coin">
+  <rect width="640" height="420" fill="#f7f8fa"/>
+  <!-- product cards grid -->
+  <g>
+    <rect x="56" y="70" width="150" height="180" rx="12" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+    <rect x="76" y="90" width="110" height="90" rx="8" fill="#f2f4f7"/>
+    <rect x="76" y="192" width="90" height="10" rx="5" fill="#3a4658"/>
+    <rect x="76" y="212" width="60" height="20" rx="6" fill="#fde7ea"/>
+  </g>
+  <g>
+    <rect x="222" y="70" width="150" height="180" rx="12" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+    <rect x="242" y="90" width="110" height="90" rx="8" fill="#f2f4f7"/>
+    <rect x="242" y="192" width="90" height="10" rx="5" fill="#3a4658"/>
+    <rect x="242" y="212" width="60" height="20" rx="6" fill="#fde7ea"/>
+  </g>
+  <!-- coin close-up -->
+  <circle cx="470" cy="150" r="78" fill="#FFF0C4" stroke="#CC0B24" stroke-width="4"/>
+  <circle cx="470" cy="150" r="60" fill="none" stroke="#CC0B24" stroke-width="2" opacity="0.5"/>
+  <text x="470" y="166" text-anchor="middle" font-family="Arial" font-size="46" font-weight="bold" fill="#740800">42</text>
+  <!-- number picker -->
+  <rect x="336" y="278" width="248" height="44" rx="10" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+  <rect x="356" y="294" width="150" height="12" rx="6" fill="#c9ced4"/>
+  <path d="M552 296 l10 10 l10 -10" stroke="#5c6672" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="336" y="332" width="248" height="16" rx="6" fill="#eef0f3"/>
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Member portal dashboard">
+  <rect width="640" height="420" fill="#f7f8fa"/>
+  <rect x="40" y="48" width="560" height="324" rx="16" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+  <!-- sidebar -->
+  <rect x="40" y="48" width="176" height="324" rx="16" fill="#fbfbfc"/>
+  <text x="64" y="94" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#CC0B24">RT Event</text>
+  <rect x="64" y="120" width="128" height="10" rx="5" fill="#c9ced4"/>
+  <rect x="56" y="146" width="144" height="26" rx="8" fill="#fde7ea"/>
+  <rect x="72" y="154" width="90" height="10" rx="5" fill="#CC0B24"/>
+  <rect x="64" y="192" width="120" height="10" rx="5" fill="#c9ced4"/>
+  <rect x="64" y="218" width="112" height="10" rx="5" fill="#c9ced4"/>
+  <rect x="64" y="244" width="124" height="10" rx="5" fill="#c9ced4"/>
+  <rect x="64" y="270" width="100" height="10" rx="5" fill="#c9ced4"/>
+  <!-- content: greeting + ticket -->
+  <text x="244" y="94" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#CC0B24">Welcome, Kenneth</text>
+  <rect x="244" y="118" width="332" height="150" rx="14" fill="#12233d"/>
+  <rect x="268" y="146" width="150" height="14" rx="7" fill="#ffffff"/>
+  <rect x="268" y="174" width="110" height="10" rx="5" fill="#8792a3"/>
+  <rect x="268" y="214" width="130" height="10" rx="5" fill="#FFF0C4"/>
+  <rect x="480" y="146" width="72" height="72" rx="8" fill="#ffffff"/>
+  <rect x="492" y="158" width="16" height="16" fill="#12233d"/><rect x="524" y="158" width="16" height="16" fill="#12233d"/><rect x="492" y="190" width="16" height="16" fill="#12233d"/>
+  <rect x="244" y="292" width="150" height="12" rx="6" fill="#c9ced4"/>
+  <rect x="426" y="292" width="150" height="12" rx="6" fill="#c9ced4"/>
+</svg>

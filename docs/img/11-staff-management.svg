@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Staff management front-end">
+  <rect width="640" height="420" fill="#f7f8fa"/>
+  <rect x="48" y="48" width="544" height="324" rx="16" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+  <text x="72" y="92" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#CC0B24">Event Management</text>
+  <!-- search bar (Find Guest) -->
+  <rect x="72" y="112" width="360" height="40" rx="10" fill="#f2f4f7" stroke="#e7e9ec"/>
+  <circle cx="98" cy="132" r="9" fill="none" stroke="#5c6672" stroke-width="3"/>
+  <line x1="105" y1="139" x2="113" y2="147" stroke="#5c6672" stroke-width="3" stroke-linecap="round"/>
+  <rect x="124" y="127" width="180" height="10" rx="5" fill="#c9ced4"/>
+  <!-- roster rows with role badges -->
+  <g>
+    <rect x="72" y="172" width="496" height="44" rx="10" fill="#fbfbfc" stroke="#eef0f3"/>
+    <circle cx="98" cy="194" r="13" fill="#12233d"/>
+    <rect x="122" y="188" width="140" height="12" rx="6" fill="#3a4658"/>
+    <rect x="440" y="184" width="112" height="20" rx="10" fill="#12233d"/>
+    <text x="496" y="199" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">Manager</text>
+  </g>
+  <g transform="translate(0,56)">
+    <rect x="72" y="172" width="496" height="44" rx="10" fill="#fbfbfc" stroke="#eef0f3"/>
+    <circle cx="98" cy="194" r="13" fill="#12233d"/>
+    <rect x="122" y="188" width="120" height="12" rx="6" fill="#3a4658"/>
+    <rect x="420" y="184" width="132" height="20" rx="10" fill="#CC0B24"/>
+    <text x="486" y="199" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">Event operator</text>
+  </g>
+  <g transform="translate(0,112)">
+    <rect x="72" y="172" width="496" height="44" rx="10" fill="#fbfbfc" stroke="#eef0f3"/>
+    <circle cx="98" cy="194" r="13" fill="#12233d"/>
+    <rect x="122" y="188" width="150" height="12" rx="6" fill="#3a4658"/>
+    <rect x="404" y="184" width="148" height="20" rx="10" fill="#b9880f"/>
+    <text x="478" y="199" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">Registration mgr</text>
+  </g>
+</svg>
