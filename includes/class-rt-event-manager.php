@@ -134,6 +134,11 @@ class RT_Event_Manager {
         add_action('woocommerce_product_options_general_product_data', array($this, 'add_ticket_product_options'));
         add_action('woocommerce_process_product_meta', array($this, 'save_ticket_product_options'));
 
+        // Hide flagged products from the main shop catalog + product search (they
+        // remain available in the member account Shop and via direct link).
+        add_action('woocommerce_product_query', array($this, 'hide_flagged_from_catalog'));
+        add_action('pre_get_posts', array($this, 'hide_flagged_from_search'));
+
         // Ticket holder fields on checkout
         add_action('woocommerce_after_order_notes', array($this, 'add_ticket_holder_fields'));
         add_action('woocommerce_checkout_process', array($this, 'validate_ticket_holder_fields'));
@@ -430,6 +435,212 @@ class RT_Event_Manager {
     }
 
     /**
+     * Short family prefix for an association label (0=RT, 1=41, 2=LC, 3=AC,
+     * 4=Tangent). Empty for guests/unknown families.
+     *
+     * @param int $family
+     * @return string
+     */
+    public static function association_prefix($family) {
+        $map = array(0 => 'RT', 1 => '41', 2 => 'LC', 3 => 'AC', 4 => 'Tangent');
+        $f = intval($family);
+        return isset($map[$f]) ? $map[$f] : '';
+    }
+
+    /**
+     * Region/country name for an association code (the part after the "-" in a
+     * club subdomain, e.g. "19-ch" => "ch"). Uses the WooCommerce country list
+     * as the base, with overrides for the non-country associations and the
+     * RTI-preferred names. Falls back to the upper-cased code when unknown.
+     *
+     * @param string $code
+     * @return string
+     */
+    public static function association_region_name($code) {
+        $code = strtolower(trim((string) $code));
+        if ('' === $code) {
+            return '';
+        }
+        // Non-country associations + names RTI writes differently to ISO/WC.
+        $overrides = apply_filters('rt_event_manager_association_regions', array(
+            'ag' => 'Arabian Gulf',   // Arabian Gulf (non-country code)
+            'ea' => 'Eastern Africa', // Eastern Africa
+            'ec' => 'E-Club',         // E-Club / Digital Region
+            'world' => 'World',       // e.g. 41 World
+            'gb' => 'Great Britain & Ireland',
+            'uk' => 'Great Britain & Ireland',
+            'us' => 'USA',
+            'nl' => 'The Netherlands',
+        ));
+        if (isset($overrides[$code])) {
+            return $overrides[$code];
+        }
+        if (function_exists('WC') && WC()->countries) {
+            $countries = WC()->countries->get_countries();
+            $cc = strtoupper($code);
+            if (isset($countries[$cc])) {
+                return $countries[$cc];
+            }
+        }
+        // Unknown code: leave empty (the field stays blank and can be overridden).
+        return '';
+    }
+
+    /**
+     * The member's association label, derived from the club subdomain + family.
+     * e.g. subdomain "19-ch", family 0 => "RT Switzerland".
+     *
+     * @param string $subdomain Club subdomain (rti_club_domain).
+     * @param int    $family    Family id (rti_family).
+     * @return string Empty when it cannot be derived.
+     */
+    public static function association_from_club($subdomain, $family) {
+        $subdomain = strtolower(trim((string) $subdomain));
+        if ('' === $subdomain) {
+            return '';
+        }
+        $pos  = strrpos($subdomain, '-');
+        $code = (false === $pos) ? $subdomain : substr($subdomain, $pos + 1);
+        $code = trim($code);
+        if ('' === $code) {
+            return '';
+        }
+        $name = self::association_region_name($code);
+        // "za" is South Africa, but Round Table and Club 41 style it "Southern
+        // Africa" (a region, like Arabian Gulf); Ladies Circle / Agora / Tangent
+        // use "South Africa".
+        if ('za' === $code && in_array(intval($family), array(0, 1), true)) {
+            $name = 'Southern Africa';
+        }
+        // Cannot resolve the region from the subdomain: leave empty (like the
+        // Function field) so the member can fill it in themselves.
+        if ('' === $name) {
+            return '';
+        }
+        $prefix = self::association_prefix($family);
+        $label  = trim($prefix . ' ' . $name);
+        /**
+         * Filter the final association label.
+         *
+         * @param string $label
+         * @param string $subdomain
+         * @param int    $family
+         * @param string $code
+         */
+        return apply_filters('rt_event_manager_association', $label, $subdomain, $family, $code);
+    }
+
+    /**
+     * The association region codes each RTI family actually operates in (from the
+     * official association lists). Countries use ISO alpha-2; ag/ea/ec/world are
+     * non-country regions. Keyed by family id (0=RT, 1=41, 2=LC, 3=AC, 4=Tangent).
+     *
+     * @return array<int,string[]>
+     */
+    public static function association_family_codes() {
+        return apply_filters('rt_event_manager_association_family_codes', array(
+            // Round Table.
+            0 => array(
+                'ag', 'bw', 'ea', 'mg', 'mw', 'mu', 'sc', 'za', 'zm', 'zw',
+                'bd', 'hk', 'in', 'np', 'ph', 'lk',
+                'al', 'at', 'be', 'cz', 'de', 'gb', 'hu', 'ec', 'lu', 'md', 'ro', 'nl',
+                'ca', 'dk', 'ee', 'gy', 'is', 'lv', 'lt', 'no', 'fi', 'sr', 'se', 'tt', 'us',
+                'bg', 'cy', 'fr', 'gi', 'il', 'it', 'mt', 'ma', 'sm', 'sn', 'ch', 'tg', 'tn',
+            ),
+            // Club 41.
+            1 => array(
+                'at', 'be', 'cy', 'dk', 'ee', 'fi', 'fr', 'de', 'hu', 'is', 'lt',
+                'mg', 'mt', 'ma', 'nl', 'no', 'za', 'se', 'ch', 'world', 'zm',
+            ),
+            // Ladies Circle.
+            2 => array(
+                'bw', 'cm', 'mg', 'mu', 'na', 'sc', 'za', 'zm', 'zw',
+                'bd', 'in', 'np', 'ph', 'lk', 'ae', 'ec',
+                'cy', 'fr', 'il', 'it', 'mt', 'ma',
+                'at', 'be', 'de', 'lu', 'ro', 'ch', 'nl', 'gb',
+                'dk', 'ee', 'fi', 'is', 'lt', 'no', 'se', 'us',
+            ),
+            // Agora Club.
+            3 => array(
+                'at', 'be', 'bw', 'cy', 'is', 'in', 'il', 'it', 'lu', 'mg', 'mt',
+                'ma', 'np', 'no', 'ro', 'za', 'ch', 'nl', 'uk', 'us', 'zm', 'zw',
+                'de', 'ec', 'fr',
+            ),
+            // Tangent Club.
+            4 => array(
+                'be', 'mt', 'fi', 'cy', 'dk', 'ee', 'in', 'il', 'lt', 'mg',
+                'no', 'ro', 'za', 'lk', 'se', 'us', 'zm',
+            ),
+        ));
+    }
+
+    /**
+     * Association override suggestions for a family: "<prefix> <region>" for each
+     * region that family operates in, built with the same derivation as the
+     * resolved value so a chosen suggestion matches what the subdomain would have
+     * produced. Sorted, de-duplicated.
+     *
+     * @param int $family
+     * @return string[]
+     */
+    public static function association_suggestions($family) {
+        $map   = self::association_family_codes();
+        $codes = isset($map[(int) $family]) ? $map[(int) $family] : array();
+        $out   = array();
+        foreach ($codes as $code) {
+            $label = self::association_from_club('x-' . $code, $family);
+            if ('' !== $label) {
+                $out[$label] = true;
+            }
+        }
+        $labels = array_keys($out);
+        sort($labels);
+        return $labels;
+    }
+
+    /**
+     * Who may set a member's Delegate / Non-Delegate status: WordPress
+     * administrators, WooCommerce shop managers, and the plugin's event Manager
+     * role.
+     *
+     * @param int $user_id Defaults to the current user.
+     * @return bool
+     */
+    public static function can_manage_delegate($user_id = 0) {
+        $user_id = $user_id ?: get_current_user_id();
+        if (!$user_id) {
+            return false;
+        }
+        if (user_can($user_id, 'manage_options') || user_can($user_id, 'manage_woocommerce')) {
+            return true;
+        }
+        return class_exists('RT_Event_Manager_Staff')
+            && RT_Event_Manager_Staff::ROLE_MANAGER === RT_Event_Manager_Staff::get_user_staff_role($user_id);
+    }
+
+    /**
+     * A member's delegate status, defaulting to non-delegate.
+     *
+     * @param int $user_id
+     * @return string 'delegate' | 'non_delegate'
+     */
+    public static function get_delegate_status($user_id) {
+        return ('delegate' === get_user_meta($user_id, 'rti_delegate', true)) ? 'delegate' : 'non_delegate';
+    }
+
+    /** Human label for a delegate status. */
+    public static function delegate_label($status) {
+        return ('delegate' === $status)
+            ? __('Delegate', 'rt-event-manager')
+            : __('Non-Delegate', 'rt-event-manager');
+    }
+
+    /** Whether the member has a pending request to become a Delegate. */
+    public static function delegate_requested($user_id) {
+        return (int) get_user_meta($user_id, 'rti_delegate_requested', true) > 0;
+    }
+
+    /**
      * Add ticket options to product editor
      */
     public function add_ticket_product_options() {
@@ -447,6 +658,12 @@ class RT_Event_Manager {
             'id'          => '_rti_ticket_dietary',
             'label'       => __('Require Dietary Restrictions', 'rt-event-manager'),
             'description' => __('Show a dietary restrictions dropdown for each ticket holder. Only applies when "Is Ticket" is enabled.', 'rt-event-manager'),
+        ));
+
+        woocommerce_wp_checkbox(array(
+            'id'          => '_rti_shop_hidden',
+            'label'       => __('Hide from main shop', 'rt-event-manager'),
+            'description' => __('Hide this product from the main WooCommerce shop and search. It stays available in the member account Shop and via its direct link.', 'rt-event-manager'),
         ));
 
         woocommerce_wp_text_input(array(
@@ -482,9 +699,51 @@ class RT_Event_Manager {
     public function save_ticket_product_options($post_id) {
         update_post_meta($post_id, '_rti_is_ticket', isset($_POST['_rti_is_ticket']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rti_ticket_dietary', isset($_POST['_rti_ticket_dietary']) ? 'yes' : 'no');
+        update_post_meta($post_id, '_rti_shop_hidden', isset($_POST['_rti_shop_hidden']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rti_title_override', sanitize_text_field(wp_unslash($_POST['_rti_title_override'] ?? '')));
         update_post_meta($post_id, '_rti_start', sanitize_text_field(wp_unslash($_POST['_rti_start'] ?? '')));
         update_post_meta($post_id, '_rti_end', sanitize_text_field(wp_unslash($_POST['_rti_end'] ?? '')));
+    }
+
+    /** A meta_query clause excluding products flagged hidden from the shop. */
+    private function shop_hidden_meta_query() {
+        return array(
+            'relation' => 'OR',
+            array('key' => '_rti_shop_hidden', 'compare' => 'NOT EXISTS'),
+            array('key' => '_rti_shop_hidden', 'value' => 'yes', 'compare' => '!='),
+        );
+    }
+
+    /**
+     * Exclude shop-hidden products from the main WooCommerce catalog (shop page
+     * and product-category archives). The member account Shop uses its own
+     * wc_get_products() call and is unaffected.
+     *
+     * @param WP_Query $q
+     */
+    public function hide_flagged_from_catalog($q) {
+        $meta_query = (array) $q->get('meta_query');
+        $meta_query[] = $this->shop_hidden_meta_query();
+        $q->set('meta_query', $meta_query);
+    }
+
+    /**
+     * Exclude shop-hidden products from front-end product search results.
+     *
+     * @param WP_Query $q
+     */
+    public function hide_flagged_from_search($q) {
+        if (is_admin() || !$q->is_main_query() || !$q->is_search()) {
+            return;
+        }
+        // Only touch product-inclusive searches.
+        $post_type = $q->get('post_type');
+        if ('' !== $post_type && 'product' !== $post_type && !(is_array($post_type) && in_array('product', $post_type, true))) {
+            return;
+        }
+        $meta_query = (array) $q->get('meta_query');
+        $meta_query[] = $this->shop_hidden_meta_query();
+        $q->set('meta_query', $meta_query);
     }
 
     /**
@@ -759,9 +1018,32 @@ class RT_Event_Manager {
                         'type'     => 'select',
                         'label'    => __('Family Organization', 'rt-event-manager'),
                         'required' => false,
-                        'class'    => array('form-row-wide'),
+                        'class'    => array('form-row-wide', 'rti-ticket-family'),
                         'options'  => array('' => __('— Select Organization —', 'rt-event-manager')) + self::$family_options,
                     ), '9');
+
+                    // Association + Club — hidden for guests / partners (family 9),
+                    // who have neither. Toggled by the Family select via JS below.
+                    echo '<div class="rti-ticket-org" data-prefix="' . esc_attr($field_prefix) . '">';
+
+                    // Association: a datalist of all associations (family-scoped list
+                    // filtered by JS); the stored value is free text.
+                    $assoc_all = array();
+                    foreach (array(0, 1, 2, 3, 4) as $fam) {
+                        foreach (self::association_suggestions($fam) as $a) {
+                            $assoc_all[$a] = $fam; // remember the family for filtering
+                        }
+                    }
+                    echo '<p class="form-row form-row-wide">';
+                    echo '<label for="' . esc_attr($field_prefix . '_association') . '">' . esc_html__('Association', 'rt-event-manager') . '</label>';
+                    echo '<span class="woocommerce-input-wrapper">';
+                    echo '<input type="text" class="input-text" name="' . esc_attr($field_prefix . '_association') . '" id="' . esc_attr($field_prefix . '_association') . '" list="' . esc_attr($field_prefix . '_assoc_list') . '" placeholder="' . esc_attr__('e.g. RT Switzerland', 'rt-event-manager') . '" />';
+                    echo '<datalist id="' . esc_attr($field_prefix . '_assoc_list') . '">';
+                    foreach ($assoc_all as $a => $fam) {
+                        echo '<option data-family="' . esc_attr($fam) . '" value="' . esc_attr($a) . '"></option>';
+                    }
+                    echo '</datalist>';
+                    echo '</span></p>';
 
                     woocommerce_form_field($field_prefix . '_club', array(
                         'type'     => 'text',
@@ -769,6 +1051,15 @@ class RT_Event_Manager {
                         'required' => false,
                         'class'    => array('form-row-wide'),
                     ), '');
+
+                    woocommerce_form_field($field_prefix . '_function', array(
+                        'type'     => 'text',
+                        'label'    => __('Function / Role', 'rt-event-manager'),
+                        'required' => false,
+                        'class'    => array('form-row-wide'),
+                    ), '');
+
+                    echo '</div>'; // .rti-ticket-org
 
                     // .WORLD ID is not collected on the checkout form (kept as a
                     // hidden field so the save path still receives the key).
@@ -881,6 +1172,31 @@ class RT_Event_Manager {
                 if (e.target && /^rti_ticket_\d+_name$/.test(e.target.id || '')) { refreshPickers(); }
             });
             refreshPickers();
+
+            // Association + Club apply only to real families — guests / partners
+            // (family 9) have neither, so hide the block. Also scope the
+            // Association datalist to the chosen family.
+            function toggleOrg(sel) {
+                var wrap = sel.closest('.form-row').nextElementSibling;
+                // The .rti-ticket-org block follows the family row.
+                while (wrap && !wrap.classList.contains('rti-ticket-org')) { wrap = wrap.nextElementSibling; }
+                if (!wrap) { return; }
+                var fam = sel.value;
+                var isOrg = (fam !== '' && fam !== '9');
+                wrap.style.display = isOrg ? '' : 'none';
+                if (!isOrg) { return; }
+                // Filter the association datalist options to the chosen family.
+                var list = wrap.querySelector('datalist');
+                if (list) {
+                    Array.prototype.forEach.call(list.querySelectorAll('option'), function (opt) {
+                        opt.disabled = (opt.getAttribute('data-family') !== fam);
+                    });
+                }
+            }
+            document.querySelectorAll('#rti-ticket-holders select.rti-ticket-family, #rti-ticket-holders select[name$="_family"]').forEach(function (sel) {
+                toggleOrg(sel);
+                sel.addEventListener('change', function () { toggleOrg(sel); });
+            });
         })();
         </script>
         <?php
@@ -1373,13 +1689,30 @@ class RT_Event_Manager {
         </p>
 
         <p class="woocommerce-form-row woocommerce-form-row--wide form-row form-row-wide">
-            <label for="reg_rti_function"><?php esc_html_e('Function / Role', 'rt-event-manager'); ?></label>
-            <input type="text" class="woocommerce-Input woocommerce-Input--text input-text" name="rti_function" id="reg_rti_function" value="<?php echo isset($_POST['rti_function']) ? esc_attr($_POST['rti_function']) : ''; ?>" />
+            <label for="reg_rti_association"><?php esc_html_e('Association', 'rt-event-manager'); ?></label>
+            <input type="text" class="woocommerce-Input woocommerce-Input--text input-text" name="rti_association" id="reg_rti_association" list="reg_rti_association_list" value="<?php echo isset($_POST['rti_association']) ? esc_attr($_POST['rti_association']) : ''; ?>" placeholder="<?php esc_attr_e('e.g. RT Switzerland', 'rt-event-manager'); ?>" />
+            <datalist id="reg_rti_association_list">
+                <?php
+                // Suggestions across all families (family isn't fixed until the
+                // select above is chosen); the profile later offers family-scoped ones.
+                $reg_assoc = array();
+                foreach (array(0, 1, 2, 3, 4) as $fam) {
+                    foreach (self::association_suggestions($fam) as $a) {
+                        $reg_assoc[$a] = true;
+                    }
+                }
+                $reg_assoc = array_keys($reg_assoc);
+                sort($reg_assoc);
+                foreach ($reg_assoc as $a) {
+                    echo '<option value="' . esc_attr($a) . '"></option>';
+                }
+                ?>
+            </datalist>
         </p>
 
         <p class="woocommerce-form-row woocommerce-form-row--wide form-row form-row-wide">
-            <label for="reg_rti_world_id"><?php esc_html_e('.WORLD ID', 'rt-event-manager'); ?></label>
-            <input type="text" class="woocommerce-Input woocommerce-Input--text input-text" name="rti_world_id" id="reg_rti_world_id" value="<?php echo isset($_POST['rti_world_id']) ? esc_attr($_POST['rti_world_id']) : ''; ?>" />
+            <label for="reg_rti_function"><?php esc_html_e('Function / Role', 'rt-event-manager'); ?></label>
+            <input type="text" class="woocommerce-Input woocommerce-Input--text input-text" name="rti_function" id="reg_rti_function" value="<?php echo isset($_POST['rti_function']) ? esc_attr($_POST['rti_function']) : ''; ?>" />
         </p>
         <?php
     }
@@ -1486,8 +1819,8 @@ class RT_Event_Manager {
             update_user_meta($customer_id, 'rti_function', sanitize_text_field($_POST['rti_function']));
         }
 
-        if (isset($_POST['rti_world_id'])) {
-            update_user_meta($customer_id, 'world_id', sanitize_text_field($_POST['rti_world_id']));
+        if (isset($_POST['rti_association'])) {
+            update_user_meta($customer_id, 'rti_association', sanitize_text_field(wp_unslash($_POST['rti_association'])));
         }
 
         // Record privacy-policy acceptance only when the consent box was ticked
@@ -1945,14 +2278,28 @@ class RT_Event_Manager {
                     $ticket_family = '';
                     $ticket_club   = '';
                     $world_id      = '';
+                    $ticket_assoc  = '';
+                    $ticket_func   = '';
                 } elseif (!$is_additional) {
                     $ticket_family = $buyer_family;
                     $ticket_club   = $buyer_club;
                     $world_id      = $user_id ? $buyer_world_id : '';
+                    // The buyer's own ticket inherits their association + function.
+                    $ticket_assoc  = $user_id ? self::delegate_user_association($user_id) : '';
+                    $ticket_func   = $user_id ? (string) get_user_meta($user_id, 'rti_function', true) : '';
                 } else {
                     $ticket_family = isset($_POST[$field_prefix . '_family']) ? sanitize_text_field($_POST[$field_prefix . '_family']) : '9';
                     $ticket_club   = isset($_POST[$field_prefix . '_club']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_club'])) : '';
+                    $ticket_assoc  = isset($_POST[$field_prefix . '_association']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_association'])) : '';
+                    $ticket_func   = isset($_POST[$field_prefix . '_function']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_function'])) : '';
                     $world_id      = isset($_POST[$field_prefix . '_world_id']) ? sanitize_text_field(wp_unslash($_POST[$field_prefix . '_world_id'])) : '';
+                }
+
+                // Guests / partners (family 9) have no club, association or function.
+                if ('9' === (string) $ticket_family) {
+                    $ticket_club  = '';
+                    $ticket_assoc = '';
+                    $ticket_func  = '';
                 }
 
                 $qr_code_url = '';
@@ -1976,6 +2323,8 @@ class RT_Event_Manager {
                     'dob'              => $dob,
                     'rti_family'       => $ticket_family,
                     'rti_club'         => $ticket_club,
+                    'association'      => $ticket_assoc,
+                    'function_role'    => $ticket_func,
                     'dietary'          => $dietary,
                     'allergy_details'  => $allergy,
                     'world_id'         => $world_id,
@@ -2705,8 +3054,8 @@ class RT_Event_Manager {
         // Checked-in status must never be clobbered by a re-submit.
         $sql = $wpdb->prepare(
             "INSERT INTO $table_name
-                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, dob, rti_family, rti_club, dietary, allergy_details, world_id, qr_code_url, status, owner_user_id)
-             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d)
+                (order_id, product_id, combination_id, parent_ticket_id, ticket_kind, minor_type, ticket_index, holder_name, phone, dob, rti_family, rti_club, association, function_role, dietary, allergy_details, world_id, qr_code_url, status, owner_user_id)
+             VALUES (%d, %d, %d, %d, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d)
              ON DUPLICATE KEY UPDATE
                 product_id       = VALUES(product_id),
                 combination_id   = VALUES(combination_id),
@@ -2718,6 +3067,8 @@ class RT_Event_Manager {
                 dob              = VALUES(dob),
                 rti_family       = VALUES(rti_family),
                 rti_club         = VALUES(rti_club),
+                association      = VALUES(association),
+                function_role    = VALUES(function_role),
                 dietary          = VALUES(dietary),
                 allergy_details  = VALUES(allergy_details),
                 world_id         = VALUES(world_id),
@@ -2736,6 +3087,8 @@ class RT_Event_Manager {
             self::sanitize_dob(isset($data['dob']) ? $data['dob'] : ''),
             sanitize_text_field($data['rti_family']),
             sanitize_text_field($data['rti_club']),
+            sanitize_text_field(isset($data['association']) ? $data['association'] : ''),
+            sanitize_text_field(isset($data['function_role']) ? $data['function_role'] : ''),
             sanitize_text_field($data['dietary']),
             sanitize_text_field(isset($data['allergy_details']) ? $data['allergy_details'] : ''),
             sanitize_text_field($data['world_id']),
@@ -3035,6 +3388,10 @@ class RT_Event_Manager {
             'transferred_at'        => '%s',
             'checked_in_at'         => '%s',
             'checked_in_by'         => '%d',
+            'is_delegate'           => '%d',
+            'delegate_requested'    => '%d',
+            'association'           => '%s',
+            'function_role'         => '%s',
         );
 
         foreach ($allowed_fields as $field => $format) {
@@ -3275,6 +3632,23 @@ class RT_Event_Manager {
         }
         echo '</td>';
 
+        // Per-ticket delegate flag (for attendees whose account holder is not a
+        // delegate). Managers/admins only, and only for tickets in the hosting
+        // family (guests / other families cannot be delegates).
+        $ticket_family_ok = ((string) (isset($ticket['rti_family']) ? $ticket['rti_family'] : '') !== '')
+            && ((int) $ticket['rti_family'] === self::get_host_family());
+        echo '<td data-title="' . esc_attr__('Delegate', 'rt-event-manager') . '">';
+        if (self::can_manage_delegate() && $ticket_family_ok) {
+            $is_delegate = !empty($ticket['is_delegate']);
+            echo '<label style="white-space:nowrap;"><input type="checkbox" class="rti-ticket-field" name="rti_ticket[' . esc_attr($ticket['id']) . '][is_delegate]" value="1" ' . checked($is_delegate, true, false) . ' /> ' . esc_html__('Delegate', 'rt-event-manager') . '</label>';
+            if (!$is_delegate && !empty($ticket['delegate_requested'])) {
+                echo '<br><span style="color:#b9880f;font-size:11px;">' . esc_html__('Requested', 'rt-event-manager') . '</span>';
+            }
+        } else {
+            echo !empty($ticket['is_delegate']) ? esc_html__('Delegate', 'rt-event-manager') : '<span style="color:#999;">&mdash;</span>';
+        }
+        echo '</td>';
+
         // Buyer info columns (only on first ticket of the order)
         $is_first_ticket = intval($ticket['ticket_index']) === 0;
         $voucher_val  = isset($this->_order_buyer_voucher) ? $this->_order_buyer_voucher : '';
@@ -3380,6 +3754,7 @@ class RT_Event_Manager {
         echo '<th>' . esc_html__('.WORLD ID', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('QR Code', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Status', 'rt-event-manager') . '</th>';
+        echo '<th>' . esc_html__('Delegate', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Voucher', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Phone', 'rt-event-manager') . '</th>';
         echo '<th>' . esc_html__('Function / Role', 'rt-event-manager') . '</th>';
@@ -3494,7 +3869,10 @@ class RT_Event_Manager {
                         var name = $(this).attr('name');
                         var match = name.match(/\[([^\]]+)\]$/);
                         if (match) {
-                            tickets[ticketId][match[1]] = $(this).val();
+                            var $f = $(this);
+                            tickets[ticketId][match[1]] = ($f.attr('type') === 'checkbox')
+                                ? ($f.is(':checked') ? '1' : '0')
+                                : $f.val();
                         }
                     });
                 });
@@ -3625,6 +4003,17 @@ class RT_Event_Manager {
             $world_id = isset($data['world_id']) ? sanitize_text_field($data['world_id']) : '';
             $data['qr_code_url'] = !empty($world_id) ? 'tablerworld:///member?id=' . $world_id : '';
             $qr_urls[$ticket_id] = $data['qr_code_url'];
+
+            // Per-ticket delegate flag: only delegate-managers may change it, and
+            // an unchecked checkbox is absent from the POST (so treat as 0).
+            if (self::can_manage_delegate()) {
+                $data['is_delegate'] = empty($data['is_delegate']) ? 0 : 1;
+                if ($data['is_delegate']) {
+                    $data['delegate_requested'] = 0; // granted — clear any pending request
+                }
+            } else {
+                unset($data['is_delegate']);
+            }
 
             $this->update_ticket($ticket_id, $data);
         }
@@ -4278,6 +4667,15 @@ class RT_Event_Manager {
 
         add_submenu_page(
             'rt-event-manager',
+            __('Delegates', 'rt-event-manager'),
+            __('Delegates', 'rt-event-manager'),
+            'edit_shop_orders',
+            'rt-event-manager-delegates',
+            array($this, 'render_delegates_page')
+        );
+
+        add_submenu_page(
+            'rt-event-manager',
             __('Event Agenda', 'rt-event-manager'),
             __('Event Agenda', 'rt-event-manager'),
             'manage_options',
@@ -4416,6 +4814,203 @@ class RT_Event_Manager {
     }
 
     /**
+     * Admin page: an overview of all Delegates, pending delegate requests, and
+     * individual tickets flagged as delegate (for holders who are not delegates).
+     */
+    public function render_delegates_page() {
+        if (!self::can_manage_delegate()) {
+            wp_die(esc_html__('You do not have permission to view this page.', 'rt-event-manager'));
+        }
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__('Delegates', 'rt-event-manager') . '</h1>';
+        $this->render_admin_flash();
+
+        // Pending requests first.
+        $pending = get_users(array(
+            'meta_key'     => 'rti_delegate_requested',
+            'meta_compare' => 'EXISTS',
+            'number'       => 500,
+        ));
+        $pending = array_filter($pending, function ($u) {
+            return 'delegate' !== get_user_meta($u->ID, 'rti_delegate', true)
+                && (int) get_user_meta($u->ID, 'rti_delegate_requested', true) > 0;
+        });
+
+        echo '<h2>' . esc_html(sprintf(__('Pending requests (%d)', 'rt-event-manager'), count($pending))) . '</h2>';
+        if (empty($pending)) {
+            echo '<p>' . esc_html__('None.', 'rt-event-manager') . '</p>';
+        } else {
+            echo '<table class="wp-list-table widefat fixed striped"><thead><tr>';
+            echo '<th>' . esc_html__('Member', 'rt-event-manager') . '</th><th>' . esc_html__('Email', 'rt-event-manager') . '</th><th>' . esc_html__('Association', 'rt-event-manager') . '</th><th>' . esc_html__('Requested', 'rt-event-manager') . '</th><th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
+            echo '</tr></thead><tbody>';
+            foreach ($pending as $u) {
+                $when = (int) get_user_meta($u->ID, 'rti_delegate_requested', true);
+                echo '<tr>';
+                echo '<td>' . esc_html($u->display_name) . '</td>';
+                echo '<td>' . esc_html($u->user_email) . '</td>';
+                echo '<td>' . esc_html(self::delegate_user_association($u->ID)) . '</td>';
+                echo '<td>' . esc_html($when ? date_i18n(get_option('date_format'), $when) : '—') . '</td>';
+                echo '<td>';
+                $this->delegate_action_form($u->ID, 'make', __('Approve', 'rt-event-manager'), 'button-primary');
+                echo ' ';
+                $this->delegate_action_form($u->ID, 'dismiss', __('Dismiss', 'rt-event-manager'), '');
+                echo '</td></tr>';
+            }
+            echo '</tbody></table>';
+        }
+
+        // Current delegates.
+        $delegates = get_users(array(
+            'meta_key'   => 'rti_delegate',
+            'meta_value' => 'delegate',
+            'number'     => 1000,
+            'orderby'    => 'display_name',
+            'order'      => 'ASC',
+        ));
+        echo '<h2 style="margin-top:2em;">' . esc_html(sprintf(__('Delegates (%d)', 'rt-event-manager'), count($delegates))) . '</h2>';
+        if (empty($delegates)) {
+            echo '<p>' . esc_html__('No delegates yet.', 'rt-event-manager') . '</p>';
+        } else {
+            echo '<table class="wp-list-table widefat fixed striped"><thead><tr>';
+            echo '<th>' . esc_html__('Member', 'rt-event-manager') . '</th><th>' . esc_html__('Email', 'rt-event-manager') . '</th><th>' . esc_html__('Association', 'rt-event-manager') . '</th><th>' . esc_html__('Club', 'rt-event-manager') . '</th><th>' . esc_html__('Actions', 'rt-event-manager') . '</th>';
+            echo '</tr></thead><tbody>';
+            foreach ($delegates as $u) {
+                echo '<tr>';
+                echo '<td>' . esc_html($u->display_name) . '</td>';
+                echo '<td>' . esc_html($u->user_email) . '</td>';
+                echo '<td>' . esc_html(self::delegate_user_association($u->ID)) . '</td>';
+                echo '<td>' . esc_html((string) get_user_meta($u->ID, 'rti_club', true)) . '</td>';
+                echo '<td>';
+                $this->delegate_action_form($u->ID, 'remove', __('Remove', 'rt-event-manager'), '');
+                echo '</td></tr>';
+            }
+            echo '</tbody></table>';
+        }
+
+        // Individual delegate tickets (holder is not a delegate account).
+        global $wpdb;
+        $table = $wpdb->prefix . 'rti_tickets';
+        $rows  = $wpdb->get_results(
+            "SELECT t.*, p.post_title AS product_name
+             FROM $table t LEFT JOIN {$wpdb->posts} p ON t.product_id = p.ID
+             WHERE t.is_delegate = 1 AND t.status NOT IN ('cancelled','refunded','invalid')
+             ORDER BY t.holder_name ASC",
+            ARRAY_A
+        );
+        echo '<h2 style="margin-top:2em;">' . esc_html(sprintf(__('Delegate tickets (%d)', 'rt-event-manager'), is_array($rows) ? count($rows) : 0)) . '</h2>';
+        echo '<p class="description">' . esc_html__('Individual tickets flagged as delegate (set in the order\'s Tickets box) — used when the account holder themselves is not a delegate.', 'rt-event-manager') . '</p>';
+        if (empty($rows)) {
+            echo '<p>' . esc_html__('None.', 'rt-event-manager') . '</p>';
+        } else {
+            echo '<table class="wp-list-table widefat fixed striped"><thead><tr>';
+            echo '<th>' . esc_html__('Holder', 'rt-event-manager') . '</th><th>' . esc_html__('Ticket', 'rt-event-manager') . '</th><th>' . esc_html__('Order', 'rt-event-manager') . '</th>';
+            echo '</tr></thead><tbody>';
+            foreach ($rows as $r) {
+                $oid  = absint($r['order_id']);
+                $ord  = $oid ? wc_get_order($oid) : false;
+                $link = $ord ? $ord->get_edit_order_url() : '';
+                echo '<tr>';
+                echo '<td>' . esc_html($r['holder_name'] !== '' ? $r['holder_name'] : '—') . '</td>';
+                echo '<td>' . esc_html(($r['product_name'] ? $r['product_name'] : ('#' . $r['product_id'])) . ' (' . self::ticket_kind_label($r) . ')') . '</td>';
+                echo '<td>' . ($oid ? ($link ? '<a href="' . esc_url($link) . '">#' . esc_html($oid) . '</a>' : ('#' . esc_html($oid))) : esc_html__('Staff / transfer', 'rt-event-manager')) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+        }
+
+        echo '</div>';
+    }
+
+    /** The effective association label for a user: SSO-derived first, else override. */
+    public static function delegate_user_association($user_id) {
+        $derived = self::association_from_club(
+            get_user_meta($user_id, 'rti_club_domain', true),
+            get_user_meta($user_id, 'rti_family', true)
+        );
+        if ('' !== $derived) {
+            return $derived;
+        }
+        return (string) get_user_meta($user_id, 'rti_association', true);
+    }
+
+    /** The RTI family (id) hosting the event. Defaults to Round Table (0). */
+    public static function get_host_family() {
+        $v = get_option('rt_event_manager_host_family', '');
+        return ('' === $v) ? 0 : (int) $v;
+    }
+
+    /** Whether a member belongs to the hosting family (a prerequisite for delegate status). */
+    public static function is_delegate_eligible($user_id) {
+        $fam = get_user_meta($user_id, 'rti_family', true);
+        return ('' !== $fam) && ((int) $fam === self::get_host_family());
+    }
+
+    /** How many members are delegates for a given association label. */
+    public static function delegate_count_for_association($association, $exclude_user_id = 0) {
+        if ('' === $association) {
+            return 0;
+        }
+        $users = get_users(array(
+            'meta_key'   => 'rti_delegate',
+            'meta_value' => 'delegate',
+            'fields'     => array('ID'),
+            'number'     => 2000,
+        ));
+        $count = 0;
+        foreach ($users as $u) {
+            if ((int) $u->ID === (int) $exclude_user_id) {
+                continue;
+            }
+            if (self::delegate_user_association($u->ID) === $association) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    /** Max delegates allowed per association at the event. */
+    const DELEGATE_MAX_PER_ASSOCIATION = 2;
+
+    /**
+     * Why a member cannot be made a delegate, or '' when they may.
+     *
+     * @param int $user_id
+     * @return string Empty string if allowed, otherwise a human-readable reason.
+     */
+    public static function delegate_block_reason($user_id) {
+        if (!self::is_delegate_eligible($user_id)) {
+            return sprintf(
+                /* translators: %s: hosting family name */
+                __('Only members of the hosting family (%s) can be delegates.', 'rt-event-manager'),
+                self::get_family_label(self::get_host_family())
+            );
+        }
+        $assoc = self::delegate_user_association($user_id);
+        if ('' === $assoc) {
+            return __('This member has no association, so they cannot be a delegate.', 'rt-event-manager');
+        }
+        if (self::delegate_count_for_association($assoc, $user_id) >= self::DELEGATE_MAX_PER_ASSOCIATION) {
+            return sprintf(
+                /* translators: 1: association name, 2: max delegates */
+                __('%1$s already has the maximum of %2$d delegates.', 'rt-event-manager'),
+                $assoc,
+                self::DELEGATE_MAX_PER_ASSOCIATION
+            );
+        }
+        return '';
+    }
+
+    /** A small inline POST form for a delegate action button. */
+    private function delegate_action_form($user_id, $action, $label, $btn_class) {
+        echo '<form method="post" style="display:inline;">';
+        wp_nonce_field('rti_delegate_action');
+        echo '<input type="hidden" name="rti_delegate_user" value="' . esc_attr($user_id) . '" />';
+        echo '<button type="submit" class="button ' . esc_attr($btn_class) . '" name="rti_delegate_action" value="' . esc_attr($action) . '">' . esc_html($label) . '</button>';
+        echo '</form>';
+    }
+
+    /**
      * Process the plugin's self-POSTing admin forms on admin_init (before any
      * output), then redirect back to the same page so a browser refresh issues
      * a plain GET instead of re-submitting the form.
@@ -4531,6 +5126,36 @@ class RT_Event_Manager {
                 $this->set_admin_flash(sprintf(__('Transfer offer withdrawn for ticket #%d.', 'rt-event-manager'), $tid), 'success');
             }
             $this->redirect_admin_page('rt-event-manager-transfers');
+        }
+
+        // --- Delegates page (set / clear a member's delegate status) ---
+        if (isset($_POST['rti_delegate_action'], $_POST['rti_delegate_user'])) {
+            if (!self::can_manage_delegate()) {
+                return;
+            }
+            check_admin_referer('rti_delegate_action');
+            $uid    = absint($_POST['rti_delegate_user']);
+            $action = sanitize_key(wp_unslash($_POST['rti_delegate_action']));
+            if ($uid) {
+                if ('make' === $action) {
+                    $reason = self::delegate_block_reason($uid);
+                    if ('' !== $reason) {
+                        $this->set_admin_flash($reason, 'error');
+                    } else {
+                        update_user_meta($uid, 'rti_delegate', 'delegate');
+                        delete_user_meta($uid, 'rti_delegate_requested');
+                        $this->set_admin_flash(__('Member set as Delegate.', 'rt-event-manager'), 'success');
+                    }
+                } elseif ('remove' === $action) {
+                    update_user_meta($uid, 'rti_delegate', 'non_delegate');
+                    delete_user_meta($uid, 'rti_delegate_requested');
+                    $this->set_admin_flash(__('Delegate status removed.', 'rt-event-manager'), 'success');
+                } elseif ('dismiss' === $action) {
+                    delete_user_meta($uid, 'rti_delegate_requested');
+                    $this->set_admin_flash(__('Delegate request dismissed.', 'rt-event-manager'), 'success');
+                }
+            }
+            $this->redirect_admin_page('rt-event-manager-delegates');
         }
     }
 
@@ -5936,6 +6561,15 @@ class RT_Event_Manager {
                 'id'       => 'rt_event_manager_event_date',
                 'type'     => 'date',
                 'default'  => '',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Hosting family', 'rt-event-manager'),
+                'desc'     => __('The RTI family hosting this event. Only members of this family can be delegates (each association is limited to two delegates).', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_host_family',
+                'type'     => 'select',
+                'options'  => self::$family_options,
+                'default'  => '0',
                 'desc_tip' => true,
             ),
             array(

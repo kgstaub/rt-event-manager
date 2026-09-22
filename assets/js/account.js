@@ -544,6 +544,24 @@
         matches.forEach(function (s) { $('<li></li>').text(s).appendTo($list); });
     }
     $(document).on('focus input', '.rtacc-combo-input', function () { renderCombo($(this)); });
+
+    // When a co-traveller's Family changes, re-scope the Association suggestions
+    // to that family and clear the now-mismatched value (the old RT list stuck
+    // otherwise). Also blank Association/Club/Function for guests / partners.
+    $(document).on('change', '.rtacc-tickets select[name$="[rti_family]"]', function () {
+        var fam  = String($(this).val());
+        var $row = $(this).closest('tr');
+        var list = (cfg.assocByFamily && cfg.assocByFamily[fam]) ? cfg.assocByFamily[fam] : [];
+        var $assoc = $row.find('.rtacc-combo-input[name$="[association]"]');
+        if ($assoc.length) {
+            $assoc.data('suggestions', list).val('');
+            $assoc.closest('.rtacc-combo').find('.rtacc-combo-list').remove();
+        }
+        if (fam === '9') {
+            $row.find('input[name$="[rti_club]"]').val('');
+            $row.find('.rtacc-combo-input[name$="[function_role]"]').val('');
+        }
+    });
     $(document).on('mousedown', '.rtacc-combo-list li', function (e) {
         e.preventDefault(); // keep focus so blur cleanup doesn't fire first
         var $li    = $(this);
@@ -1418,6 +1436,50 @@
             $('.rtacc-menu.is-open').removeClass('is-open')
                 .find('.rtacc-menu-btn').attr('aria-expanded', 'false');
         }
+    });
+
+    // Request Delegate status for a specific attendee ticket (ticket options menu).
+    $(document).on('click', '.rtacc-ticket-delegate-btn', function () {
+        var $btn = $(this);
+        var ticket = $btn.data('ticket');
+        $btn.prop('disabled', true);
+        $.post(cfg.ajaxUrl, {
+            action: 'rt_event_manager_request_ticket_delegate',
+            nonce: cfg.requestDelegateNonce,
+            ticket: ticket
+        }).done(function (res) {
+            if (res && res.success) {
+                $btn.replaceWith('<span class="rtacc-menu-item rtacc-menu-item--muted">' +
+                    (i18n.delegateRequested || 'Delegate status requested') + '</span>');
+            } else {
+                $btn.prop('disabled', false);
+                window.alert((res && res.data && res.data.message) || i18n.delegateRequestFail || '');
+            }
+        }).fail(function () {
+            $btn.prop('disabled', false);
+            window.alert(i18n.delegateRequestFail || '');
+        });
+    });
+
+    // Request Delegate status (members who cannot set it themselves).
+    $(document).on('click', '.rtacc-delegate-request', function () {
+        var $btn = $(this);
+        $btn.prop('disabled', true);
+        $.post(cfg.ajaxUrl, {
+            action: 'rt_event_manager_request_delegate',
+            nonce: cfg.requestDelegateNonce
+        }).done(function (res) {
+            if (res && res.success) {
+                $btn.replaceWith('<span class="rtacc-delegate-requested">' +
+                    (i18n.delegateRequested || 'Delegate status requested') + '</span>');
+            } else {
+                $btn.prop('disabled', false);
+                window.alert((res && res.data && res.data.message) || i18n.delegateRequestFail || '');
+            }
+        }).fail(function () {
+            $btn.prop('disabled', false);
+            window.alert(i18n.delegateRequestFail || '');
+        });
     });
 
 })(jQuery);

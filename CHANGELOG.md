@@ -3,6 +3,22 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.3.0] — 2026-09-05
+
+### Added
+- **Helpdesk integration (FreeScout)** — a new **Get help** tab in the member
+  portal lets members open support tickets, see their previous requests and their
+  status, and continue each ticket in a chat-style view with staff replies.
+  - Requests are submitted with a **topic** (General question / Pre- or day tours
+    / HYM / Payment & refunds / Travel support) and pushed to FreeScout as a
+    conversation; the member's name, function, club, orders and tickets are
+    attached, and the ticket is tagged by topic (FreeScout Tags module).
+  - The chat view supports **file attachments** (images, PDF, Word, Excel — up to
+    5 files, 10 MB each) both ways; attachment downloads are proxied server-side
+    and every read/reply is checked to belong to the signed-in member.
+  - New admin page **RT Event → Helpdesk**: enable the tab and set the FreeScout
+    URL, API key (stored encrypted) and mailbox (picked from a live list).
+
 ## [2.2.11] — 2026-09-05
 
 ### Added

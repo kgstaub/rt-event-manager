@@ -404,6 +404,7 @@ class Multi_OAuth_SSO {
                     'world_id' => 'id',
                     'rti_family' => 'club.family',
                     'rti_club' => 'club.name',
+                    'rti_club_domain' => 'club.subdomain',
                     'user_email' => 'email',
                     'first_name' => 'first_name',
                     'last_name' => 'last_name',

@@ -3,7 +3,7 @@
  * Plugin Name: RT Event Manager
  * Plugin URI: https://www.staub.ee
  * Description: Round Table International event management for WooCommerce — attendee tickets with a full member account portal (dashboard, profile, tours, calendar, visa letters, shop), pretours &amp; day tours, ticket transfers &amp; refunds, Apple &amp; Google Wallet passes with live push updates, and a staff QR check-in web app.
- * Version: 2.2.11
+ * Version: 2.3.0
  * Author: Kenneth Staub, RT Switzerland
  * Author URI: https://www.staub.ee
  * License: GPL v2 or later
@@ -19,7 +19,7 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('RT_EVENT_MANAGER_VERSION', '2.2.11');
+define('RT_EVENT_MANAGER_VERSION', '2.3.0');
 define('RT_EVENT_MANAGER_DB_VERSION', '2.5.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -106,6 +106,8 @@ function rt_event_manager_init() {
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-checkin.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-staff.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-user-switch.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-helpdesk.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-coin.php';
 
     // Initialize
     RT_Event_Manager::instance();
@@ -136,6 +138,12 @@ function rt_event_manager_init() {
 
     // Initialize admin "log in as member" (user switching)
     RT_Event_Manager_User_Switch::instance();
+
+    // Initialize the FreeScout helpdesk integration ("Get help" tab + admin)
+    RT_Event_Manager_Helpdesk::instance();
+
+    // Initialize the numbered challenge-coin handler (shop)
+    RT_Event_Manager_Coin::instance();
 
     // Run one-time ticket migration for old orders
     rt_event_manager_migrate_tickets();
@@ -454,6 +462,14 @@ function rt_event_manager_install_db() {
             // Check-in audit (added in 2.3.0).
             'checked_in_at'         => "ADD COLUMN `checked_in_at` datetime NULL DEFAULT NULL AFTER `transferred_at`",
             'checked_in_by'         => "ADD COLUMN `checked_in_by` bigint(20) unsigned NOT NULL DEFAULT 0 AFTER `checked_in_at`",
+            // Per-ticket delegate flag (added in 2.3.0): marks an individual
+            // attendee as a delegate when the account holder is not one.
+            'is_delegate'           => "ADD COLUMN `is_delegate` tinyint(1) NOT NULL DEFAULT 0 AFTER `status`",
+            // Pending per-ticket delegate request (0/1), and the attendee's
+            // association captured at checkout (added in 2.3.0).
+            'delegate_requested'    => "ADD COLUMN `delegate_requested` tinyint(1) NOT NULL DEFAULT 0 AFTER `is_delegate`",
+            'association'           => "ADD COLUMN `association` varchar(120) NOT NULL DEFAULT '' AFTER `rti_club`",
+            'function_role'         => "ADD COLUMN `function_role` varchar(120) NOT NULL DEFAULT '' AFTER `association`",
         );
         foreach ($relationship_columns as $column => $ddl) {
             $exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM $table_name LIKE %s", $column));
@@ -496,6 +512,27 @@ function rt_event_manager_install_db() {
             UNIQUE KEY sess_ticket (session_key, ticket_id),
             KEY session_key (session_key),
             KEY ticket_id (ticket_id)
+        ) $charset_collate;");
+    }
+
+    // Always ensure the challenge-coin claims table exists.
+    $coin_table = $wpdb->prefix . 'rti_coin_claims';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $coin_table)) !== $coin_table) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta("CREATE TABLE $coin_table (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            product_id bigint(20) unsigned NOT NULL,
+            number int(10) unsigned NOT NULL,
+            order_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            reserved_by varchar(191) NOT NULL DEFAULT '',
+            status varchar(12) NOT NULL DEFAULT 'reserved',
+            expires_at datetime NULL DEFAULT NULL,
+            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            UNIQUE KEY prod_num (product_id, number),
+            KEY order_id (order_id),
+            KEY status (status)
         ) $charset_collate;");
     }
 
