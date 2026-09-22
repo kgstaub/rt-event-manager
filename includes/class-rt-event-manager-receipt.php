@@ -158,6 +158,7 @@ class RT_Event_Manager_Receipt {
             table.items th, table.items td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
             table.items th { background: #f2f2f2; }
             table.items .item-dates { font-size: 10px; color: #666; margin-top: 2px; }
+            table.items .item-coin { font-size: 10px; color: #666; margin-top: 2px; font-weight: bold; }
             table.items .item-tickets { margin-top: 3px; font-size: 10px; color: #666; }
             table.items .item-ticket-link { color: #888; }
             table.items td.num, table.items th.num { text-align: right; }
@@ -298,9 +299,13 @@ class RT_Event_Manager_Receipt {
                         }
                         $date_range = $this->fmt_range($d_start, $d_end);
                     ?>
+                        <?php $coin_number = (int) $item->get_meta('_rti_coin_number'); ?>
                         <tr>
                             <td>
                                 <?php echo esc_html($item->get_name()); ?>
+                                <?php if ($coin_number > 0) : ?>
+                                    <div class="item-coin"><?php echo esc_html(sprintf(__('Coin number: %d', 'rt-event-manager'), $coin_number)); ?></div>
+                                <?php endif; ?>
                                 <?php if ('' !== $date_range) : ?>
                                     <div class="item-dates"><?php echo esc_html($date_range); ?></div>
                                 <?php endif; ?>

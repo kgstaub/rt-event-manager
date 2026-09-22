@@ -116,6 +116,42 @@
 .rtacc-offcanvas .uk-nav > li.rtacc-nav-attention > a:hover {
     background: #d3e8fc;
 }
+/* Non-SSO profile: two-column layout (identity left, address/contact right). */
+.rtacc-profile-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 32px;
+}
+@media (max-width: 640px) {
+    .rtacc-profile-grid { grid-template-columns: 1fr; gap: 0; }
+}
+
+/* Delegate status field: value + request button on one line. */
+.rtacc-delegate-box {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.rtacc-delegate-requested {
+    color: var(--rtacc-draft, #b9880f);
+    font-weight: 600;
+}
+.rtacc-delegate-pending {
+    display: block;
+    margin-top: 4px;
+    color: var(--rtacc-draft, #b9880f);
+}
+
+/* "Get help" unread-reply count: a UIkit badge pinned to the right of the nav
+   item and vertically centred (the nav <a> is position:relative). */
+.rtacc-nav-badge {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
 /* Blank gap between navigation groups (no line). */
 .rtacc-nav-sep {
     list-style: none;
@@ -681,12 +717,16 @@
 /* ---- Product grid (Shop + Add more tickets); tiles use uk-card ---- */
 .rtacc-products {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
     margin-top: 12px;
 }
-.rtacc-product {
+@media (max-width: 640px) {
+    .rtacc-products { grid-template-columns: repeat(2, 1fr); }
+}
+.rtacc-products .rtacc-product {
     text-align: center;
+    padding: 12px;
 }
 .rtacc-product-thumb img {
     max-width: 100%;
@@ -1071,12 +1111,21 @@
        lets the flex item shrink below its intrinsic width). */
     .rtacc-tickets td .uk-input,
     .rtacc-tickets td .uk-select,
-    .rtacc-tickets td .rtacc-select {
+    .rtacc-tickets td .rtacc-select,
+    .rtacc-tickets td .rtacc-combo {
         flex: 1 1 0;
         min-width: 0;
         max-width: none;
         width: 100%;
         box-sizing: border-box;
+    }
+    /* Combo-wrapped fields (Association, Function/Role) fill the value side and
+       align with the plain inputs (no extra top margin in the stacked layout). */
+    .rtacc-tickets td .rtacc-combo {
+        margin-top: 0;
+    }
+    .rtacc-tickets td .rtacc-combo .rtacc-combo-input {
+        width: 100%;
     }
     .rtacc-tickets td .rtacc-row-actions {
         justify-content: flex-end;
