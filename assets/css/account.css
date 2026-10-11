@@ -797,6 +797,17 @@
 }
 
 /* ---- My Calendar ---- */
+/* Public [rt_event_manager_calendar] wrapper: the calendar rules below use the
+   --rtacc-* tokens normally defined on the portal root (.rtacc). On a public
+   page there is no .rtacc ancestor, so redefine just the tokens the calendar
+   needs here — without the portal's flex layout, which would break the grid. */
+.rtacc-calendar {
+    --rtacc-primary: #CC0B24;
+    --rtacc-primary-hover: #740800;
+    --rtacc-border: #e6e6e6;
+    --rtacc-muted: #777;
+    color: #333;
+}
 /* A crisp system-UI stack (no external font request — GDPR-friendly) with
    tabular figures so the hour/time labels align. */
 .rtacc-cal {
