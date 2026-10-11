@@ -385,6 +385,47 @@ class RT_Event_Manager_Visa {
             . '<p>Ausstellungsdatum: {issue_date}</p>';
     }
 
+    /**
+     * Built-in defaults for the member-portal "Travel and Visa" information
+     * panel and the letter-formatting options. These are Switzerland/RTI
+     * specific out of the box; every value is admin-editable under Visa
+     * Settings so a host in another country can replace the text and links.
+     * An empty link URL hides that button.
+     */
+    public static function travel_defaults() {
+        return array(
+            'travel_intro'        => 'If you need a visa for Switzerland, request a letter of invitation for each attendee. Citizens and permanent residents of EU/EFTA or other Schengen countries do not need a visa or an invitation.',
+            'entry_label'         => 'Swiss entry requirements',
+            'entry_url'           => 'https://www.sem.admin.ch/sem/en/home/overview-einreise.html',
+            'customs_text'        => '<strong>Swiss customs:</strong> Swiss customs is very strict. The duty-free allowance is only CHF 150 worth of goods per person, and there are separate limits on how much alcohol and tobacco you may bring in. Anything above these limits must be declared and taxed.',
+            'customs_label'       => 'Swiss customs requirements',
+            'customs_url'         => 'https://www.bazg.admin.ch/en/declare-goods-import-individuals',
+            'border_text'         => "<strong>New EU border systems (EES &amp; ETIAS):</strong> The EU is introducing two new systems for non-EU travellers. Both may be in effect by the time of the event, so check the official pages before you travel.\n\nThe Entry/Exit System (EES) replaces passport stamping with a digital record of entries and exits, including a photo and fingerprints taken at the Schengen border. The European Travel Information and Authorisation System (ETIAS) is a travel authorisation that visa-exempt non-EU nationals must apply for online before travelling; it is not yet in operation.",
+            'ees_label'           => 'About EES',
+            'ees_url'             => 'https://travel-europe.europa.eu/ees',
+            'etias_label'         => 'About ETIAS',
+            'etias_url'           => 'https://travel-europe.europa.eu/etias',
+            'contact_phone_label' => 'Telefon',
+            'contact_email_label' => 'E-Mail',
+            'date_format'         => 'd.m.Y',
+        );
+    }
+
+    /**
+     * Option value for a travel-info / letter-formatting key, falling back to
+     * its built-in default until the admin saves the Visa Settings once (the
+     * rt_event_manager_visa_travel_set marker). After that, the stored value
+     * is returned verbatim so an admin can deliberately blank a field.
+     */
+    public static function travel_opt($key) {
+        $defaults = self::travel_defaults();
+        $def = isset($defaults[$key]) ? $defaults[$key] : '';
+        if (!get_option('rt_event_manager_visa_travel_set')) {
+            return $def;
+        }
+        return (string) get_option('rt_event_manager_visa_' . $key, $def);
+    }
+
     /* ---------------------------------------------------------------------
      * Admin menu: Visa Settings + Visa Letters
      * ------------------------------------------------------------------- */
@@ -432,6 +473,24 @@ class RT_Event_Manager_Visa {
         update_option('rt_event_manager_visa_sig1_img', absint($_POST['visa_sig1_img'] ?? 0));
         update_option('rt_event_manager_visa_sig2_img', absint($_POST['visa_sig2_img'] ?? 0));
         update_option('rt_event_manager_visa_bg_img', absint($_POST['visa_bg_img'] ?? 0));
+
+        // Travel-information panel (member portal) + letter-formatting copy.
+        $travel_text = array('entry_label', 'customs_label', 'ees_label', 'etias_label', 'contact_phone_label', 'contact_email_label', 'date_format');
+        foreach ($travel_text as $f) {
+            update_option('rt_event_manager_visa_' . $f, sanitize_text_field(wp_unslash($_POST['visa_' . $f] ?? '')));
+        }
+        $travel_urls = array('entry_url', 'customs_url', 'ees_url', 'etias_url');
+        foreach ($travel_urls as $f) {
+            update_option('rt_event_manager_visa_' . $f, esc_url_raw(wp_unslash($_POST['visa_' . $f] ?? '')));
+        }
+        $travel_html = array('travel_intro', 'customs_text', 'border_text');
+        foreach ($travel_html as $f) {
+            update_option('rt_event_manager_visa_' . $f, wp_kses_post(wp_unslash($_POST['visa_' . $f] ?? '')));
+        }
+        // Mark the travel/letter copy as customised so travel_opt() stops
+        // falling back to the built-in Swiss defaults and honours blanks.
+        update_option('rt_event_manager_visa_travel_set', '1');
+
         set_transient('rtem_visa_flash_' . get_current_user_id(), '1', 60);
         wp_safe_redirect(add_query_arg('page', 'rt-event-manager-visa-settings', admin_url('admin.php')));
         exit;
@@ -514,6 +573,43 @@ class RT_Event_Manager_Visa {
         echo '<h2>' . esc_html__('Letter template (German)', 'rt-event-manager') . '</h2>';
         echo '<p class="description">' . esc_html__('Available variables:', 'rt-event-manager') . ' <code>{host_name}</code> <code>{host_address}</code> <code>{host_phone}</code> <code>{host_email}</code> <code>{host_nationality}</code> <code>{applicant_name}</code> <code>{applicant_dob}</code> <code>{applicant_ppno}</code> <code>{applicant_nationality}</code> <code>{applicant_address}</code> <code>{applicant_phone}</code> <code>{applicant_email}</code> <code>{event_start}</code> <code>{event_end}</code> <code>{arrival}</code> <code>{departure}</code> <code>{issue_date}</code></p>';
         wp_editor($template, 'visa_template', array('textarea_name' => 'visa_template', 'media_buttons' => false, 'textarea_rows' => 16));
+
+        // --- Travel information panel (member portal "Travel and Visa" tab) ---
+        echo '<h2>' . esc_html__('Travel information (member portal)', 'rt-event-manager') . '</h2>';
+        echo '<p class="description">' . esc_html__('Shown on the member portal “Travel and Visa” tab. Defaults are Switzerland-specific — edit them for your host country. Leave a link URL blank to hide that button. Basic HTML is allowed in the notice boxes.', 'rt-event-manager') . '</p>';
+        echo '<table class="form-table" role="presentation">';
+
+        $link_fields = function ($label_name, $url_name) {
+            return '<input type="text" class="regular-text" name="visa_' . $label_name . '" value="' . esc_attr(self::travel_opt($label_name)) . '" placeholder="' . esc_attr__('Button label', 'rt-event-manager') . '" /><br>'
+                . '<input type="url" class="large-text" name="visa_' . $url_name . '" value="' . esc_attr(self::travel_opt($url_name)) . '" placeholder="https://  ' . esc_attr__('(blank to hide)', 'rt-event-manager') . '" style="margin-top:6px;" />';
+        };
+
+        $row(__('Intro / EU-EFTA notice', 'rt-event-manager'),
+            '<textarea name="visa_travel_intro" rows="3" class="large-text">' . esc_textarea(self::travel_opt('travel_intro')) . '</textarea>');
+        $row(__('Entry requirements link', 'rt-event-manager'), $link_fields('entry_label', 'entry_url'));
+        $row(__('Customs notice', 'rt-event-manager'),
+            '<textarea name="visa_customs_text" rows="3" class="large-text">' . esc_textarea(self::travel_opt('customs_text')) . '</textarea>');
+        $row(__('Customs link', 'rt-event-manager'), $link_fields('customs_label', 'customs_url'));
+        $row(__('EU border systems (EES / ETIAS) notice', 'rt-event-manager'),
+            '<textarea name="visa_border_text" rows="5" class="large-text">' . esc_textarea(self::travel_opt('border_text')) . '</textarea>',
+            __('Separate paragraphs with a blank line.', 'rt-event-manager'));
+        $row(__('EES link', 'rt-event-manager'), $link_fields('ees_label', 'ees_url'));
+        $row(__('ETIAS link', 'rt-event-manager'), $link_fields('etias_label', 'etias_url'));
+
+        echo '</table>';
+
+        // --- Letter formatting (labels + date format used in the PDF) ---
+        echo '<h2>' . esc_html__('Letter formatting', 'rt-event-manager') . '</h2>';
+        echo '<table class="form-table" role="presentation">';
+        $row(__('Contact label: phone', 'rt-event-manager'),
+            '<input type="text" class="regular-text" name="visa_contact_phone_label" value="' . esc_attr(self::travel_opt('contact_phone_label')) . '" />',
+            __('Label for the phone row added to the letter for adult applicants.', 'rt-event-manager'));
+        $row(__('Contact label: e-mail', 'rt-event-manager'),
+            '<input type="text" class="regular-text" name="visa_contact_email_label" value="' . esc_attr(self::travel_opt('contact_email_label')) . '" />');
+        $row(__('Date format', 'rt-event-manager'),
+            '<input type="text" class="regular-text" name="visa_date_format" value="' . esc_attr(self::travel_opt('date_format')) . '" />',
+            __('PHP date format for dates in the letter (default d.m.Y).', 'rt-event-manager'));
+        echo '</table>';
 
         echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html__('Save visa settings', 'rt-event-manager') . '</button></p>';
         echo '</form>';
@@ -615,32 +711,52 @@ class RT_Event_Manager_Visa {
         });
         $has_letter = !empty($visa_tickets) && $this->user_has_any_letter(get_current_user_id());
 
+        // All copy + links below are admin-editable under Visa Settings →
+        // "Travel information (member portal)". Switzerland-specific defaults
+        // ship out of the box; an empty link URL hides that button.
+        $ext_link = function ($url, $label) {
+            $url = trim((string) $url);
+            if ('' === $url) {
+                return '';
+            }
+            return '<a class="uk-button uk-button-default" href="' . esc_url($url) . '" target="_blank" rel="noopener noreferrer">' . esc_html($label) . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a>';
+        };
+
         echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html__('Travel and Visa', 'rt-event-manager') . '</h2>';
-        echo '<div class="rtacc-alert-secondary">'
-            . '<p style="margin-bottom:0;">' . esc_html__('If you need a visa for Switzerland, request a letter of invitation for each attendee. Citizens and permanent residents of EU/EFTA or other Schengen countries do not need a visa or an invitation.', 'rt-event-manager') . '</p>'
-            . '</div>';
-        echo '<p class="rtacc-actions">'
-            . '<a class="uk-button uk-button-default" href="https://www.sem.admin.ch/sem/en/home/overview-einreise.html" target="_blank" rel="noopener noreferrer">' . esc_html__('Swiss entry requirements', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a>';
+
+        $intro = self::travel_opt('travel_intro');
+        if ('' !== trim($intro)) {
+            echo '<div class="rtacc-alert-secondary">' . wpautop(wp_kses_post($intro)) . '</div>';
+        }
+
+        // Entry-requirements link + the request/download button on one row.
+        $actions = $ext_link(self::travel_opt('entry_url'), self::travel_opt('entry_label'));
         if (!empty($visa_tickets)) {
             $letter_label = $has_letter ? __('Download / view letter of invitation', 'rt-event-manager') : __('Request letter of invitation', 'rt-event-manager');
             $letter_btn   = $has_letter ? 'uk-button-default' : 'uk-button-primary';
-            echo ' <button type="button" class="uk-button ' . $letter_btn . '" data-rtacc-modal="visa"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> ' . esc_html($letter_label) . '</button>';
+            $actions .= ' <button type="button" class="uk-button ' . $letter_btn . '" data-rtacc-modal="visa"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> ' . esc_html($letter_label) . '</button>';
         }
-        echo '</p>';
+        if ('' !== trim($actions)) {
+            echo '<p class="rtacc-actions">' . $actions . '</p>';
+        }
 
-        echo '<div class="rtacc-alert-secondary">'
-            . '<p style="margin-bottom:0;"><strong>' . esc_html__('Swiss customs:', 'rt-event-manager') . '</strong> ' . esc_html__('Swiss customs is very strict. The duty-free allowance is only CHF 150 worth of goods per person, and there are separate limits on how much alcohol and tobacco you may bring in. Anything above these limits must be declared and taxed.', 'rt-event-manager') . '</p>'
-            . '</div>';
-        echo '<p class="rtacc-actions"><a class="uk-button uk-button-default" href="https://www.bazg.admin.ch/en/declare-goods-import-individuals" target="_blank" rel="noopener noreferrer">' . esc_html__('Swiss customs requirements', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a></p>';
+        $customs = self::travel_opt('customs_text');
+        if ('' !== trim($customs)) {
+            echo '<div class="rtacc-alert-secondary">' . wpautop(wp_kses_post($customs)) . '</div>';
+            $customs_link = $ext_link(self::travel_opt('customs_url'), self::travel_opt('customs_label'));
+            if ('' !== $customs_link) {
+                echo '<p class="rtacc-actions">' . $customs_link . '</p>';
+            }
+        }
 
-        echo '<div class="rtacc-alert-secondary">'
-            . '<p><strong>' . esc_html__('New EU border systems (EES & ETIAS):', 'rt-event-manager') . '</strong> ' . esc_html__('The EU is introducing two new systems for non-EU travellers. Both may be in effect by the time of the event, so check the official pages before you travel.', 'rt-event-manager') . '</p>'
-            . '<p style="margin-bottom:0;">' . esc_html__('The Entry/Exit System (EES) replaces passport stamping with a digital record of entries and exits, including a photo and fingerprints taken at the Schengen border. The European Travel Information and Authorisation System (ETIAS) is a travel authorisation that visa-exempt non-EU nationals must apply for online before travelling; it is not yet in operation.', 'rt-event-manager') . '</p>'
-            . '</div>';
-        echo '<p class="rtacc-actions">'
-            . '<a class="uk-button uk-button-default" href="https://travel-europe.europa.eu/ees" target="_blank" rel="noopener noreferrer">' . esc_html__('About EES', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a> '
-            . '<a class="uk-button uk-button-default" href="https://travel-europe.europa.eu/etias" target="_blank" rel="noopener noreferrer">' . esc_html__('About ETIAS', 'rt-event-manager') . ' <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></a>'
-            . '</p>';
+        $border = self::travel_opt('border_text');
+        if ('' !== trim($border)) {
+            echo '<div class="rtacc-alert-secondary">' . wpautop(wp_kses_post($border)) . '</div>';
+            $border_links = trim($ext_link(self::travel_opt('ees_url'), self::travel_opt('ees_label')) . ' ' . $ext_link(self::travel_opt('etias_url'), self::travel_opt('etias_label')));
+            if ('' !== $border_links) {
+                echo '<p class="rtacc-actions">' . $border_links . '</p>';
+            }
+        }
 
         if (empty($visa_tickets)) {
             echo '<p>' . esc_html__('Once you have purchased a ticket for the event, you can request a letter of invitation for each attendee here.', 'rt-event-manager') . '</p>';
@@ -1106,9 +1222,14 @@ class RT_Event_Manager_Visa {
         );
 
         // Contact rows (phone + e-mail) are omitted for children / Future members.
+        // Row labels are admin-editable (Visa Settings → Letter formatting).
         if (empty($applicant['is_child'])) {
-            $vars['{applicant_contact}'] = '<tr><td class="lbl">Telefon</td><td>' . esc_html($applicant['phone']) . '</td></tr>'
-                . '<tr><td class="lbl">E-Mail</td><td>' . esc_html($applicant['email']) . '</td></tr>';
+            $phone_lbl = self::travel_opt('contact_phone_label');
+            $email_lbl = self::travel_opt('contact_email_label');
+            if ('' === trim($phone_lbl)) { $phone_lbl = 'Telefon'; }
+            if ('' === trim($email_lbl)) { $email_lbl = 'E-Mail'; }
+            $vars['{applicant_contact}'] = '<tr><td class="lbl">' . esc_html($phone_lbl) . '</td><td>' . esc_html($applicant['phone']) . '</td></tr>'
+                . '<tr><td class="lbl">' . esc_html($email_lbl) . '</td><td>' . esc_html($applicant['email']) . '</td></tr>';
         } else {
             $vars['{applicant_contact}'] = '';
         }
@@ -1266,7 +1387,11 @@ class RT_Event_Manager_Visa {
         if ('' === $ymd) {
             return '';
         }
-        $ts = strtotime($ymd);
-        return $ts ? date_i18n('d.m.Y', $ts) : $ymd;
+        $ts  = strtotime($ymd);
+        $fmt = self::travel_opt('date_format');
+        if ('' === trim($fmt)) {
+            $fmt = 'd.m.Y';
+        }
+        return $ts ? date_i18n($fmt, $ts) : $ymd;
     }
 }

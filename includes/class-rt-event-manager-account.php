@@ -38,6 +38,8 @@ class RT_Event_Manager_Account {
 
     private function init_hooks() {
         add_shortcode('rt_event_manager_account', array($this, 'render_shortcode'));
+        // Public full event calendar (not personalised; no ticket required).
+        add_shortcode('rt_event_manager_calendar', array($this, 'calendar_shortcode'));
 
         // Assets (also enqueued on demand inside the shortcode as a fallback).
         add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_assets'));
@@ -281,6 +283,16 @@ class RT_Event_Manager_Account {
             $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : '';
             if ('checkin' === $tab && class_exists('RT_Event_Manager_Checkin') && RT_Event_Manager_Checkin::user_can_checkin()) {
                 RT_Event_Manager_Checkin::instance()->enqueue_assets();
+            }
+            return;
+        }
+
+        // Public calendar page: load its (lighter) assets in the head to avoid a
+        // flash of unstyled grid when the shortcode renders later in the content.
+        if (is_singular()) {
+            $post = get_post();
+            if ($post && has_shortcode($post->post_content, 'rt_event_manager_calendar')) {
+                $this->enqueue_calendar_assets();
             }
         }
     }
@@ -2791,12 +2803,23 @@ class RT_Event_Manager_Account {
                 'holders'  => array(), // agenda applies to everyone
             );
         }
+        $this->render_calendar_grid($items, $cats, $holders, __('Your calendar is empty. It will fill up once your tickets have dates and the official agenda is published.', 'rt-event-manager'));
+    }
+
+    /**
+     * Shared calendar renderer: range calculation + week grid + list view.
+     * Used by the member "My Calendar" tab and the public
+     * [rt_event_manager_calendar] shortcode. Each $item carries
+     * {title,start,end,cat,location,holders}; $holders is the attendee-filter
+     * set (empty = no attendee filter shown).
+     */
+    private function render_calendar_grid(array $items, array $cats, array $holders, $empty_msg) {
         $items = array_values(array_filter($items, function ($i) {
             return !empty($i['start']);
         }));
 
         if (empty($items)) {
-            echo '<p>' . esc_html__('Your calendar is empty. It will fill up once your tickets have dates and the official agenda is published.', 'rt-event-manager') . '</p>';
+            echo '<p>' . esc_html($empty_msg) . '</p>';
             return;
         }
 
@@ -3032,6 +3055,135 @@ class RT_Event_Manager_Account {
         echo '</div>'; // .rtacc-cal-list
 
         echo '</div>'; // .rtacc-cal
+    }
+
+    /**
+     * Public full event calendar: [rt_event_manager_calendar].
+     *
+     * Reuses the My Account calendar grid but shows every listed pretour, day
+     * tour and official agenda item regardless of whether the visitor is logged
+     * in or holds a ticket. No attendee filter (it is not personalised).
+     *
+     * Attributes:
+     *   title — heading shown above the calendar (default "Event Calendar";
+     *           pass title="" to omit it).
+     */
+    public function calendar_shortcode($atts) {
+        $atts = shortcode_atts(
+            array('title' => __('Event Calendar', 'rt-event-manager')),
+            $atts,
+            'rt_event_manager_calendar'
+        );
+
+        $this->enqueue_calendar_assets();
+
+        $cats = array(
+            'pretour' => array(
+                'label' => __('Pretours', 'rt-event-manager'),
+                'desc'  => __('Optional tours before the event', 'rt-event-manager'),
+            ),
+            'daytour' => array(
+                'label' => __('Day tours', 'rt-event-manager'),
+                'desc'  => __('Alternative programme during the meeting', 'rt-event-manager'),
+            ),
+            'agenda'  => array(
+                'label' => __('Official agenda', 'rt-event-manager'),
+                'desc'  => __('The official event schedule', 'rt-event-manager'),
+            ),
+        );
+
+        ob_start();
+        echo '<div class="rtacc-calendar">';
+        if ('' !== trim((string) $atts['title'])) {
+            echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html($atts['title']) . '</h2>';
+        }
+        $this->render_calendar_grid(
+            $this->all_calendar_items(),
+            $cats,
+            array(), // public: no attendee filter
+            __('No events have been scheduled yet. Please check back soon.', 'rt-event-manager')
+        );
+        echo '</div>';
+        return ob_get_clean();
+    }
+
+    /**
+     * Every listed event for the public calendar: all published pretour and day
+     * tour products that carry a start date, plus the official agenda. Event
+     * tickets are not charted individually — the agenda is the event schedule.
+     */
+    private function all_calendar_items() {
+        $items = array();
+
+        $product_ids = get_posts(array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'numberposts'    => -1,
+            'fields'         => 'ids',
+            'meta_key'       => '_rti_start',
+            'meta_compare'   => 'EXISTS',
+            'suppress_filters' => false,
+        ));
+        foreach ($product_ids as $pid) {
+            $pid   = absint($pid);
+            $start = get_post_meta($pid, '_rti_start', true);
+            if ('' === $start) {
+                continue;
+            }
+            $cat = RT_Event_Manager::get_calendar_category($pid);
+            if (!in_array($cat, array('pretour', 'daytour'), true)) {
+                continue;
+            }
+            $end     = get_post_meta($pid, '_rti_end', true);
+            $product = wc_get_product($pid);
+            $items[] = array(
+                'title'    => $product ? RT_Event_Manager::product_title($product->get_id()) : ('#' . $pid),
+                'start'    => strtotime($start),
+                'end'      => ('' !== $end) ? strtotime($end) : strtotime($start),
+                'cat'      => $cat,
+                'location' => '',
+                'holders'  => array(),
+            );
+        }
+
+        foreach (RT_Event_Manager::get_agenda() as $a) {
+            if (empty($a['start'])) {
+                continue;
+            }
+            $items[] = array(
+                'title'    => isset($a['title']) ? $a['title'] : '',
+                'start'    => strtotime($a['start']),
+                'end'      => !empty($a['end']) ? strtotime($a['end']) : strtotime($a['start']),
+                'cat'      => 'agenda',
+                'location' => isset($a['location']) ? $a['location'] : '',
+                'holders'  => array(),
+            );
+        }
+
+        return $items;
+    }
+
+    /**
+     * Styles + the standalone calendar script for the public calendar page.
+     * Reuses account.css for the grid styling; the behaviour (category toggles,
+     * scroll-to-08:00, relayout) lives in calendar.js, which — unlike account.js
+     * — has no dependency on the logged-in portal config object.
+     */
+    public function enqueue_calendar_assets() {
+        $fa_kit = self::fa_kit_url();
+        if ('' !== $fa_kit) {
+            wp_enqueue_script('rt-event-manager-fa-kit', $fa_kit, array(), null, false);
+        } elseif (!wp_style_is('font-awesome', 'enqueued') && !wp_style_is('fontawesome', 'enqueued')) {
+            wp_enqueue_style('rt-event-manager-fa', 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css', array(), '6.5.2');
+        }
+
+        $css_path = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/css/account.css';
+        $js_path  = RT_EVENT_MANAGER_PLUGIN_DIR . 'assets/js/calendar.js';
+        $css_ver  = file_exists($css_path) ? filemtime($css_path) : RT_EVENT_MANAGER_VERSION;
+        $js_ver   = file_exists($js_path) ? filemtime($js_path) : RT_EVENT_MANAGER_VERSION;
+
+        wp_enqueue_style('rt-event-manager-account', RT_EVENT_MANAGER_PLUGIN_URL . 'assets/css/account.css', array(), $css_ver);
+        wp_enqueue_script('rt-event-manager-calendar', RT_EVENT_MANAGER_PLUGIN_URL . 'assets/js/calendar.js', array('jquery'), $js_ver, true);
     }
 
     /**

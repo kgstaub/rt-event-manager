@@ -3,6 +3,30 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.3.2] — 2026-10-11
+
+### Added
+- **Public event calendar shortcode** `[rt_event_manager_calendar]`. Reuses the
+  member *My Calendar* grid but shows every listed pretour, day tour and
+  official agenda item — no login or purchased ticket required, and no attendee
+  filter (it is not personalised). Optional `title` attribute (default
+  "Event Calendar"; pass `title=""` to omit the heading). Assets load
+  automatically on any page containing the shortcode.
+
+## [2.3.1] — 2026-10-04
+
+### Changed
+- **Visa module copy moved to Visa Settings.** The member-portal *Travel and
+  Visa* information panel (intro / EU-EFTA notice, Swiss customs notice, EES &
+  ETIAS notice) and its external links (entry requirements, customs, EES, ETIAS)
+  are now admin-editable instead of hard-coded. Each link has an editable label
+  and URL; leaving a URL blank hides that button, so a host in another country
+  can replace the Switzerland-specific defaults.
+- **Letter formatting is configurable.** The PDF contact-row labels (previously
+  hard-coded `Telefon` / `E-Mail`) and the letter date format (previously
+  `d.m.Y`) are now Visa Settings fields. Switzerland/RTI defaults still ship out
+  of the box and apply until the settings are saved once.
+
 ## [2.3.0] — 2026-09-05
 
 ### Added
