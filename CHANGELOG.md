@@ -3,6 +3,141 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.3.10] — 2026-11-03
+
+### Fixed
+- **SBB widget dropdown/overlay styling.** The station autocomplete (and other SBB
+  overlays) rendered with no background because the SBB design-system theme class
+  was missing, so its colour tokens resolved to invalid values. The widget wrapper
+  now carries `sbb-light` and the shortcode adds it to the document element, so the
+  autocomplete and datepicker render with their proper white panel and elevation.
+- **SBB timetable widget "Search" 404.** The widget builds its search URL from
+  `<html lang>` (`sbb.ch/<lang>`), but WordPress emits a full locale like `en-US`,
+  so it hit `sbb.ch/en-US` → SBB's "not found" page. The `[rt_sbb_timetable]`
+  shortcode now normalises the page language to a supported SBB code (de/fr/it/en)
+  when the widget is present, with an optional `lang` attribute override.
+
+- **SBB affiliate tracking now applied to Search.** The widget bundles its Search
+  URL with `at_type=affiliate-tracking-type-placeholder`; the shortcode now
+  substitutes the real code (from the `affiliate` attribute or the
+  `rt_event_manager_sbb_affiliate_code` filter) as the results tab opens, without
+  editing the vendored bundle.
+
+### Added
+- **`date` attribute for `[rt_sbb_timetable]`** — prefill the travel date in Swiss
+  `DD.MM.YYYY` format (e.g. `date="18.02.2027"`; `D.M.YYYY` is accepted and
+  padded). Applied to the SBB date field once its components are ready.
+
+## [2.3.9] — 2026-11-03
+
+### Changed
+- **Stricter tour rules for partial admissions.** A partial (day-only) admission
+  can no longer include **any pretour**. A **day tour** can be added only when its
+  whole start–end time (from the day-tour product's Start/End) falls **inside** the
+  admission's validity window — not merely on the same day. Enforced everywhere
+  tours are added: add-to-cart, the cart re-check, checkout assignment, and the
+  member account "add tour" action. Full admissions are unaffected.
+
+## [2.3.8] — 2026-11-03
+
+### Added
+- **Admin-configurable ticket colours.** WooCommerce → Settings → RT Event Manager
+  → Ticket Appearance now has colour pickers for the full-admission, partial
+  (day-only), staff and Future-member ticket cards. Defaults match the built-in
+  red / emerald / navy / gold.
+
+### Fixed
+- **Full vs partial admission detection.** A full pass is now kept red and only a
+  genuinely shorter admission is emerald. "Partial" is determined by comparing
+  against the widest admission on offer (a ticket is partial when another
+  admission product covers all its days and more), rather than against the
+  configured event span — which could include pre-event days and mislabel a full
+  pass as partial. Tour and check-in gating now apply to partial admissions only,
+  so a full-pass holder can still add pre-event tours.
+
+## [2.3.7] — 2026-11-03
+
+### Added
+- **Ticket-type chooser when adding an attendee.** Both the account "Add a
+  ticket" modal and the cart "Add another attendee" button now let the buyer pick
+  the admission type (e.g. full event vs day-only) when more than one is offered,
+  rather than adding a fixed product; partial types show their valid window in the
+  label. Falls back to all event tickets when none are flagged as admissions.
+- **Partial admissions are shown in emerald green** on the member ticket, with
+  the ticket's own valid day(s) as its date (instead of the full event range).
+
+### Fixed
+- **Admission exclusivity false positive.** Buying a ticket for a co-traveller
+  (e.g. via the shop) was wrongly blocked as "already has a main event ticket".
+  Identity is now matched on the data entered for each ticket (name and/or
+  .WORLD ID) rather than injecting the buyer's .WORLD ID by slot position.
+- **Co-traveller tickets no longer treated as the buyer's own.** A ticket bought
+  for another person (holder name ≠ the buyer) is no longer stamped with the
+  buyer's .WORLD ID / family / club at checkout, and no longer appears as the
+  account owner's "My Ticket". "My Ticket" is resolved by holder name, so a
+  co-traveller — even a legacy row carrying the buyer's .WORLD ID — stays under
+  "Travelling with me".
+
+## [2.3.6] — 2026-11-03
+
+### Fixed
+- **Billing country no longer silently defaults to Switzerland (or other wrong
+  countries).** Two causes: (1) the `.WORLD` SSO sync wrote `billing_country`
+  from `address.country` on every login without validation, so an empty value
+  wiped the saved country and an invalid one was stored as-is; (2) WooCommerce
+  then substituted the store base country (`CH`) for the blank at checkout.
+  Now the SSO sync only stores a country when `.WORLD` provides a valid ISO-2
+  code (uppercased; empty/invalid values are skipped, never wiping a good
+  value), and the checkout prefills the member's saved country when valid, else
+  leaves it **blank and required** so an explicit choice is made instead of
+  defaulting to the store base country. Applies to billing and shipping.
+
+## [2.3.5] — 2026-11-03
+
+### Added
+- **Partial main-event admission tickets.** A product can be flagged **Main event
+  admission** (`_rti_main_admission`); its **Starts/Ends** range sets which whole
+  day(s) it is valid for, so a ticket can cover only part of the event (e.g.
+  "Friday only"). Leaving the range on the whole event (or blank) means
+  unrestricted, as before.
+  - **One admission per person** — enforced across the order and the buyer's
+    account (by .WORLD ID, else holder name). A full admission and a partial
+    (day-only) admission cannot be held by the same person. Buying admissions for
+    other named attendees is still allowed.
+  - **Day tours & pretours are gated to the window** — a tour whose day falls
+    outside a partial ticket's valid day(s) can't be added, at checkout, in the
+    cart re-check, and from the member account "add tour" action.
+  - **Check-in is gated to the window** — a partial ticket scanned at the main
+    desk on a day it does not cover is refused ("valid only for Fri 13 Feb — not
+    today"); the staff lookup shows each ticket's validity window.
+
+## [2.3.4] — 2026-11-01
+
+### Added
+- **SBB timetable widget shortcode** `[rt_sbb_timetable]`. Embeds the official
+  SBB "SMAPI" timetable/connection search (web components bundled under
+  `assets/sbb/`) so members can look up public-transport connections from a
+  page. Attributes: `from`/`to` (prefill stations), `time` (default 13:30),
+  `title` (optional heading), `banner` (`none`, `swiss-travel-pass`,
+  `saver-day-pass` or `railaway`) and `affiliate` (SBB affiliate tracking code,
+  also settable via the `rt_event_manager_sbb_affiliate_code` filter). The
+  widget's ES module is enqueued with `wp_enqueue_script_module()` (WP 6.5+,
+  with a `type="module"` fallback for older WP), and its assets load only on
+  pages that use the shortcode — the widget ships a broad CSS reset, so give it
+  a dedicated page.
+
+## [2.3.3] — 2026-11-01
+
+### Added
+- **YOOtheme Pro dynamic content source for events.** Pretours, day tours and
+  the official agenda are now available as a Builder dynamic content source
+  ("RT Events", group *RT Event Manager*), so List/Grid elements can loop over
+  events and bind fields (title, category, date & time, start/end date/time,
+  ISO timestamps, location, URL), with an optional category filter. Registered
+  via a YOOtheme module under `yootheme/modules/events/`, loaded only when
+  YOOtheme Pro is the active theme. The calendar and this source share one event
+  feed (`RT_Event_Manager_Account::get_events_feed()`) so they stay in sync.
+
 ## [2.3.2] — 2026-10-11
 
 ### Added

@@ -445,6 +445,25 @@ JS;
             }
         }
 
+        // Partial main-event admission (e.g. a Friday-only ticket) is only valid
+        // on its covered day(s). Block main-desk check-in on any other day.
+        if (method_exists('RT_Event_Manager', 'ticket_is_partial_admission')
+            && RT_Event_Manager::ticket_is_partial_admission($ticket)) {
+            try {
+                $today = (new DateTime('now', RT_Event_Manager::event_timezone()))->format('Y-m-d');
+            } catch (\Exception $e) {
+                $today = current_time('Y-m-d');
+            }
+            if (!RT_Event_Manager::ticket_valid_on_date($ticket, $today)) {
+                $label = RT_Event_Manager::admission_window_label(absint($ticket['product_id']));
+                wp_send_json_error(array('message' => sprintf(
+                    /* translators: %s: the day(s) the ticket is valid for */
+                    __('This ticket is valid only for %s — not today. Entry cannot be granted.', 'rt-event-manager'),
+                    $label
+                )));
+            }
+        }
+
         wp_send_json_success($this->ticket_payload($ticket));
     }
 
@@ -588,6 +607,18 @@ JS;
             }
             $st     = isset($t['status']) ? $t['status'] : '';
             $holder = ('' !== $t['holder_name']) ? $t['holder_name'] : ('#' . $id);
+            // Partial main-event admission is only valid on its covered day(s).
+            if (RT_Event_Manager::ticket_is_partial_admission($t)) {
+                try {
+                    $today = (new DateTime('now', RT_Event_Manager::event_timezone()))->format('Y-m-d');
+                } catch (\Exception $e) {
+                    $today = current_time('Y-m-d');
+                }
+                if (!RT_Event_Manager::ticket_valid_on_date($t, $today)) {
+                    $results[] = array('holder' => $holder, 'outcome' => 'refused', 'status' => $st);
+                    continue;
+                }
+            }
             if ('checked_in' === $st) {
                 $results[] = array('holder' => $holder, 'outcome' => 'already', 'status' => $st);
                 continue;
@@ -1442,6 +1473,11 @@ JS;
             'checked_at' => $checked_at,
             'checked_by' => $checked_by,
             'companions' => $companions,
+            // Validity window for a partial main-event admission (empty for a
+            // full/unrestricted ticket) — shown so staff see "valid Fri 13 Feb".
+            'valid_for'  => RT_Event_Manager::ticket_is_partial_admission($ticket)
+                ? RT_Event_Manager::admission_window_label(absint($ticket['product_id']))
+                : '',
         );
     }
 

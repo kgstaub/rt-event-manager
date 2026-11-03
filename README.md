@@ -88,6 +88,23 @@ SSO module for Round Table's identity providers.
   recorded per member and per order, with an admin "require re-consent" trigger.
 - **Sign in with .WORLD** — bundled OAuth SSO for Round Table's world identity
   providers (TABLER, 41ER, CIRCLER, AGORACLUB, TANGENTCLUB).
+- **Partial (day-only) admissions** — mark a ticket product as a *main event
+  admission* and give it a date window (Start/End) to sell day-only passes (e.g.
+  "Friday only") alongside the full pass. Each person may hold only one admission
+  (full **or** partial — enforced across the order and the account), partial
+  tickets restrict their day tours (and forbid pretours) to the valid window, and
+  check-in is blocked outside it. Partial tickets show in emerald green with their
+  own date; all four card colours (full / partial / staff / Future member) are
+  configurable in admin.
+- **Ticket-type chooser** — when more than one admission type is on offer, the
+  cart "Add another attendee" button and the account "Add a ticket" modal let the
+  buyer pick full vs day-only instead of adding a fixed product.
+- **Public event calendar** — the `[rt_event_manager_calendar]` shortcode shows
+  every listed pretour, day tour and agenda item on any page, no login required.
+- **YOOtheme Pro dynamic content** — events are exposed as a Builder source
+  ("RT Events") so List/Grid elements can bind to them.
+- **SBB timetable widget** — the `[rt_sbb_timetable]` shortcode embeds the
+  official SBB connection search (with affiliate tracking) on a page.
 
 ---
 
@@ -155,6 +172,25 @@ When a ticket product is purchased, the buyer enters holder details at checkout
 (the buyer's own ticket prefills name and billing phone). Each purchased ticket
 becomes a row in the tickets table and appears in the holder's account portal.
 Editing holder details is allowed until a configurable **cutoff**.
+
+### Main event admissions (full & partial)
+
+An `event` product can be flagged **Main event admission** (`_rti_main_admission`)
+and given a **Start/End** window. This makes it a mutually-exclusive admission:
+
+- **One per person** — a person may hold only one admission (full **or** partial),
+  enforced across the order and the buyer's account (matched by `.WORLD` ID or
+  holder name). Buying admissions for other named attendees is still allowed.
+- **Full vs partial** — the widest admission on offer is "full"; a product whose
+  window covers fewer days is "partial" (e.g. a Friday-only pass). A partial
+  admission is shown in emerald green with its own date.
+- **Partial restrictions** — a partial admission cannot include a **pretour**, and
+  a **day tour** can be added only when its whole Start–End falls inside the
+  admission's window. Main-desk check-in is refused outside the valid day(s).
+
+A ticket bought for another person (holder name ≠ the buyer) is treated as a
+co-traveller: it keeps its own details and does not inherit the buyer's `.WORLD`
+ID, and it appears under *Travelling with me* rather than *My Ticket*.
 
 ---
 
@@ -286,6 +322,14 @@ The plugin's admin menus are grouped in their own section directly under
 All self-posting admin pages use Post/Redirect/Get, so refreshing after a save
 never re-submits the form.
 
+**Settings → Ticket Appearance** also includes colour pickers for the dashboard
+ticket cards — full admission, partial (day-only) admission, staff, and Future
+member — each defaulting to the built-in red / emerald / navy / gold.
+
+Billing country is never silently defaulted to the store's base country: it is
+taken from the member's `.WORLD` profile when valid, otherwise left blank and
+required at checkout.
+
 ---
 
 ## Shortcodes
@@ -293,10 +337,35 @@ never re-submits the form.
 | Shortcode                        | Purpose                                            |
 |----------------------------------|----------------------------------------------------|
 | `[rt_event_manager_account]`     | The member account portal (set as *My account*).   |
+| `[rt_event_manager_calendar]`    | Public event calendar (all listed events; no login). Optional `title`. |
 | `[rt_event_manager_checkin]`     | Staff QR check-in web app.                          |
+| `[rt_sbb_timetable]`             | Embed the SBB timetable/connection search (see below). |
 | `[world_sso_login]`              | *Sign in with .WORLD* buttons.                      |
 | `[world_sso_register]`           | *.WORLD* registration.                             |
 | `[oauth_sso_login]`              | Generic OAuth SSO login buttons.                    |
+
+### `[rt_sbb_timetable]`
+
+Embeds the official SBB (Swiss Federal Railways) connection search. Give it a
+**dedicated page** — the SBB bundle ships a broad CSS reset, and assets load only
+on pages that contain the shortcode.
+
+| Attribute   | Default   | Notes                                                         |
+|-------------|-----------|---------------------------------------------------------------|
+| `from`      | *(empty)* | Prefill the From station, e.g. `from="Zürich HB"`.            |
+| `to`        | *(empty)* | Prefill the To station.                                       |
+| `date`      | *(empty)* | Prefill the date, Swiss format `DD.MM.YYYY` (e.g. `18.02.2027`). |
+| `time`      | `13:30`   | Prefill the time, 24-hour `HH:MM`.                            |
+| `lang`      | *(auto)*  | SBB language: `de` / `fr` / `it` / `en` (auto-detected from the page otherwise). |
+| `title`     | *(empty)* | Optional heading above the widget.                            |
+| `banner`    | `none`    | Product teaser: `none`, `swiss-travel-pass`, `saver-day-pass`, `railaway`. |
+| `affiliate` | *(empty)* | SBB affiliate tracking code; also settable site-wide via the `rt_event_manager_sbb_affiliate_code` filter. |
+
+Example:
+
+```
+[rt_sbb_timetable from="Zürich Flughafen" to="Winterthur" date="18.02.2027" time="16:00" affiliate="RTI2027"]
+```
 
 ---
 

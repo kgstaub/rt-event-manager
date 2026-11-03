@@ -661,6 +661,13 @@ class RT_Event_Manager {
         ));
 
         woocommerce_wp_checkbox(array(
+            'id'          => '_rti_main_admission',
+            'label'       => __('Main event admission', 'rt-event-manager'),
+            'desc_tip'    => true,
+            'description' => __('Treat this as a main-event admission ticket. Each person may hold only one — a full admission and a partial (e.g. day-only) admission cannot be combined. When "Starts"/"Ends" below span only part of the event, the ticket is valid for those day(s) only, which also restricts its day tours and check-in to that window.', 'rt-event-manager'),
+        ));
+
+        woocommerce_wp_checkbox(array(
             'id'          => '_rti_shop_hidden',
             'label'       => __('Hide from main shop', 'rt-event-manager'),
             'description' => __('Hide this product from the main WooCommerce shop and search. It stays available in the member account Shop and via its direct link.', 'rt-event-manager'),
@@ -699,6 +706,7 @@ class RT_Event_Manager {
     public function save_ticket_product_options($post_id) {
         update_post_meta($post_id, '_rti_is_ticket', isset($_POST['_rti_is_ticket']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rti_ticket_dietary', isset($_POST['_rti_ticket_dietary']) ? 'yes' : 'no');
+        update_post_meta($post_id, '_rti_main_admission', isset($_POST['_rti_main_admission']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rti_shop_hidden', isset($_POST['_rti_shop_hidden']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rti_title_override', sanitize_text_field(wp_unslash($_POST['_rti_title_override'] ?? '')));
         update_post_meta($post_id, '_rti_start', sanitize_text_field(wp_unslash($_POST['_rti_start'] ?? '')));
@@ -1335,6 +1343,108 @@ class RT_Event_Manager {
         // Validate the "This pretour is for" picker selections (one tour per
         // attendee; a Future member's tour must match their guardian's).
         $this->validate_pretour_assignments();
+
+        // One main-event admission per person (this order + the account).
+        $this->validate_admission_exclusivity();
+    }
+
+    /**
+     * Enforce "one main-event admission per person" across the order and the
+     * buyer's account. A full admission and a partial (day-only) admission
+     * cannot be held by the same person. Identity is the .WORLD ID when known,
+     * otherwise the holder name; unnamed/unidentifiable rows are never blocked.
+     */
+    private function validate_admission_exclusivity() {
+        $ticket_count = isset($_POST['rti_ticket_count']) ? absint($_POST['rti_ticket_count']) : 0;
+        if ($ticket_count < 1) {
+            return;
+        }
+        $product_map = isset($_POST['rti_ticket_product_map']) ? array_map('absint', (array) $_POST['rti_ticket_product_map']) : array();
+        $user_id     = get_current_user_id();
+
+        // Identity tokens (.WORLD ID and/or normalised name) already holding a
+        // non-terminal admission on this account. A person is matched on any
+        // shared token.
+        $owned = array();
+        if ($user_id) {
+            $terminal = array('cancelled', 'refunded', 'invalid');
+            foreach (self::get_tickets_for_user($user_id) as $t) {
+                if (!self::is_main_admission_product(isset($t['product_id']) ? $t['product_id'] : 0)) {
+                    continue;
+                }
+                if (in_array(isset($t['status']) ? $t['status'] : '', $terminal, true)) {
+                    continue;
+                }
+                foreach (self::admission_identity_tokens($t) as $tok) {
+                    $owned[$tok] = true;
+                }
+            }
+        }
+
+        $seen = array();
+        for ($i = 0; $i < $ticket_count; $i++) {
+            $pid = isset($product_map[$i]) ? $product_map[$i] : 0;
+            if (!$pid || !self::is_main_admission_product($pid)) {
+                continue;
+            }
+            $tokens = $this->admission_identity_tokens_from_post($i);
+            if (empty($tokens)) {
+                continue; // cannot identify this person — do not false-block
+            }
+            $in_order   = false;
+            $on_account = false;
+            foreach ($tokens as $tok) {
+                if (isset($seen[$tok])) {
+                    $in_order = true;
+                }
+                if (isset($owned[$tok])) {
+                    $on_account = true;
+                }
+            }
+            if ($in_order) {
+                wc_add_notice(sprintf(
+                    /* translators: %s: attendee name */
+                    __('%s already has a main event ticket in this order. Each person can hold only one — a full admission and a partial (day-only) admission cannot be combined.', 'rt-event-manager'),
+                    $this->attendee_label_from_post($i)
+                ), 'error');
+            } elseif ($on_account) {
+                wc_add_notice(sprintf(
+                    /* translators: %s: attendee name */
+                    __('%s already has a main event ticket on their account, so another cannot be added. A full admission and a partial (day-only) admission cannot be held together.', 'rt-event-manager'),
+                    $this->attendee_label_from_post($i)
+                ), 'error');
+            }
+            foreach ($tokens as $tok) {
+                $seen[$tok] = $i;
+            }
+        }
+    }
+
+    /**
+     * Identity tokens for a checkout ticket slot, taken ONLY from the data
+     * entered for that slot (its .WORLD ID field and holder name). The buyer's
+     * account .WORLD ID is never injected by slot position — a slot is identified
+     * by who it is actually for, so buying for a co-traveller is never mistaken
+     * for the buyer.
+     *
+     * @param int $i Checkout ticket slot index.
+     * @return string[]
+     */
+    private function admission_identity_tokens_from_post($i) {
+        $tokens = array();
+        $world = isset($_POST['rti_ticket_' . $i . '_world_id'])
+            ? strtolower(trim(sanitize_text_field(wp_unslash($_POST['rti_ticket_' . $i . '_world_id']))))
+            : '';
+        if ('' !== $world) {
+            $tokens[] = 'w:' . $world;
+        }
+        $name = isset($_POST['rti_ticket_' . $i . '_name'])
+            ? strtolower(trim(sanitize_text_field(wp_unslash($_POST['rti_ticket_' . $i . '_name']))))
+            : '';
+        if ('' !== $name) {
+            $tokens[] = 'n:' . $name;
+        }
+        return $tokens;
     }
 
     /**
@@ -1416,6 +1526,39 @@ class RT_Event_Manager {
                         __('%s has overlapping day tours. Day tours for the same person must not overlap in time — choose day tours at different times, or assign one to a different attendee.', 'rt-event-manager'),
                         $this->attendee_label_from_post($host)
                     ), 'error');
+                }
+            }
+        }
+
+        // Partial main-event admission: pretours cannot be combined with one, and
+        // a day tour must fall entirely within the admission's validity window.
+        foreach ($assign as $tk => $hosts) {
+            foreach ($hosts as $host => $products) {
+                $host_pid = isset($product_map[$host]) ? $product_map[$host] : 0;
+                $host_row = array('product_id' => $host_pid);
+                if (!self::ticket_is_partial_admission($host_row)) {
+                    continue;
+                }
+                foreach ($products as $p) {
+                    if (!$p || self::tour_allowed_for_host($host_row, $p, $tk)) {
+                        continue;
+                    }
+                    if ('pretour' === $tk) {
+                        wc_add_notice(sprintf(
+                            /* translators: 1: attendee name, 2: pretour name */
+                            __('%1$s has a partial (day-only) ticket, which cannot include a pretour. Please remove “%2$s”.', 'rt-event-manager'),
+                            $this->attendee_label_from_post($host),
+                            self::product_title($p)
+                        ), 'error');
+                    } else {
+                        wc_add_notice(sprintf(
+                            /* translators: 1: attendee name, 2: admission validity, 3: day tour name */
+                            __('%1$s’s ticket is valid only for %2$s, and “%3$s” is not entirely within that time, so it can’t be added.', 'rt-event-manager'),
+                            $this->attendee_label_from_post($host),
+                            self::admission_window_label($host_pid),
+                            self::product_title($p)
+                        ), 'error');
+                    }
                 }
             }
         }
@@ -1957,6 +2100,29 @@ class RT_Event_Manager {
      * @return mixed
      */
     public function prefill_checkout_fields($value, $input) {
+        // Country: never silently fall back to the store base country (which is
+        // how orders were ending up as Switzerland). Use the member's saved
+        // country when it is a valid ISO code; otherwise return an empty string
+        // so the required country field forces an explicit choice at checkout.
+        if ('billing_country' === $input || 'shipping_country' === $input) {
+            $uid    = get_current_user_id();
+            $stored = '';
+            if ($uid) {
+                $stored = strtoupper(trim((string) get_user_meta($uid, $input, true)));
+                if ('' === $stored && 'shipping_country' === $input) {
+                    // Shipping falls back to the saved billing country.
+                    $stored = strtoupper(trim((string) get_user_meta($uid, 'billing_country', true)));
+                }
+            }
+            if ('' !== $stored) {
+                $valid = (function_exists('WC') && WC() && WC()->countries) ? WC()->countries->get_countries() : array();
+                if (empty($valid) || isset($valid[$stored])) {
+                    return $stored;
+                }
+            }
+            return ''; // blank + required — never the store base country
+        }
+
         $user_id = get_current_user_id();
 
         if (!$user_id) {
@@ -2244,6 +2410,11 @@ class RT_Event_Manager {
             // every ticket here is an additional co-traveller with its own details.
             $buyer_has_ticket = $user_id && self::user_has_own_event_ticket($user_id, $order_id);
 
+            // The buyer's own name (billing), used to tell their own ticket from a
+            // co-traveller's: a slot whose holder is clearly someone else must not
+            // inherit the buyer's .WORLD ID, family, club, etc.
+            $buyer_name = strtolower(trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()));
+
             for ($i = 0; $i < $ticket_count; $i++) {
                 $field_prefix = 'rti_ticket_' . $i;
                 $holder_name  = isset($_POST[$field_prefix . '_name']) ? sanitize_text_field($_POST[$field_prefix . '_name']) : '';
@@ -2258,8 +2429,13 @@ class RT_Event_Manager {
                 $is_minor     = ('minor' === $kind);
                 // A ticket is "additional" (not the purchaser's own) when it is not
                 // the first ticket of the order, OR it is a linked co-traveller, OR
-                // the buyer already holds their own ticket from a previous order.
-                $is_additional = ($i > 0) || ($parent_id > 0) || $buyer_has_ticket;
+                // the buyer already holds their own ticket from a previous order, OR
+                // the holder entered is clearly someone other than the buyer (so a
+                // ticket bought via the shop for another person is not treated as
+                // the buyer's own and does not inherit their .WORLD ID / details).
+                $holder_is_buyer = ('' === trim($holder_name))
+                    || ('' !== $buyer_name && strtolower(trim($holder_name)) === $buyer_name);
+                $is_additional = ($i > 0) || ($parent_id > 0) || $buyer_has_ticket || !$holder_is_buyer;
                 $dob          = ($is_minor && isset($_POST[$field_prefix . '_dob'])) ? self::sanitize_dob(wp_unslash($_POST[$field_prefix . '_dob'])) : '';
 
                 // Gender/type from the checkout form when it wasn't chosen at
@@ -2683,6 +2859,30 @@ class RT_Event_Manager {
             $product = wc_get_product($pid);
             $pname   = $product ? $product->get_name() : __('this tour', 'rt-event-manager');
 
+            // Partial main-event admission: no pretours, and a day tour must fall
+            // entirely within the admission's validity window.
+            if (in_array($kind, array('pretour', 'daytour'), true) && $host
+                && self::ticket_is_partial_admission($host)
+                && !self::tour_allowed_for_host($host, $pid, $kind)) {
+                if ('pretour' === $kind) {
+                    wc_add_notice(sprintf(
+                        /* translators: 1: attendee name, 2: pretour product name */
+                        __('%1$s has a partial (day-only) ticket, which cannot include a pretour. Please remove “%2$s” from your cart.', 'rt-event-manager'),
+                        $who,
+                        $pname
+                    ), 'error');
+                } else {
+                    wc_add_notice(sprintf(
+                        /* translators: 1: attendee name, 2: admission validity, 3: tour name */
+                        __('%1$s’s ticket is valid only for %2$s, and “%3$s” is not entirely within that time. Please remove it from your cart.', 'rt-event-manager'),
+                        $who,
+                        self::admission_window_label(absint($host['product_id'])),
+                        $pname
+                    ), 'error');
+                }
+                continue;
+            }
+
             if ('pretour' === $kind && self::ticket_has_pretour($parent)) {
                 wc_add_notice(sprintf(
                     /* translators: 1: attendee name, 2: pretour product name */
@@ -2724,18 +2924,37 @@ class RT_Event_Manager {
                     return false;
                 }
             }
-        } elseif (self::is_pretour_product($product_id)) {
-            if (self::ticket_has_pretour($parent_id) || $this->cart_has_tour_for_parent($parent_id, 'pretour')) {
-                wc_add_notice(__('This ticket already has a pretour. Each ticket can have only one pretour.', 'rt-event-manager'), 'error');
+        } elseif (self::is_pretour_product($product_id) || self::is_daytour_product($product_id)) {
+            // Partial main-event admission: no pretours, and a day tour must fall
+            // entirely within the admission's validity window.
+            $host      = self::get_ticket_by_id($parent_id);
+            $tour_kind = self::is_pretour_product($product_id) ? 'pretour' : 'daytour';
+            if ($host && self::ticket_is_partial_admission($host)
+                && !self::tour_allowed_for_host($host, $product_id, $tour_kind)) {
+                if ('pretour' === $tour_kind) {
+                    wc_add_notice(__('This is a partial (day-only) ticket, which cannot include a pretour.', 'rt-event-manager'), 'error');
+                } else {
+                    wc_add_notice(sprintf(
+                        /* translators: %s: admission validity, e.g. "Fri 13 Feb" */
+                        __('This ticket is valid only for %s, and this day tour is not entirely within that time, so it can’t be added.', 'rt-event-manager'),
+                        self::admission_window_label(absint($host['product_id']))
+                    ), 'error');
+                }
                 return false;
             }
-        } elseif (self::is_daytour_product($product_id)) {
-            // Multiple day tours per person are allowed as long as their time
-            // windows do not overlap (and the same tour is not booked twice).
-            $cart_products = $this->cart_tour_products_for_parent($parent_id, 'daytour');
-            if (self::host_daytour_conflict($parent_id, $product_id, $cart_products)) {
-                wc_add_notice(__('This day tour overlaps another day tour already booked for this person. Day tours for the same person must not overlap in time.', 'rt-event-manager'), 'error');
-                return false;
+            if (self::is_pretour_product($product_id)) {
+                if (self::ticket_has_pretour($parent_id) || $this->cart_has_tour_for_parent($parent_id, 'pretour')) {
+                    wc_add_notice(__('This ticket already has a pretour. Each ticket can have only one pretour.', 'rt-event-manager'), 'error');
+                    return false;
+                }
+            } else {
+                // Multiple day tours per person are allowed as long as their time
+                // windows do not overlap (and the same tour is not booked twice).
+                $cart_products = $this->cart_tour_products_for_parent($parent_id, 'daytour');
+                if (self::host_daytour_conflict($parent_id, $product_id, $cart_products)) {
+                    wc_add_notice(__('This day tour overlaps another day tour already booked for this person. Day tours for the same person must not overlap in time.', 'rt-event-manager'), 'error');
+                    return false;
+                }
             }
         }
         return $passed;
@@ -6434,6 +6653,38 @@ class RT_Event_Manager {
                 'desc_tip' => true,
             ),
             array(
+                'title'    => __('Full admission colour', 'rt-event-manager'),
+                'desc'     => __('Card colour for a full event ticket on the member dashboard.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_ticket_color_full',
+                'type'     => 'color',
+                'default'  => '#CC0B24',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Partial admission colour', 'rt-event-manager'),
+                'desc'     => __('Card colour for a partial (day-only) event ticket.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_ticket_color_partial',
+                'type'     => 'color',
+                'default'  => '#0B7A4B',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Staff ticket colour', 'rt-event-manager'),
+                'desc'     => __('Card colour for an event-staff ticket.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_ticket_color_staff',
+                'type'     => 'color',
+                'default'  => '#14213D',
+                'desc_tip' => true,
+            ),
+            array(
+                'title'    => __('Future member colour', 'rt-event-manager'),
+                'desc'     => __('Card colour for a Future Tabler / Future Circler ticket.', 'rt-event-manager'),
+                'id'       => 'rt_event_manager_ticket_color_minor',
+                'type'     => 'color',
+                'default'  => '#E4C062',
+                'desc_tip' => true,
+            ),
+            array(
                 'type' => 'sectionend',
                 'id'   => 'rti_ticket_appearance',
             ),
@@ -6909,6 +7160,290 @@ class RT_Event_Manager {
             return $k;
         }
         return self::get_ticket_kind_for_product(isset($row['product_id']) ? $row['product_id'] : 0);
+    }
+
+    /* ---------------------------------------------------------------------
+     * Main-event admission tickets (full vs partial / day-only).
+     *
+     * A product flagged _rti_main_admission is a mutually-exclusive main-event
+     * admission: a person may hold only one. Its _rti_start/_rti_end range
+     * defines the whole days it is valid for; a range covering only part of the
+     * event makes it a "partial" ticket whose day tours and check-in are gated
+     * to that window. No range (or the whole event) = unrestricted.
+     * ------------------------------------------------------------------- */
+
+    /** Whether a product is flagged as a mutually-exclusive main-event admission. */
+    public static function is_main_admission_product($product_id) {
+        $product_id = absint($product_id);
+        return $product_id && 'yes' === get_post_meta($product_id, '_rti_main_admission', true);
+    }
+
+    /**
+     * The whole calendar days (Y-m-d, event timezone) a main-admission product
+     * is valid for, from its _rti_start/_rti_end range. Empty array means "no
+     * restriction" (not an admission, or an admission with no window set).
+     *
+     * @param int $product_id
+     * @return string[]
+     */
+    public static function admission_window_dates($product_id) {
+        if (!self::is_main_admission_product($product_id)) {
+            return array();
+        }
+        $start = self::tour_dt_to_ts(get_post_meta($product_id, '_rti_start', true));
+        if (!$start) {
+            return array(); // admission with no window → unrestricted
+        }
+        $end = self::tour_dt_to_ts(get_post_meta($product_id, '_rti_end', true));
+        return self::dates_in_range($start, $end);
+    }
+
+    /**
+     * Inclusive list of whole calendar days (Y-m-d, event timezone) between two
+     * Unix timestamps. End defaults to start; capped at a year.
+     *
+     * @param int $start_ts
+     * @param int $end_ts
+     * @return string[]
+     */
+    private static function dates_in_range($start_ts, $end_ts) {
+        if (!$start_ts) {
+            return array();
+        }
+        if (!$end_ts || $end_ts < $start_ts) {
+            $end_ts = $start_ts;
+        }
+        $tz = self::event_timezone();
+        try {
+            $cur  = (new DateTime('@' . $start_ts))->setTimezone($tz);
+            $last = (new DateTime('@' . $end_ts))->setTimezone($tz);
+        } catch (\Exception $e) {
+            return array();
+        }
+        $cur->setTime(0, 0, 0);
+        $last->setTime(0, 0, 0);
+        $dates = array();
+        $guard = 0;
+        while ($cur <= $last && $guard < 366) {
+            $dates[] = $cur->format('Y-m-d');
+            $cur->modify('+1 day');
+            $guard++;
+        }
+        return $dates;
+    }
+
+    /**
+     * The whole calendar days (Y-m-d, event timezone) the event spans, from the
+     * configured event start/end. Empty when neither is set.
+     *
+     * @return string[]
+     */
+    public static function event_full_dates() {
+        $start = self::tour_dt_to_ts((string) get_option('rt_event_manager_event_start', ''));
+        $end   = self::tour_dt_to_ts((string) get_option('rt_event_manager_event_end', ''));
+        // Extend with (or fall back to) the official agenda's span, so the event
+        // range is known even when the start/end options are not set.
+        foreach (self::get_agenda() as $item) {
+            $s = !empty($item['start']) ? self::tour_dt_to_ts($item['start']) : 0;
+            $e = !empty($item['end']) ? self::tour_dt_to_ts($item['end']) : $s;
+            if ($s && (!$start || $s < $start)) {
+                $start = $s;
+            }
+            if ($e && (!$end || $e > $end)) {
+                $end = $e;
+            }
+        }
+        return self::dates_in_range($start, $end);
+    }
+
+    /**
+     * The gating window for a ticket ROW: the day(s) it restricts tours and
+     * check-in to. This is the product's window ONLY for a PARTIAL admission;
+     * a full admission (or non-admission ticket) returns an empty array, so it
+     * imposes no restriction (full-pass holders can still add pre-event tours,
+     * etc.).
+     *
+     * @param array $row
+     * @return string[]
+     */
+    public static function ticket_admission_dates($row) {
+        if (!self::ticket_is_partial_admission($row)) {
+            return array();
+        }
+        $pid = isset($row['product_id']) ? absint($row['product_id']) : 0;
+        return self::admission_window_dates($pid);
+    }
+
+    /**
+     * All main-admission products' windows, as product_id => day-set (Y-m-d[]).
+     * An empty day-set means the product has no window (unrestricted / full).
+     * Cached per request.
+     *
+     * @return array<int,string[]>
+     */
+    private static function all_admission_windows() {
+        static $cache = null;
+        if (null !== $cache) {
+            return $cache;
+        }
+        $cache = array();
+        $ids = get_posts(array(
+            'post_type'      => 'product',
+            'posts_per_page' => -1,
+            'post_status'    => 'publish',
+            'fields'         => 'ids',
+            'meta_query'     => array(array('key' => '_rti_main_admission', 'value' => 'yes')),
+        ));
+        foreach ($ids as $pid) {
+            $cache[(int) $pid] = self::admission_window_dates($pid);
+        }
+        return $cache;
+    }
+
+    /**
+     * Whether a ticket row is a PARTIAL main admission: it covers fewer days than
+     * the fullest admission on offer. Concretely, it is partial when another
+     * admission product's window is a strict superset of its own (or another
+     * admission is unrestricted while this one is dated). The widest admission(s)
+     * — and any admission with no window — are "full", not partial.
+     *
+     * @param array $row
+     * @return bool
+     */
+    public static function ticket_is_partial_admission($row) {
+        $pid = isset($row['product_id']) ? absint($row['product_id']) : 0;
+        if (!self::is_main_admission_product($pid)) {
+            return false;
+        }
+        $mine = self::admission_window_dates($pid);
+        if (empty($mine)) {
+            return false; // no window → unrestricted / full
+        }
+        $count = count($mine);
+        foreach (self::all_admission_windows() as $other_pid => $theirs) {
+            if ((int) $other_pid === $pid) {
+                continue;
+            }
+            if (empty($theirs)) {
+                return true; // another admission is unrestricted; this dated one is partial
+            }
+            if (count($theirs) <= $count) {
+                continue; // not wider than mine
+            }
+            $superset = true;
+            foreach ($mine as $day) {
+                if (!in_array($day, $theirs, true)) {
+                    $superset = false;
+                    break;
+                }
+            }
+            if ($superset) {
+                return true; // a wider admission covers all my days → I am partial
+            }
+        }
+        return false; // nothing wider → this is a full admission
+    }
+
+    /**
+     * Whether a Y-m-d falls within a ticket's admission window. Always true when
+     * the ticket imposes no window (full admission or non-admission ticket).
+     *
+     * @param array  $row
+     * @param string $ymd
+     * @return bool
+     */
+    public static function ticket_valid_on_date($row, $ymd) {
+        $dates = self::ticket_admission_dates($row);
+        return empty($dates) || in_array($ymd, $dates, true);
+    }
+
+    /**
+     * Whether a tour may be booked against a host ticket under the host's
+     * partial-admission restrictions:
+     *  - full / non-admission hosts: always allowed (no restriction).
+     *  - partial admission: pretours are never allowed; a day tour is allowed
+     *    only when its whole start–end window falls within the admission's
+     *    validity window (the admission product's Start/End). An undated day tour
+     *    cannot be verified, so it is not allowed with a partial admission.
+     *
+     * @param array  $row             Host ticket row.
+     * @param int    $tour_product_id
+     * @param string $kind            'pretour' | 'daytour'
+     * @return bool
+     */
+    public static function tour_allowed_for_host($row, $tour_product_id, $kind) {
+        if (!self::ticket_is_partial_admission($row)) {
+            return true; // full or non-admission host — no restriction
+        }
+        if ('pretour' === $kind) {
+            return false; // pretours cannot be combined with a partial admission
+        }
+        if ('daytour' !== $kind) {
+            return true; // other kinds are unaffected
+        }
+
+        $host_pid  = isset($row['product_id']) ? absint($row['product_id']) : 0;
+        $adm_start = self::tour_dt_to_ts(get_post_meta($host_pid, '_rti_start', true));
+        if (!$adm_start) {
+            return true; // no window to check against
+        }
+        $adm_end = self::tour_dt_to_ts(get_post_meta($host_pid, '_rti_end', true));
+        if (!$adm_end || $adm_end < $adm_start) {
+            $adm_end = $adm_start;
+        }
+
+        list($t_start, $t_end) = self::tour_product_range(absint($tour_product_id));
+        if (!$t_start) {
+            return false; // undated day tour cannot be confirmed within the window
+        }
+        if (!$t_end) {
+            $t_end = $t_start;
+        }
+        // The whole day tour must sit inside the admission's validity window.
+        return ($t_start >= $adm_start && $t_end <= $adm_end);
+    }
+
+    /**
+     * Short human label for a main-admission window: "Fri 13 Feb" for a single
+     * day, "13–15 Feb 2027" for a range. Empty when unrestricted.
+     *
+     * @param int $product_id
+     * @return string
+     */
+    public static function admission_window_label($product_id) {
+        $dates = self::admission_window_dates($product_id);
+        if (empty($dates)) {
+            return '';
+        }
+        $tz    = self::event_timezone();
+        $first = self::tour_dt_to_ts($dates[0] . ' 00:00:00');
+        $last  = self::tour_dt_to_ts($dates[count($dates) - 1] . ' 00:00:00');
+        if (count($dates) === 1) {
+            return wp_date('D j M', $first, $tz);
+        }
+        return wp_date('j M', $first, $tz) . '–' . wp_date('j M Y', $last, $tz);
+    }
+
+    /**
+     * Identity tokens for admission-exclusivity checks: the holder's .WORLD ID
+     * and/or their normalised name. Two people are "the same" when they share
+     * any token. Empty array when neither is known (an unnamed guest row is
+     * never auto-blocked).
+     *
+     * @param array $row
+     * @return string[]
+     */
+    public static function admission_identity_tokens($row) {
+        $tokens = array();
+        $world = strtolower(trim((string) (isset($row['world_id']) ? $row['world_id'] : '')));
+        if ('' !== $world) {
+            $tokens[] = 'w:' . $world;
+        }
+        $name = strtolower(trim((string) (isset($row['holder_name']) ? $row['holder_name'] : '')));
+        if ('' !== $name) {
+            $tokens[] = 'n:' . $name;
+        }
+        return $tokens;
     }
 
     /**
