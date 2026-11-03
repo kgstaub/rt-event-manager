@@ -567,7 +567,20 @@ class RT_Event_Manager_Account {
             }
         }
 
-        if ($event) {
+        // Admission ticket types (full event, day-only, …). With more than one,
+        // open a chooser modal rather than adding a fixed product directly.
+        $admissions = $this->cart_admission_products();
+        if (count($admissions) > 1) {
+            $buttons .= '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cart-attendee">' . esc_html__('Add another attendee', 'rt-event-manager') . '</button>';
+            $modals .= '<div class="rtacc-modal" id="rtacc-modal-cart-attendee" hidden>'
+                . '<div class="rtacc-modal-backdrop" data-rtacc-close></div>'
+                . '<div class="rtacc-modal-dialog"><h3 class="rtacc-subtitle">' . esc_html__('Choose a ticket type', 'rt-event-manager') . '</h3>'
+                . '<div class="rtacc-cart-pretour-list">' . $this->cart_admission_options($admissions) . '</div>'
+                . '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button></p>'
+                . '</div></div>';
+        } elseif (count($admissions) === 1) {
+            $buttons .= $this->cart_add_link($admissions[0], __('Add another attendee', 'rt-event-manager'));
+        } elseif ($event) {
             $buttons .= $this->cart_add_link($event, __('Add another attendee', 'rt-event-manager'));
         }
 
@@ -706,6 +719,43 @@ class RT_Event_Manager_Account {
         add_filter('woocommerce_registration_redirect', $redirect, 100);
     }
 
+    /**
+     * Inline CSS applying the admin-configured ticket card colours (full,
+     * partial, staff, Future member). Only emits rules for colours that differ
+     * from the built-in defaults. The base rule covers full admissions; the
+     * modifier rules (declared after it) cover the other kinds.
+     *
+     * @return string
+     */
+    private function ticket_color_css() {
+        $defaults = array(
+            'full'    => '#CC0B24',
+            'partial' => '#0B7A4B',
+            'staff'   => '#14213D',
+            'minor'   => '#E4C062',
+        );
+        $colors = array();
+        foreach ($defaults as $key => $default) {
+            $val = sanitize_hex_color((string) get_option('rt_event_manager_ticket_color_' . $key, $default));
+            $colors[$key] = $val ? $val : $default;
+        }
+
+        $css = '';
+        if ($colors['full'] !== $defaults['full']) {
+            $css .= '.rtacc .rtacc-ticket{background:' . $colors['full'] . ';}';
+        }
+        if ($colors['partial'] !== $defaults['partial']) {
+            $css .= '.rtacc .rtacc-ticket--partial{background:' . $colors['partial'] . ';}';
+        }
+        if ($colors['staff'] !== $defaults['staff']) {
+            $css .= '.rtacc .rtacc-ticket--staff{background:' . $colors['staff'] . ';}';
+        }
+        if ($colors['minor'] !== $defaults['minor']) {
+            $css .= '.rtacc .rtacc-ticket--minor{background:' . $colors['minor'] . ';}';
+        }
+        return $css;
+    }
+
     private function render_portal() {
         $tab = $this->current_tab();
 
@@ -733,6 +783,11 @@ class RT_Event_Manager_Account {
         echo '<div class="rtacc rtacc-foil-' . esc_attr($foil) . '">';
         if ('' !== $custom_css) {
             echo '<style>' . $custom_css . '</style>';
+        }
+        // Admin-configurable ticket card colours (full / partial / staff / minor).
+        $color_css = $this->ticket_color_css();
+        if ('' !== $color_css) {
+            echo '<style>' . $color_css . '</style>';
         }
 
         // Prompt for privacy-policy re-consent when it has been updated.
@@ -1698,6 +1753,9 @@ class RT_Event_Manager_Account {
         $number   = absint($t['ticket_index']) + 1;
         $is_staff = ('staff' === RT_Event_Manager::get_ticket_kind($t));
         $is_minor = ('minor' === RT_Event_Manager::get_ticket_kind($t));
+        // A partial main-event admission (valid only for part of the event) is
+        // shown in emerald green to set it apart from a full admission.
+        $is_partial = RT_Event_Manager::ticket_is_partial_admission($t);
         $ticket_no = $is_staff
             ? __('STAFF', 'rt-event-manager')
             : '#' . absint($t['order_id']) . ' · ' . $number;
@@ -1741,7 +1799,7 @@ class RT_Event_Manager_Account {
 
         $lbl = function ($text) { return '<span class="rtacc-ticket-lbl">' . esc_html($text) . '</span>'; };
 
-        echo '<div class="rtacc-ticket' . ($voided ? ' rtacc-ticket--void' : '') . ($is_staff ? ' rtacc-ticket--staff' : '') . ($is_minor ? ' rtacc-ticket--minor' : '') . '">';
+        echo '<div class="rtacc-ticket' . ($voided ? ' rtacc-ticket--void' : '') . ($is_staff ? ' rtacc-ticket--staff' : '') . ($is_minor ? ' rtacc-ticket--minor' : '') . ($is_partial ? ' rtacc-ticket--partial' : '') . '">';
 
         // Holographic foil overlay across the whole ticket (body + stub):
         // repeating, staggered micro-printed event text that shimmers red as the
@@ -2576,13 +2634,16 @@ class RT_Event_Manager_Account {
         ), $by_id, $can_edit);
 
         // Customize-ticket modals (rendered once, opened by the section buttons).
-        $primary_product = $this->first_purchasable_product($this->get_event_product_ids());
-        if ($primary_id && $primary_product && !$this->product_needs_options($primary_product)) {
+        // The chooser lists every admission ticket type (e.g. full vs day-only).
+        $admission_options = $this->admission_product_options();
+        if ($primary_id && !empty($admission_options)) {
+            reset($admission_options);
             $this->render_ticket_modal('cotraveller', array(
-                'title'      => __('Add a ticket', 'rt-event-manager'),
-                'product_id' => $primary_product->get_id(),
-                'parent_id'  => $primary_id,
-                'is_minor'   => false,
+                'title'             => __('Add a ticket', 'rt-event-manager'),
+                'product_id'        => key($admission_options),
+                'parent_id'         => $primary_id,
+                'is_minor'          => false,
+                'admission_options' => $admission_options,
             ));
         }
         $this->render_future_modal($future_options);
@@ -3108,20 +3169,52 @@ class RT_Event_Manager_Account {
     }
 
     /**
-     * Every listed event for the public calendar: all published pretour and day
-     * tour products that carry a start date, plus the official agenda. Event
-     * tickets are not charted individually — the agenda is the event schedule.
+     * Every listed event for the public calendar, mapped to the grid's shape
+     * ({title,start,end,cat,location,holders}). Derived from the shared event
+     * feed (see get_events_feed) so the calendar and the YOOtheme dynamic
+     * content source never drift apart.
      */
     private function all_calendar_items() {
         $items = array();
+        foreach (self::get_events_feed() as $e) {
+            $items[] = array(
+                'title'    => $e['title'],
+                'start'    => $e['start_ts'],
+                'end'      => $e['end_ts'],
+                'cat'      => $e['category'],
+                'location' => $e['location'],
+                'holders'  => array(),
+            );
+        }
+        return $items;
+    }
+
+    /**
+     * Shared, public event feed: every published pretour and day tour product
+     * that carries a start date, plus the official agenda, each normalised with
+     * both machine (timestamps / ISO) and display (localised date & time)
+     * fields. Event tickets are not listed individually — the agenda is the
+     * event schedule. Sorted by start time.
+     *
+     * Reused by the public calendar shortcode and the YOOtheme Pro dynamic
+     * content source. Keep the array keys in sync with the field names declared
+     * in yootheme/modules/events/src/EventType.php (snake_case).
+     *
+     * @param array $args Optional. 'category' => pretour|daytour|agenda filters
+     *                    the feed to that category.
+     * @return array<int,array<string,mixed>>
+     */
+    public static function get_events_feed($args = array()) {
+        $category = (is_array($args) && !empty($args['category'])) ? sanitize_key($args['category']) : '';
+        $events   = array();
 
         $product_ids = get_posts(array(
-            'post_type'      => 'product',
-            'post_status'    => 'publish',
-            'numberposts'    => -1,
-            'fields'         => 'ids',
-            'meta_key'       => '_rti_start',
-            'meta_compare'   => 'EXISTS',
+            'post_type'        => 'product',
+            'post_status'      => 'publish',
+            'numberposts'      => -1,
+            'fields'           => 'ids',
+            'meta_key'         => '_rti_start',
+            'meta_compare'     => 'EXISTS',
             'suppress_filters' => false,
         ));
         foreach ($product_ids as $pid) {
@@ -3134,33 +3227,83 @@ class RT_Event_Manager_Account {
             if (!in_array($cat, array('pretour', 'daytour'), true)) {
                 continue;
             }
-            $end     = get_post_meta($pid, '_rti_end', true);
-            $product = wc_get_product($pid);
-            $items[] = array(
-                'title'    => $product ? RT_Event_Manager::product_title($product->get_id()) : ('#' . $pid),
-                'start'    => strtotime($start),
-                'end'      => ('' !== $end) ? strtotime($end) : strtotime($start),
-                'cat'      => $cat,
-                'location' => '',
-                'holders'  => array(),
-            );
-        }
-
-        foreach (RT_Event_Manager::get_agenda() as $a) {
-            if (empty($a['start'])) {
+            if ('' !== $category && $category !== $cat) {
                 continue;
             }
-            $items[] = array(
-                'title'    => isset($a['title']) ? $a['title'] : '',
-                'start'    => strtotime($a['start']),
-                'end'      => !empty($a['end']) ? strtotime($a['end']) : strtotime($a['start']),
-                'cat'      => 'agenda',
-                'location' => isset($a['location']) ? $a['location'] : '',
-                'holders'  => array(),
-            );
+            $end     = get_post_meta($pid, '_rti_end', true);
+            $product = wc_get_product($pid);
+            $title   = $product ? RT_Event_Manager::product_title($product->get_id()) : ('#' . $pid);
+            $events[] = self::format_feed_event($pid, $title, $start, $end, $cat, '', (string) get_permalink($pid));
         }
 
-        return $items;
+        if ('' === $category || 'agenda' === $category) {
+            $idx = 0;
+            foreach (RT_Event_Manager::get_agenda() as $a) {
+                if (empty($a['start'])) {
+                    continue;
+                }
+                $events[] = self::format_feed_event(
+                    'agenda-' . $idx,
+                    isset($a['title']) ? $a['title'] : '',
+                    $a['start'],
+                    !empty($a['end']) ? $a['end'] : '',
+                    'agenda',
+                    isset($a['location']) ? $a['location'] : '',
+                    ''
+                );
+                $idx++;
+            }
+        }
+
+        usort($events, function ($a, $b) {
+            return $a['start_ts'] <=> $b['start_ts'];
+        });
+
+        return $events;
+    }
+
+    /** Normalise one event into the shared feed shape (see get_events_feed). */
+    private static function format_feed_event($id, $title, $start_raw, $end_raw, $cat, $location, $url) {
+        $start_ts = strtotime((string) $start_raw);
+        $end_ts   = ('' !== $end_raw) ? strtotime((string) $end_raw) : $start_ts;
+        if (!$start_ts) {
+            $start_ts = 0;
+        }
+        if (!$end_ts || $end_ts < $start_ts) {
+            $end_ts = $start_ts;
+        }
+
+        $date_fmt = get_option('date_format', 'Y-m-d');
+        $time_fmt = get_option('time_format', 'H:i');
+        $labels   = array(
+            'pretour' => __('Pretour', 'rt-event-manager'),
+            'daytour' => __('Day tour', 'rt-event-manager'),
+            'agenda'  => __('Official agenda', 'rt-event-manager'),
+        );
+
+        if (date('Y-m-d', $start_ts) === date('Y-m-d', $end_ts)) {
+            $range = date_i18n($date_fmt, $start_ts) . ', ' . date_i18n($time_fmt, $start_ts) . ' – ' . date_i18n($time_fmt, $end_ts);
+        } else {
+            $range = date_i18n($date_fmt . ' ' . $time_fmt, $start_ts) . ' → ' . date_i18n($date_fmt . ' ' . $time_fmt, $end_ts);
+        }
+
+        return array(
+            'id'             => (string) $id,
+            'title'          => (string) $title,
+            'category'       => (string) $cat,
+            'category_label' => isset($labels[$cat]) ? $labels[$cat] : (string) $cat,
+            'location'       => (string) $location,
+            'url'            => (string) $url,
+            'start_ts'       => (int) $start_ts,
+            'end_ts'         => (int) $end_ts,
+            'start_date'     => date_i18n($date_fmt, $start_ts),
+            'start_time'     => date_i18n($time_fmt, $start_ts),
+            'end_date'       => date_i18n($date_fmt, $end_ts),
+            'end_time'       => date_i18n($time_fmt, $end_ts),
+            'start_iso'      => date('c', $start_ts),
+            'end_iso'        => date('c', $end_ts),
+            'date_range'     => $range,
+        );
     }
 
     /**
@@ -3360,15 +3503,44 @@ class RT_Event_Manager_Account {
      * @return int 0 when the user has no event ticket of their own.
      */
     private function own_event_ticket_id($tickets) {
-        // The account owner's own ticket is their earliest non-cancelled event
-        // ticket (their self-registration); companion event tickets bought later
-        // — even in separate orders — belong under "Travelling with me".
+        // The account owner's own ticket is the non-cancelled, parentless event
+        // ticket whose holder is the account owner. Match by name first — tickets
+        // bought for other people (even via the shop, and even if a legacy row
+        // carries the buyer's .WORLD ID) belong under "Travelling with me".
+        $uid = get_current_user_id();
+        $u   = $uid ? get_userdata($uid) : null;
+        $own_name = '';
+        if ($u) {
+            $own_name = strtolower(trim($u->first_name . ' ' . $u->last_name));
+            if ('' === $own_name) {
+                $own_name = strtolower(trim((string) $u->display_name));
+            }
+        }
+        $own_world = $uid ? strtolower(trim((string) get_user_meta($uid, 'world_id', true))) : '';
+
+        $candidates = array();
         foreach ($tickets as $t) {
             $status = isset($t['status']) ? $t['status'] : '';
             if (in_array($status, array('cancelled', 'refunded'), true)) {
                 continue;
             }
-            if ('event' === $this->effective_kind($t) && !absint($t['parent_ticket_id'])) {
+            if ('event' !== $this->effective_kind($t) || absint($t['parent_ticket_id'])) {
+                continue;
+            }
+            $candidates[] = $t;
+            $name = strtolower(trim((string) (isset($t['holder_name']) ? $t['holder_name'] : '')));
+            if ('' !== $own_name && $name === $own_name) {
+                return absint($t['id']); // the owner's own ticket, by name
+            }
+        }
+
+        // No name match: accept an unassigned (no holder yet) ticket that carries
+        // the owner's .WORLD ID as theirs-to-fill. A ticket with a different
+        // holder name is never the owner's, so "My Ticket" stays empty.
+        foreach ($candidates as $t) {
+            $name  = strtolower(trim((string) (isset($t['holder_name']) ? $t['holder_name'] : '')));
+            $world = strtolower(trim((string) (isset($t['world_id']) ? $t['world_id'] : '')));
+            if ('' === $name && '' !== $own_world && $world === $own_world) {
                 return absint($t['id']);
             }
         }
@@ -3892,6 +4064,36 @@ class RT_Event_Manager_Account {
     }
 
     /**
+     * Admission ticket types offered in the "Add a ticket" chooser, as
+     * id => label. Products flagged as main-event admissions are preferred (so
+     * the member picks e.g. full vs day-only); when none are flagged, all event
+     * ticket products are offered for back-compat. Only simple, purchasable
+     * products are listed — variable / make-to-order tickets must choose their
+     * options on the product page. Partial admissions show their valid window.
+     *
+     * @return array<int,string>
+     */
+    private function admission_product_options() {
+        $event_ids = $this->get_event_product_ids();
+        $flagged   = array_values(array_filter($event_ids, function ($pid) {
+            return RT_Event_Manager::is_main_admission_product($pid);
+        }));
+        $ids = !empty($flagged) ? $flagged : $event_ids;
+
+        $options = array();
+        foreach ($ids as $pid) {
+            $p = wc_get_product($pid);
+            if (!$p || !$p->is_purchasable() || !$p->is_in_stock() || $this->product_needs_options($p)) {
+                continue;
+            }
+            $title  = RT_Event_Manager::product_title($pid);
+            $window = RT_Event_Manager::admission_window_label($pid);
+            $options[(int) $pid] = ('' !== $window) ? sprintf('%s (%s)', $title, $window) : $title;
+        }
+        return $options;
+    }
+
+    /**
      * Primary "Add a ticket" button for the co-traveller section. Targets the
      * first purchasable Event ticket product, carrying the co-traveller link to
      * the member's own ticket. Returns '' if no event product is available.
@@ -3905,24 +4107,25 @@ class RT_Event_Manager_Account {
         if (!absint($parent_id)) {
             return '';
         }
+        // When at least one simple admission type is available, open the chooser
+        // modal (it lists every type — e.g. full vs day-only).
+        if (!empty($this->admission_product_options())) {
+            return '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cotraveller">'
+                . esc_html__('Add a ticket', 'rt-event-manager') . '</button></p>';
+        }
+
+        // No simple product to offer in the modal — fall back to the (variable /
+        // MTO) product page, which captures its options there.
         $product = $this->first_purchasable_product($this->get_event_product_ids());
         if (!$product) {
             return '';
         }
-
-        // Variable / MTO products must choose options on the product page (a modal
-        // can't capture those); simple products open the customize modal.
-        if ($this->product_needs_options($product)) {
-            $parent_id = absint($parent_id);
-            $url = $parent_id
-                ? add_query_arg('rti_parent_ticket_id', $parent_id, $product->get_permalink())
-                : $product->get_permalink();
-            return '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($url) . '">'
-                . esc_html__('Add a ticket', 'rt-event-manager') . '</a></p>';
-        }
-
-        return '<p class="rtacc-actions"><button type="button" class="uk-button uk-button-primary" data-rtacc-modal="cotraveller">'
-            . esc_html__('Add a ticket', 'rt-event-manager') . '</button></p>';
+        $parent_id = absint($parent_id);
+        $url = $parent_id
+            ? add_query_arg('rti_parent_ticket_id', $parent_id, $product->get_permalink())
+            : $product->get_permalink();
+        return '<p class="rtacc-actions"><a class="uk-button uk-button-primary" href="' . esc_url($url) . '">'
+            . esc_html__('Add a ticket', 'rt-event-manager') . '</a></p>';
     }
 
     /**
@@ -4094,6 +4297,18 @@ class RT_Event_Manager_Account {
         } else {
             echo '<input type="hidden" name="parent_id" value="' . esc_attr(absint(isset($cfg['parent_id']) ? $cfg['parent_id'] : 0)) . '" />';
 
+            // Ticket-type chooser (e.g. full event vs day-only). Shown only when
+            // more than one admission type is available; a single type is carried
+            // by the form's data-product attribute instead.
+            if (!empty($cfg['admission_options']) && count($cfg['admission_options']) > 1) {
+                echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Ticket type', 'rt-event-manager') . '</label>';
+                echo '<select class="uk-select" name="product_id" required>';
+                foreach ($cfg['admission_options'] as $opt_pid => $opt_label) {
+                    echo '<option value="' . esc_attr($opt_pid) . '"' . selected($opt_pid, $cfg['product_id'], false) . '>' . esc_html($opt_label) . '</option>';
+                }
+                echo '</select></p>';
+            }
+
             echo '<p class="rtacc-field"><label class="uk-form-label">' . esc_html__('Phone', 'rt-event-manager') . '</label>';
             echo '<input type="tel" class="uk-input" name="phone" required placeholder="+41791234567" /></p>';
 
@@ -4176,6 +4391,49 @@ class RT_Event_Manager_Account {
             $range = $this->tour_time_range($p->get_id());
             $time  = ('' !== $range) ? '<div class="rtacc-cart-tour-time uk-text-meta">' . esc_html($range) . '</div>' : '';
             $out  .= '<div class="rtacc-cart-pretour-option">' . $time
+                . $this->cart_add_link($p, $p->get_name() . ' — ' . wp_strip_all_tags($p->get_price_html()), 'uk-button uk-button-secondary')
+                . '</div>';
+        }
+        return $out;
+    }
+
+    /**
+     * Purchasable admission ticket products for the cart "Add another attendee"
+     * chooser. Products flagged as main-event admissions are preferred (full vs
+     * day-only); when none are flagged, all event ticket products are offered.
+     *
+     * @return WC_Product[]
+     */
+    private function cart_admission_products() {
+        $event_ids = $this->get_event_product_ids();
+        $flagged   = array_values(array_filter($event_ids, function ($pid) {
+            return RT_Event_Manager::is_main_admission_product($pid);
+        }));
+        $ids = !empty($flagged) ? $flagged : $event_ids;
+
+        $products = array();
+        foreach ($ids as $pid) {
+            $p = wc_get_product($pid);
+            if ($p && $p->is_purchasable() && $p->is_in_stock()) {
+                $products[] = $p;
+            }
+        }
+        return $products;
+    }
+
+    /**
+     * Option rows for the cart admission chooser: each admission type with its
+     * valid window (partial tickets) and price, as an add-to-cart link.
+     *
+     * @param WC_Product[] $products
+     * @return string
+     */
+    private function cart_admission_options($products) {
+        $out = '';
+        foreach ($products as $p) {
+            $window = RT_Event_Manager::admission_window_label($p->get_id());
+            $meta   = ('' !== $window) ? '<div class="rtacc-cart-tour-time uk-text-meta">' . esc_html($window) . '</div>' : '';
+            $out   .= '<div class="rtacc-cart-pretour-option">' . $meta
                 . $this->cart_add_link($p, $p->get_name() . ' — ' . wp_strip_all_tags($p->get_price_html()), 'uk-button uk-button-secondary')
                 . '</div>';
         }
@@ -4451,6 +4709,17 @@ class RT_Event_Manager_Account {
      * @return string Formatted range, or '' when no dates are configured.
      */
     private function ticket_date_range($t) {
+        // A partial main-event admission shows its OWN valid day(s), not the full
+        // event range.
+        if (RT_Event_Manager::ticket_is_partial_admission($t)) {
+            $pid = isset($t['product_id']) ? absint($t['product_id']) : 0;
+            $ps  = RT_Event_Manager::tour_dt_to_ts(get_post_meta($pid, '_rti_start', true));
+            $pe  = RT_Event_Manager::tour_dt_to_ts(get_post_meta($pid, '_rti_end', true));
+            if ($ps) {
+                return $this->format_date_range($ps, $pe ? $pe : $ps);
+            }
+        }
+
         $end_ts = ('' !== (string) get_option('rt_event_manager_event_end', '')) ? strtotime(get_option('rt_event_manager_event_end')) : 0;
 
         // Base start = the first official agenda entry (falls back to the
@@ -5565,6 +5834,26 @@ class RT_Event_Manager_Account {
             $member_kind = RT_Event_Manager::get_ticket_kind($m);
             if (!in_array($member_kind, array('event', 'minor'), true)) {
                 continue; // tours attach to event tickets or Future members
+            }
+
+            // Partial main-event admission: no pretours, and a day tour must fall
+            // entirely within the admission's validity window.
+            if (RT_Event_Manager::ticket_is_partial_admission($m)
+                && !RT_Event_Manager::tour_allowed_for_host($m, $product_id, $tour_kind)) {
+                $who = ($m['holder_name'] !== '') ? $m['holder_name'] : ('#' . $mid);
+                if ('pretour' === $tour_kind) {
+                    wp_send_json_error(sprintf(
+                        /* translators: %s: member name */
+                        __('%s has a partial (day-only) ticket, which cannot include a pretour.', 'rt-event-manager'),
+                        $who
+                    ));
+                }
+                wp_send_json_error(sprintf(
+                    /* translators: 1: member name, 2: admission validity */
+                    __('%1$s’s ticket is valid only for %2$s, and this day tour is not entirely within that time, so it can’t be added.', 'rt-event-manager'),
+                    $who,
+                    RT_Event_Manager::admission_window_label(absint($m['product_id']))
+                ));
             }
 
             // A Future member may only join the same tour as their guardian: the

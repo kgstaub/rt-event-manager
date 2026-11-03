@@ -687,7 +687,11 @@
         var data = $form.serializeArray();
         data.push({ name: 'action', value: 'rt_event_manager_add_ticket_to_cart' });
         data.push({ name: 'nonce', value: cfg.addTicketNonce });
-        data.push({ name: 'product_id', value: $form.data('product') });
+        // Use the in-form ticket-type chooser when present; otherwise fall back
+        // to the form's single product.
+        if (!$form.find('[name="product_id"]').length) {
+            data.push({ name: 'product_id', value: $form.data('product') });
+        }
 
         $btn.prop('disabled', true);
         $.post(cfg.ajaxUrl, $.param(data), function (response) {

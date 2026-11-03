@@ -3,7 +3,7 @@
  * Plugin Name: RT Event Manager
  * Plugin URI: https://www.staub.ee
  * Description: Round Table International event management for WooCommerce — attendee tickets with a full member account portal (dashboard, profile, tours, calendar, visa letters, shop), pretours &amp; day tours, ticket transfers &amp; refunds, Apple &amp; Google Wallet passes with live push updates, and a staff QR check-in web app.
- * Version: 2.3.2
+ * Version: 2.3.10
  * Author: Kenneth Staub, RT Switzerland
  * Author URI: https://www.staub.ee
  * License: GPL v2 or later
@@ -19,7 +19,7 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('RT_EVENT_MANAGER_VERSION', '2.3.2');
+define('RT_EVENT_MANAGER_VERSION', '2.3.10');
 define('RT_EVENT_MANAGER_DB_VERSION', '2.5.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -108,6 +108,7 @@ function rt_event_manager_init() {
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-user-switch.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-helpdesk.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-coin.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-sbb-timetable.php';
 
     // Initialize
     RT_Event_Manager::instance();
@@ -144,6 +145,9 @@ function rt_event_manager_init() {
 
     // Initialize the numbered challenge-coin handler (shop)
     RT_Event_Manager_Coin::instance();
+
+    // Initialize the SBB timetable widget shortcode ([rt_sbb_timetable])
+    RT_Event_Manager_SBB_Timetable::instance();
 
     // Run one-time ticket migration for old orders
     rt_event_manager_migrate_tickets();
@@ -709,4 +713,21 @@ add_action('before_woocommerce_init', function() {
     if (class_exists(\Automattic\WooCommerce\Utilities\FeaturesUtil::class)) {
         \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
     }
+});
+
+/**
+ * YOOtheme Pro integration.
+ *
+ * Registers the plugin's YOOtheme Pro module(s), which expose the event
+ * calendar (pretours, day tours and the official agenda) as a Builder dynamic
+ * content source. This mirrors the loader YOOtheme's own Starter Plugin
+ * generates: hook after_setup_theme, confirm YOOtheme Pro's application class is
+ * present (its theme is active), then load each module's bootstrap.php. Does
+ * nothing on sites that do not run YOOtheme Pro.
+ */
+add_action('after_setup_theme', function () {
+    if (!class_exists('YOOtheme\\Application', false)) {
+        return;
+    }
+    \YOOtheme\Application::getInstance()->load(RT_EVENT_MANAGER_PLUGIN_DIR . 'yootheme/modules/*/bootstrap.php');
 });

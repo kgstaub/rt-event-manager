@@ -88,6 +88,30 @@ class Multi_OAuth_SSO_Attribute_Mapper {
             }
         }
 
+        // Country codes from .WORLD (address.country) must be valid ISO-2
+        // WooCommerce codes. Drop empty or unrecognised values rather than
+        // storing them: an empty string would wipe a member's saved country on
+        // every login, and WooCommerce then silently substitutes the store base
+        // country (e.g. CH) at checkout. Leaving the field unset keeps any good
+        // value already on the account and lets checkout require an explicit
+        // choice when none is known.
+        $valid_countries = (function_exists('WC') && WC() && WC()->countries)
+            ? WC()->countries->get_countries()
+            : array();
+        if (!empty($valid_countries)) {
+            foreach (array('billing_country', 'shipping_country') as $country_key) {
+                if (!array_key_exists($country_key, $mapped_data['wc_address'])) {
+                    continue;
+                }
+                $code = strtoupper(trim((string) $mapped_data['wc_address'][$country_key]));
+                if ('' === $code || !isset($valid_countries[$code])) {
+                    unset($mapped_data['wc_address'][$country_key]);
+                } else {
+                    $mapped_data['wc_address'][$country_key] = $code;
+                }
+            }
+        }
+
         return apply_filters('multi_oauth_sso_mapped_data', $mapped_data, $user_info, $this->client);
     }
 
