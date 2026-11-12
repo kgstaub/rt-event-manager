@@ -3,6 +3,105 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.4.0] — 2026-11-12
+
+### Added
+- **Parking permits.** Sell event parking through WooCommerce: tick **Parking
+  permit** (`_rti_is_parking`) on a simple product and use its stock as the
+  number of spots. Permits are valid for the whole event (Settings → event
+  start/end dates).
+  - **One parking spot per account** — enforced on the product page, when adding
+    to the cart, in the cart and at checkout. A confirmed, unpaid or revoked
+    permit counts; a cancelled or refunded one does not. Retrying payment for
+    the same unpaid order is not blocked.
+  - **Licence plate** — required when adding to the cart, shown on the order and
+    emails, and editable by the member until **30 minutes before the permit
+    becomes valid** (00:00 on the event start date, event timezone); the tab
+    shows the deadline. Admins can still change it afterwards.
+  - **Event ticket holders only** — parking can be bought only by members with
+    an event or staff ticket, or together with an event ticket in the same
+    order; re-checked in the cart and at checkout.
+  - **New *Parking* tab** in the member portal (after Day Tours). Before
+    purchase it shows a booking form per parking product with spots left; once
+    bought it shows the **permit as a ticket card** (plate, dates, holder,
+    permit number, status and QR code) with **Print permit**, inline plate
+    editing, and *Pay now* while the order is unpaid. The **Dashboard** also
+    shows the permit under *Your tickets*, in the same table style as the
+    tours (Parking = plate, Date = validity, Status), with *Print permit*
+    and *Manage parking* below. Can be
+    hidden under *Settings → Account tabs*. Parking products no longer appear
+    in the Shop tab.
+  - **Printable windscreen permit (PDF)** — an A5-landscape permit on an A4 sheet
+    with a large "P", the event, the licence plate, validity dates, the holder
+    as **initials and .WORLD ID** (or the WordPress user ID when the account has
+    no .WORLD ID), e.g. "KS - kenneth.staub" — no name, since the permit is
+    visible from outside the car — with their family (RT, C41, LC, AC, TC — from
+    their event ticket) and country on the line below, e.g. "RT Switzerland",
+    permit number and a QR code. The QR is a signed **parking-only token**
+    (`RTIPARK|…`), separate from the event-ticket QR, so neither can be used in
+    place of the other. Unpaid or cancelled permits print without a QR.
+  - **Check-in app: parking verification** — a new **Parking** session; scanning
+    a permit (from any session) shows valid/not valid with the reason, the plate
+    to compare against the vehicle, holder and dates. Checks are random spot
+    checks by staff — nothing is recorded. Manual lookup by licence plate in the
+    Parking session, which also accepts a permit number.
+  - **Random permit numbers** — each permit gets a random six-digit number
+    (e.g. P-482913) instead of a sequential one, so numbers don't reveal how many
+    permits were sold and can't be guessed. Searchable on the admin page.
+  - **Find Guest shows parking** — a member's profile (in the portal's *Find
+    Guest* and the check-in app's profile view) lists their valid parking
+    permits with plate, product, permit number and dates.
+  - **New staff role "Parking attendant"** with only the new *checkin_parking*
+    capability; managers and registration managers also get it.
+  - **Admin page *RT Event → Parking Permits*** — opens on all **valid**
+    permits, with status links (Valid / Awaiting payment / Revoked / Cancelled &
+    refunded / All) and counts. Shows capacity per parking product and a
+    searchable permit list (plate, name, order #, permit #) with the holder's
+    family and country, plate editing, permit PDF download and **Revoke /
+    Reactivate** (a revoked permit stays revoked regardless of later order
+    status changes).
+  - Permit status follows the order: paid → confirmed, pending/on-hold →
+    awaiting payment, cancelled/failed → cancelled, refunded → refunded.
+- **Delegate day tours.** Tick **Delegates only** (`_rti_delegates_only`) on a
+  day-tour product to reserve it for confirmed delegates.
+  - **Booked from the event account only** — eligible members see a prominent
+    **"You are eligible for the Delegate's Tour"** card under the *Day Tours*
+    title, with the tour, date/time and price and a **Book the Delegate's
+    Tour** button that opens a dialog listing only their delegates. Once booked
+    (or in the cart) the card says so. The tour is not offered in the generic
+    "Add a day tour" dialog. It is hidden
+    from the shop, search and the cart's "Add a day tour", and its product page
+    shows a notice instead of an add-to-cart button. Product-page, link and
+    Store API add-to-cart are refused.
+  - **Confirmed delegates** — a ticket qualifies when it is flagged *Delegate*
+    on its own, or when it is the account holder's own event ticket and the
+    account's status is *Delegate* (approved under *RT Event → Delegates*).
+    Future member tickets never qualify.
+  - **Delegate badge on the Dashboard** — a gold *Delegate* label on the
+    greeting line for approved delegates (or a member whose own ticket is
+    flagged delegate). It and the existing *Event Staff* label now sit
+    right-aligned on that line.
+  - Re-checked when adding, in the cart and at checkout: a delegate tour
+    attached to a non-delegate is refused.
+  - Booked delegate tours are listed with the member's other day tours, and
+    the usual day-tour rules (no overlapping time slots, partial admissions)
+    still apply. Delegates whose booked day tours overlap the delegate tour are
+    shown but cannot be selected, with the clashing tour named. Like any
+    product, the tour needs a price (CHF 0.00 is fine) to be purchasable —
+    without one it is not offered.
+- New table `rti_parking_permits`, created automatically on load. Permits for
+  parking orders placed before the tables existed are recreated automatically
+  (per member when they open the Parking tab, and across recent orders the
+  first time the admin Parking page opens).
+
+### Fixed
+- **Day-tour overlap checks made consistent.** A refunded or dead-order (invalid)
+  day tour no longer blocks booking another tour in the same time slot at the
+  cart and checkout (the portal already ignored them, so a re-booking it
+  allowed could then be refused). The cart re-check now also catches two
+  overlapping day tours for the same person **within the cart**, not only
+  against tours already booked.
+
 ## [2.3.10] — 2026-11-03
 
 ### Fixed

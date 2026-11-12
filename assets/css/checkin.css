@@ -212,6 +212,28 @@
 .rtem-banner-warn { background: #fff3cd; color: #856404; }
 .rtem-banner-danger { background: #f8d7da; color: #842029; }
 .rtem-banner-secondary { background: #eef1f5; color: #33475b; }
+.rtem-banner-ok { background: #d1f0da; color: #14532d; }
+
+/* Parking permit result */
+.rtem-card-parking.rtem-card-invalid { border-color: #CC0B24; }
+.rtem-plate-lbl {
+    font-size: 12px;
+    color: #777;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.rtem-plate {
+    display: inline-block;
+    margin: 4px 0 8px;
+    padding: 4px 12px;
+    border: 3px solid #111;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+.rtem-manual-plate input { text-transform: uppercase; }
 
 .rtem-btn-profile { width: 100%; margin-top: 10px; }
 .rtem-btn-reset {

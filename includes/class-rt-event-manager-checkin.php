@@ -76,9 +76,14 @@ class RT_Event_Manager_Checkin {
         return self::staff_cap($user_id, class_exists('RT_Event_Manager_Staff') ? RT_Event_Manager_Staff::CAP_VIEW_PROFILES : '');
     }
 
+    /** Parking attendants (and managers) verify parking permits. */
+    public static function can_parking($user_id = 0) {
+        return class_exists('RT_Event_Manager_Parking') && RT_Event_Manager_Parking::staff_can_scan($user_id);
+    }
+
     /** Whether the given user may open the check-in page at all. */
     public static function user_can_checkin($user_id = 0) {
-        return self::can_main($user_id) || self::can_tours($user_id) || self::is_tour_guide($user_id);
+        return self::can_main($user_id) || self::can_tours($user_id) || self::is_tour_guide($user_id) || self::can_parking($user_id);
     }
 
     /** Whether the user is assigned as guide/supervisor to at least one tour. */
@@ -200,6 +205,16 @@ class RT_Event_Manager_Checkin {
                 'emergency'    => __('Emergency contacts', 'rt-event-manager'),
                 'bookings'     => __('Booked tickets & tours', 'rt-event-manager'),
                 'close'        => __('Close', 'rt-event-manager'),
+                'parkingValid'   => __('Valid parking permit', 'rt-event-manager'),
+                'parkingPermits' => __('Parking permits', 'rt-event-manager'),
+                'parkingInvalid' => __('Not valid', 'rt-event-manager'),
+                'plate'          => __('Licence plate', 'rt-event-manager'),
+                'holder'         => __('Holder', 'rt-event-manager'),
+                'validDates'     => __('Valid', 'rt-event-manager'),
+                'permit'         => __('Permit', 'rt-event-manager'),
+                'checkPlate'     => __('Check the plate matches the vehicle.', 'rt-event-manager'),
+                'scanParking'    => __('Point the camera at the parking permit QR code…', 'rt-event-manager'),
+                'scanNext'       => __('Scan next', 'rt-event-manager'),
             ),
         ));
     }
@@ -358,8 +373,9 @@ JS;
             </div>
 
             <form class="rtem-manual" id="rtem-manual" hidden>
-                <label><?php esc_html_e('Order #', 'rt-event-manager'); ?> <input type="number" id="rtem-order" min="1" inputmode="numeric" /></label>
-                <label><?php esc_html_e('Ticket #', 'rt-event-manager'); ?> <input type="number" id="rtem-number" min="1" inputmode="numeric" value="1" /></label>
+                <label class="rtem-manual-ticket"><?php esc_html_e('Order #', 'rt-event-manager'); ?> <input type="number" id="rtem-order" min="1" inputmode="numeric" /></label>
+                <label class="rtem-manual-ticket"><?php esc_html_e('Ticket #', 'rt-event-manager'); ?> <input type="number" id="rtem-number" min="1" inputmode="numeric" value="1" /></label>
+                <label class="rtem-manual-plate" hidden><?php esc_html_e('Licence plate or permit #', 'rt-event-manager'); ?> <input type="text" id="rtem-plate" maxlength="20" autocomplete="off" autocapitalize="characters" /></label>
                 <button type="submit" class="rtem-btn rtem-btn-primary"><?php esc_html_e('Look up', 'rt-event-manager'); ?></button>
             </form>
 
@@ -388,6 +404,24 @@ JS;
     /** Resolve a scanned token or an explicit order/number to a ticket payload. */
     public function ajax_lookup() {
         $this->guard();
+
+        // Parking permits carry their own (RTIPARK|…) QR, distinct from event
+        // tickets. Route those — and manual plate lookups in the Parking
+        // session — to the parking module, whatever session is selected.
+        $raw_token = isset($_POST['token']) ? trim((string) wp_unslash($_POST['token'])) : '';
+        $session_k = isset($_POST['session']) ? sanitize_text_field(wp_unslash($_POST['session'])) : self::SESSION_MAIN;
+        if (class_exists('RT_Event_Manager_Parking')) {
+            if (RT_Event_Manager_Parking::is_parking_token($raw_token)) {
+                RT_Event_Manager_Parking::instance()->checkin_lookup($raw_token);
+            }
+            if (RT_Event_Manager_Parking::SESSION_KEY === $session_k) {
+                if ('' !== $raw_token) {
+                    wp_send_json_error(array('message' => __('This is not a parking permit. Switch to the main event session to check in tickets.', 'rt-event-manager')));
+                }
+                $plate = isset($_POST['plate']) ? sanitize_text_field(wp_unslash($_POST['plate'])) : '';
+                RT_Event_Manager_Parking::instance()->checkin_lookup('', $plate);
+            }
+        }
 
         $ticket = null;
         // Note: do NOT run the token through sanitize_text_field() — it strips
@@ -1190,6 +1224,14 @@ JS;
                 }
             }
         }
+        if (self::can_parking() && class_exists('RT_Event_Manager_Parking')) {
+            $sessions[] = array(
+                'key'    => RT_Event_Manager_Parking::SESSION_KEY,
+                'kind'   => 'parking',
+                'label'  => __('Parking — verify permits', 'rt-event-manager'),
+                'status' => 'open', // always-on
+            );
+        }
         wp_send_json_success(array(
             'sessions'    => $sessions,
             'canOpenClose'=> self::can_open_close() || self::is_tour_guide(),
@@ -1399,6 +1441,23 @@ JS;
             $phone = (string) get_user_meta($owner_id, 'billing_phone', true);
         }
 
+        // Valid parking permits on the account.
+        $parking = array();
+        if (class_exists('RT_Event_Manager_Parking')) {
+            foreach (RT_Event_Manager_Parking::get_permits_for_user($owner_id) as $pm) {
+                if ('valid' !== $pm['status']) {
+                    continue;
+                }
+                $pp = wc_get_product($pm['product_id']);
+                $parking[] = array(
+                    'ref'     => RT_Event_Manager_Parking::permit_ref($pm),
+                    'plate'   => $pm['plate'],
+                    'product' => $pp ? $pp->get_name() : __('Parking', 'rt-event-manager'),
+                    'dates'   => RT_Event_Manager_Parking::event_window_label(),
+                );
+            }
+        }
+
         return array(
             'name'      => $name,
             'photo'     => get_avatar_url($owner_id, array('size' => 160)),
@@ -1406,6 +1465,7 @@ JS;
             'club'      => (string) get_user_meta($owner_id, 'rti_club', true),
             'emergency' => $emergency,
             'tickets'   => $tickets,
+            'parking'   => $parking,
         );
     }
 

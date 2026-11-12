@@ -371,6 +371,79 @@
 .rtacc-badge--no_show { background: #8c8f94; }
 .rtacc-badge--cancelled { background: #8c8f94; }
 .rtacc-badge--refunded { background: #8250df; }
+.rtacc-badge--revoked { background: #b32d2e; }
+
+/* Parking tab */
+.rtacc-parking-plate {
+    display: inline-block;
+    padding: 1px 8px;
+    border: 2px solid currentColor;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.04em;
+}
+.rtacc-parking-buy .uk-input { text-transform: uppercase; }
+.rtacc-parking-buy .uk-input::placeholder { text-transform: none; }
+
+/* Parking permit card (ticket style: details + perforated QR stub) */
+.rtacc-permit {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 16px;
+    border: 3px solid #0b4ea2;
+    border-radius: 14px;
+    background: #fff;
+    overflow: hidden;
+    box-shadow: 0 6px 20px rgba(11, 78, 162, 0.12);
+}
+.rtacc-permit--draft { border-color: #b9880f; }
+.rtacc-permit--revoked { border-color: #b32d2e; }
+.rtacc-permit-main { flex: 1 1 320px; padding: 20px 22px; }
+.rtacc-permit .rtacc-parking-edit { margin-left: 10px; }
+.rtacc-permit-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.rtacc-permit-p {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    background: #0b4ea2;
+    color: #fff;
+    font: 800 40px/56px system-ui, sans-serif;
+    text-align: center;
+}
+.rtacc-permit-kicker {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #0b4ea2;
+}
+.rtacc-permit-event { font-weight: 700; font-size: 18px; line-height: 1.25; }
+.rtacc-permit-sub { color: #666; font-size: 14px; }
+.rtacc-permit-lbl { font-size: 12px; color: #777; text-transform: uppercase; letter-spacing: 0.06em; }
+.rtacc-permit-plate { font-size: 28px; padding: 2px 12px; margin: 4px 0 12px; border-width: 3px; color: #111; }
+.rtacc-permit-meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 15px; }
+.rtacc-permit-meta dt { color: #777; font-weight: 400; }
+.rtacc-permit-meta dd { margin: 0; }
+.rtacc-permit-stub {
+    flex: 0 0 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 20px 18px;
+    border-left: 2px dashed #c9d6ea;
+    background: #f5f8fd;
+    text-align: center;
+}
+.rtacc-permit-qr { width: 180px; height: 180px; image-rendering: pixelated; background: #fff; border-radius: 6px; }
+.rtacc-permit-note { margin: 0; color: #555; font-size: 14px; }
+@media (max-width: 640px) {
+    .rtacc-permit-stub { flex-basis: 100%; border-left: 0; border-top: 2px dashed #c9d6ea; }
+}
 .rtacc-badge--refund-requested { background: #bf8700; }
 .rtacc-badge--refund-confirmed { background: var(--rtacc-valid); }
 .rtacc-badge--refund-declined { background: var(--rtacc-primary); }
@@ -1843,3 +1916,79 @@
     padding: 0;
     border-top: 1px solid rgba(20, 80, 140, 0.28) !important;
 }
+
+/* Delegate-only day tour call-to-action (Day Tours tab) */
+.rtacc-delegate-cta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 20px;
+    margin: 0 0 24px;
+    padding: 18px 22px;
+    border: 2px solid #b8860b;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #fff8e1 0%, #fffdf5 100%);
+    box-shadow: 0 6px 18px rgba(184, 134, 11, 0.12);
+}
+.rtacc-delegate-cta-icon {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: #b8860b;
+    color: #fff;
+    font-size: 24px;
+    line-height: 52px;
+    text-align: center;
+}
+.rtacc-delegate-cta-body { flex: 1 1 280px; }
+.rtacc-delegate-cta-kicker {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #8a6508;
+}
+.rtacc-delegate-cta-title { margin: 2px 0 4px; font-size: 20px; }
+.rtacc-delegate-cta-meta { margin: 0; color: #444; }
+.rtacc-delegate-cta-done { margin: 6px 0 0; color: #1a7f37; font-weight: 600; }
+.rtacc-delegate-cta-note { margin: 6px 0 0; color: #8a6508; }
+.rtacc-check.is-disabled { opacity: 0.5; }
+.rtacc-delegate-cta-action { flex: 0 0 auto; }
+
+/* Dashboard greeting: role badges aligned to the right of the title line */
+.rtacc-title--badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+}
+.rtacc-title-badges {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 8px;
+}
+.rtacc-title-badges .rtacc-staff-badge { margin-left: 0; }
+.rtacc-delegate-badge {
+    display: inline-block;
+    vertical-align: middle;
+    background: #b8860b;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+/* Dashboard parking table: blue "P" sign in front of the PARKING label */
+.rtacc-tickets td.rtacc-parking-label::before {
+    padding-left: 24px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Crect width='18' height='18' rx='4' fill='%230b4ea2'/%3E%3Ctext x='9' y='13.6' font-family='Arial,Helvetica,sans-serif' font-size='13' font-weight='700' fill='%23fff' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E") no-repeat left center;
+    background-size: 18px 18px;
+    line-height: 18px;
+}
+
+.rtacc-parking-dash-actions { justify-content: flex-end; }
