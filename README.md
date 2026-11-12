@@ -1,6 +1,6 @@
 # RT Event Manager
 
-[![Version](https://img.shields.io/badge/version-2.2.11-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.3.10-blue?style=flat-square)](CHANGELOG.md)
 [![Tests · WordPress 7.x](https://img.shields.io/badge/WordPress%207.x-Tests%20Passing-brightgreen?style=flat-square&logo=wordpress&logoColor=white&labelColor=21759B)](#requirements)
 [![Tests · WooCommerce 11.x](https://img.shields.io/badge/WooCommerce%2011.x-Tests%20Passing-brightgreen?style=flat-square&logo=woocommerce&logoColor=white&labelColor=7F54B3)](#requirements)
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue?style=flat-square)](https://www.gnu.org/licenses/gpl-2.0.html)
@@ -13,10 +13,12 @@ profile, tours, event calendar, order history, visa letters and a merch shop),
 handles pretours & day tours, ticket transfers and refund requests, issues
 **Apple Wallet** and **Google Wallet** passes with live push updates, prints
 attendee badges, generates PDF receipts/invoices and letters of invitation, and
-ships a **staff QR check-in web app**. It also bundles a *Sign in with .WORLD*
+ships a **staff QR check-in web app** with event-staff management. Members can
+open support requests through a **FreeScout helpdesk** tab, and numbered
+**challenge coins** can be sold one number at a time. It also bundles a *Sign in with .WORLD*
 SSO module for Round Table's identity providers.
 
-- **Version:** 2.2.11
+- **Version:** 2.3.10
 - **Requires:** WordPress 5.0+, PHP 7.4+, WooCommerce 5.0+
 - **Tested up to:** WordPress 7.x, WooCommerce 11.x
 - **License:** GPL-2.0-or-later
@@ -39,6 +41,7 @@ SSO module for Round Table's identity providers.
 - [Transfers & refunds](#transfers--refunds)
 - [Wallet passes (Apple & Google)](#wallet-passes-apple--google)
 - [Staff check-in](#staff-check-in)
+- [Helpdesk](#helpdesk)
 - [Visa letters of invitation](#visa-letters-of-invitation)
 - [Badges](#badges)
 - [Receipts & invoices](#receipts--invoices)
@@ -61,7 +64,7 @@ SSO module for Round Table's identity providers.
   (name, phone, dietary needs, family/club, `.WORLD` ID, date of birth for minors).
 - **Member account portal** — a shortcode-driven replacement for the WooCommerce
   *My Account* page: dashboard, profile, event tickets, tours, event calendar,
-  order history with PDF receipts, travel & visa, and a merch shop.
+  order history with PDF receipts, travel & visa, a merch shop and a helpdesk.
 - **Holographic dashboard ticket** — a physical-style ticket with a perforated
   QR stub, mascot and Add-to-Wallet buttons, finished with a subtle red foil
   hologram (micro-printed event name + motto) that catches the light on hover
@@ -84,6 +87,24 @@ SSO module for Round Table's identity providers.
   QR), suitable for on-site printing.
 - **PDF receipts / invoices** — per-order and combined PDFs with a configurable
   full-page letterhead background.
+- **Event Staff** — assign a staff ticket with a custom role label to any member;
+  staff get navy tickets and wallet passes, per-event staff check-in and tour
+  duties (Guide). Admins can *log in as a member* from the check-in app's
+  *Find Guest* search and switch back safely.
+- **Associations & delegates** — a member's association is derived from their
+  `.WORLD` club subdomain (overridable when not SSO-derived). Members can request
+  delegate status, which is approved in *RT Event → Delegates* (hosting-family
+  eligibility, at most two delegates per association).
+- **Helpdesk (FreeScout)** — a *Get help* portal tab where members open
+  topic-tagged support tickets and continue them in a chat-style view, with file
+  attachments both ways and an unread-reply badge.
+- **Numbered challenge coins** — a product flagged as a coin sells each number
+  once; the buyer picks a free number, it is reserved in the cart for 60 minutes,
+  claimed on order and released if the order is cancelled, failed or refunded.
+  The number is printed on the receipt.
+- **Hide from main shop** — a product flag that keeps an item out of the main
+  WooCommerce shop and search; it stays in the member-portal Shop and via its
+  direct link.
 - **Privacy-policy consent** — explicit consent on registration and checkout,
   recorded per member and per order, with an admin "require re-consent" trigger.
 - **Sign in with .WORLD** — bundled OAuth SSO for Round Table's world identity
@@ -210,7 +231,10 @@ Rendered by `[rt_event_manager_account]`, the portal replaces the default
 - **Event Calendar** — the official agenda plus the member's own tours.
 - **Order History** — orders with downloadable per-order and combined PDF receipts.
 - **Travel & Visa** — request a letter of invitation.
-- **Shop** — merch/regalia (non-ticket products) in the configured category.
+- **Shop** — merch/regalia (non-ticket products) in the configured category,
+  including products hidden from the main shop.
+- **Get help** — FreeScout support tickets with chat view and attachments
+  (shown when the helpdesk is enabled under *RT Event → Helpdesk*).
 
 Incomplete profile/ticket/emergency information surfaces as notification badges
 on the navigation.
@@ -263,12 +287,28 @@ real attendees' QR codes.
 
 ---
 
+## Helpdesk
+
+Under *RT Event → Helpdesk* enable the *Get help* tab and set the FreeScout URL,
+API key (stored encrypted) and mailbox. Members submit requests with a topic
+(general, tours, HYM, payment & refunds, travel support); each becomes a
+FreeScout conversation with the member's name, function, club, orders and
+tickets attached, tagged by topic. Attachments (images, PDF, Word, Excel — up
+to 5 files, 10 MB each) are proxied server-side, and every read or reply is
+checked to belong to the signed-in member.
+
+---
+
 ## Visa letters of invitation
 
 Under *RT Event → Visa Settings* configure the host details, two signatories,
 an optional full-page A4 letterhead background and a German letter template with
 placeholders (`{applicant_name}`, `{event_start}`, `{arrival}`, …). Letters are
 generated per applicant as PDFs and listed under *RT Event → Visa Letters*.
+The member-portal *Travel & Visa* information panel, its external links, the PDF
+contact-row labels and the letter date format are also editable there, so a host
+in another country can replace the Switzerland-specific defaults. Every letter
+carries a QR linking to a public verification page.
 Applicant PII is stored encrypted, and a ticket's visa letters are permanently
 deleted when the ticket is cancelled or refunded.
 
@@ -310,9 +350,12 @@ The plugin's admin menus are grouped in their own section directly under
 | RT Event → All Tickets       | `rt-event-manager`              |
 | Refunds & Cancellations      | `rt-event-manager-refunds`      |
 | Transfers                    | `rt-event-manager-transfers`    |
+| Delegates                    | `rt-event-manager-delegates`    |
 | Event Agenda                 | `rt-event-manager-agenda`       |
 | Settings                     | `rt-event-manager-settings`     |
 | Badge Template               | `rt-event-badge-template`       |
+| Event Staff                  | `rt-event-manager-staff`        |
+| Helpdesk                     | `rt-event-manager-helpdesk`     |
 | Visa Settings                | `rt-event-manager-visa-settings`|
 | Visa Letters                 | `rt-event-manager-visa-letters` |
 | Apple Wallet                 | `rt-event-manager-apple-wallet` |
@@ -378,6 +421,8 @@ Created on activation (prefixed with your WordPress table prefix):
 | `rti_tickets`               | One row per purchased ticket (holder, kind, status, links). |
 | `rti_visa_letters`          | Generated visa letters (encrypted applicant PII + PDF).      |
 | `rti_pass_registrations`    | Apple Wallet device registrations for push updates.         |
+| `rti_checkin_sessions`, `rti_checkins` | Staff check-in sessions and per-ticket check-in records. |
+| `rti_coin_claims`           | Reserved and claimed challenge-coin numbers.     |
 | `oauth_sso_clients`         | Configured `.WORLD` SSO providers.               |
 | `mto_attributes`, `mto_attribute_options`, `mto_combination_items` | Make-to-order / configurable ticket attributes. |
 
@@ -403,7 +448,7 @@ These are consumed by Apple Wallet on the device; you do not call them directly.
 - **PII minimisation** — visa-letter applicant data is encrypted at rest and a
   ticket's letters are hard-deleted on cancellation/refund.
 - **Certificates & secrets** — Apple/Google wallet certificates, SSO client
-  secrets and the wallet password are stored **encrypted**; upload them in
+  secrets, the FreeScout API key and the wallet password are stored **encrypted**; upload them in
   wp-admin (never commit them).
 - **Consent** — explicit privacy-policy acceptance is recorded on registration
   and checkout; an admin re-consent trigger invalidates stored acceptances.
@@ -440,7 +485,7 @@ after 2.1.0 ships as 2.1.6. Keep the plugin header `Version:`, the
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history and
 [RELEASE_NOTES.md](RELEASE_NOTES.md) for the latest highlights. The current
-release is **2.2.11**.
+release is **2.3.10**.
 
 ---
 

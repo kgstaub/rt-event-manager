@@ -1,5 +1,74 @@
 # RT Event Manager — Release Notes
 
+## 2.3.10 — 3 November 2026
+
+The **2.3 line** adds a FreeScout helpdesk, associations and delegates, numbered
+challenge coins, day-only (partial) admissions, a public event calendar, a
+YOOtheme Pro events source and an SBB timetable widget. **Backward compatible** —
+the custom tables self-heal on load (DB version 2.5.0); no manual migration is
+required. Safe to update in place.
+
+> Patch numbers follow the project convention: the cumulative count of individual
+> changes since 2.3.0.
+
+### ✨ Highlights (since 2.3.0)
+
+- **Helpdesk (FreeScout)** (2.3.0) — a *Get help* portal tab where members open
+  topic-tagged support tickets and continue them in a chat-style view, with file
+  attachments both ways. Configure under *RT Event → Helpdesk*.
+- **Associations & delegates** (2.3.0) — associations derived from the `.WORLD`
+  club subdomain; a delegate request/approve flow with a backend *Delegates*
+  overview (at most two delegates per association).
+- **Numbered challenge coins** (2.3.0) — each number sold once, reserved in the
+  cart and claimed on order, printed on the receipt.
+- **Partial (day-only) admissions** (2.3.5–2.3.9) — flag a product as a *Main
+  event admission* with a Start/End window. One admission per person; partial
+  tickets show in emerald green, cannot include pretours, only allow day tours
+  inside their window, and are refused at check-in outside it. Buyers pick the
+  admission type when adding an attendee, and all four ticket card colours are
+  configurable.
+- **Public event calendar** (2.3.2) — `[rt_event_manager_calendar]` shows every
+  listed pretour, day tour and agenda item, no login required.
+- **YOOtheme Pro source** (2.3.3) — events available to Builder List/Grid
+  elements as the *RT Events* dynamic content source.
+- **SBB timetable widget** (2.3.4, 2.3.10) — `[rt_sbb_timetable]` embeds the SBB
+  connection search with prefilled stations, date and time, and affiliate
+  tracking.
+
+### 🔧 Improvements
+
+- **Visa copy is admin-editable** (2.3.1) — the *Travel & Visa* panel text, its
+  links, the PDF contact labels and the letter date format moved to *Visa
+  Settings*.
+- **Hide from main shop** (2.3.0) — keep a product out of the main shop while
+  leaving it in the member-portal Shop.
+
+### 🐛 Notable fixes across 2.3.x
+
+- **Billing country no longer defaults to the store's country** (2.3.6) — it
+  comes from a valid `.WORLD` country, otherwise it is left blank and required.
+- **Co-traveller tickets** (2.3.7) are no longer stamped with the buyer's
+  `.WORLD` ID or shown as the buyer's own ticket, and no longer trigger a false
+  "already has a main event ticket" error.
+- **Full passes are no longer mislabelled as partial** (2.3.8).
+- **SBB widget** (2.3.10) — Search no longer 404s on `en-US` pages, the station
+  dropdown renders with its proper background, and the affiliate code is applied.
+
+### 📋 For administrators / upgrading
+
+- Upload the plugin zip (which bundles `vendor/`) or `composer install`. The DB
+  self-heals on load.
+- To use the helpdesk, enable it and enter the FreeScout URL, API key and mailbox
+  under *RT Event → Helpdesk*.
+- To sell day-only passes, flag each admission product as a *Main event
+  admission* and set its Start/End window.
+- Give `[rt_sbb_timetable]` a dedicated page — the SBB bundle ships a broad CSS
+  reset.
+
+See [CHANGELOG.md](CHANGELOG.md) for the itemised change list.
+
+---
+
 ## 2.2.11 — 5 September 2026
 
 The **2.2 line** adds an Event Staff module, staff check-in, ticket "recoding" on
