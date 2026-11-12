@@ -90,6 +90,10 @@
   .soon{display:inline-block; font-size:.64rem; font-weight:800; text-transform:uppercase;
     letter-spacing:.08em; color:var(--red-dark); background:var(--cream); padding:2px 8px;
     border-radius:999px; vertical-align:middle; margin-left:6px}
+  .new{display:inline-block; font-size:.64rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:.08em; color:#14532d; background:#d1f0da; padding:2px 8px;
+    border-radius:999px; vertical-align:middle; margin-left:6px}
+  @media (prefers-color-scheme: dark){ .new{color:#b7ecc5; background:#173a24} }
 
   /* Alternating feature rows */
   .row{display:grid; grid-template-columns:1fr 1fr; gap:44px; align-items:center; margin-top:40px}
@@ -143,7 +147,7 @@
     <div>
       <span class="pill">WordPress + WooCommerce</span>
       <h1>The event platform built for Round Table.</h1>
-      <p class="lede">RT Event Manager turns your WooCommerce store into a complete meeting platform — attendee tickets, a member account portal, mobile wallet passes, staff check-in, visa letters and a built-in helpdesk.</p>
+      <p class="lede">RT Event Manager turns your WooCommerce store into a complete meeting platform — attendee tickets, a member account portal, mobile wallet passes, staff check-in, event parking, visa letters and a built-in helpdesk.</p>
       <div class="cta">
         <a class="btn primary" href="https://github.com/kgstaub/rt-event-manager">Get it on GitHub</a>
         <a class="btn ghost" href="#features">See the features</a>
@@ -187,14 +191,18 @@
     <div class="grid" style="margin-top:26px">
       <div class="card"><div class="ico">🎫</div><h3>Attendee ticketing</h3><p>Event, Future-member, pretour and day-tour tickets on top of WooCommerce, with per-holder details.</p></div>
       <div class="card"><div class="ico">🗺️</div><h3>Pretours &amp; day tours</h3><p>Add-on tours that attach to an attendee — one pretour each, day tours that stack without time clashes.</p></div>
+      <div class="card"><div class="ico">⭐</div><h3>Delegate tours <span class="new">New</span></h3><p>Reserve a day tour for confirmed delegates. Eligible members get a “You are eligible for the Delegate's Tour” call-to-action — nobody else can book it.</p></div>
+      <div class="card"><div class="ico">🗓️</div><h3>Day-only passes</h3><p>Sell full passes alongside one-day admissions. One admission per person, tours limited to the valid days, and check-in refused on any other day.</p></div>
       <div class="card"><div class="ico">🧒</div><h3>Children &amp; Future members</h3><p>Future Tabler / Future Lady tickets for accompanying children, linked to a guardian with automatic age checks.</p></div>
       <div class="card"><div class="ico">📅</div><h3>Personalized calendar</h3><p>Each member gets their own event calendar: the official agenda plus the exact tours they've booked.</p></div>
+      <div class="card"><div class="ico">🌐</div><h3>Public event calendar</h3><p>Show every pretour, day tour and agenda item on any page with one shortcode — no login needed.</p></div>
       <div class="card"><div class="ico">📨</div><h3>Personalised message inbox <span class="soon">Coming soon</span></h3><p>An in-portal inbox delivering event information tailored to each member's ticket and booked add-ons — the right updates reach the right attendees.</p></div>
       <div class="card"><div class="ico">👤</div><h3>Member account portal</h3><p>A purpose-built My Account: dashboard, profile, tickets, tours, calendar, orders, travel &amp; visa, and shop.</p></div>
       <div class="card"><div class="ico">🚑</div><h3>Emergency contacts</h3><p>Members store up to two emergency contacts — reachable by organisers from the guest profile if anything happens on site.</p></div>
       <div class="card"><div class="ico">🧑‍✈️</div><h3>Staff roles &amp; permissions</h3><p>A front-end management app for staff, with graded access — Manager, Registration manager, Event operator.</p></div>
       <div class="card"><div class="ico">🕵️</div><h3>Log in as member</h3><p>Admins and Managers can step into a member's account to fix things or give support, then safely switch back — no password sharing.</p></div>
       <div class="card"><div class="ico">📱</div><h3>Wallet passes &amp; PDF tickets</h3><p>Add-to-wallet passes that update on the device when a ticket changes — or download the ticket as a print-ready PDF.</p></div>
+      <div class="card"><div class="ico">🅿️</div><h3>Event parking <span class="new">New</span></h3><p>Sell parking spots to ticket holders — one per account, with the licence plate. Members print a windscreen permit with its own QR; staff spot-check it at the car park.</p></div>
       <div class="card"><div class="ico">✅</div><h3>Staff QR check-in</h3><p>A mobile web app for door staff that scans a signed ticket QR and marks attendance per session.</p></div>
       <div class="card"><div class="ico">🪪</div><h3>Attendee name badges <span class="soon">Coming soon</span></h3><p>A configurable badge template &amp; generator (name, club, QR) for on-site printing — with check-in set to trigger the badge print automatically.</p></div>
       <div class="card"><div class="ico">🔁</div><h3>Transfers &amp; refunds</h3><p>Members transfer a ticket by email or request a cancellation; organisers confirm, decline or reactivate.</p></div>
@@ -202,6 +210,8 @@
       <div class="card"><div class="ico">💬</div><h3>Built-in helpdesk</h3><p>A “Get help” tab powered by <a href="https://freescout.net/">FreeScout</a> — members open tickets and chat with support, files included. <em>Requires a FreeScout instance.</em></p></div>
       <div class="card"><div class="ico">🪙</div><h3>Numbered coins</h3><p>Sell a limited coin where every number is bought only once, reserved at cart and claimed at checkout.</p></div>
       <div class="card"><div class="ico">🔐</div><h3>Live .WORLD sync</h3><p>Members sign in with .WORLD and their name, club, family and association sync automatically — kept accurate, never re-typed.</p></div>
+      <div class="card"><div class="ico">🚆</div><h3>SBB journey planner</h3><p>Embed the official Swiss railways connection search on a travel page, prefilled with stations, date and time.</p></div>
+      <div class="card"><div class="ico">🧩</div><h3>YOOtheme dynamic content</h3><p>Pretours, day tours and the agenda are a YOOtheme Pro Builder source — bind them to any List or Grid element.</p></div>
       <div class="card"><div class="ico">🎨</div><h3>Theme-friendly</h3><p>Built with <strong>YOOtheme Pro</strong> &amp; <strong>UIkit</strong> in mind, but works with any WordPress theme — and drops in anywhere via shortcodes.</p></div>
       <div class="card"><div class="ico">💳</div><h3>Any payment gateway</h3><p>It's the WooCommerce checkout, so you take payment your way — Stripe, SumUp, PayPal or any other WooCommerce payment plugin.</p></div>
     </div>
@@ -258,6 +268,8 @@
           <li>One pretour per person; day tours stack unless their times clash</li>
           <li>Companions and Future members can only join their guardian's tour</li>
           <li>Add-ons require an event ticket — in the cart or already on the account</li>
+          <li><strong>Delegate tours</strong> — a day tour only confirmed delegates can book, offered to them as a call-to-action</li>
+          <li>Day-only passes limit tours to the days the ticket is valid</li>
         </ul>
       </div>
       <figure class="shot"><img src="img/10-tours-calendar.svg" alt="Pretours / day tours + personal calendar" loading="lazy" /><figcaption>Pretours, day tours and a personal event calendar.</figcaption></figure>
@@ -323,6 +335,20 @@
       </div>
       <figure class="shot"><img src="img/05-checkin.svg" alt="Staff QR check-in app (mobile)" loading="lazy" /><figcaption>Scan a ticket QR to check attendees in, per session.</figcaption></figure>
     </div>
+
+    <div class="row">
+      <div class="txt">
+        <h3>Parking, permit included <span class="new">New</span></h3>
+        <p>Sell car-park spaces as a WooCommerce product — stock is your capacity. Ticket holders book one spot per account with their licence plate, then print a windscreen permit straight from their portal.</p>
+        <ul>
+          <li>The permit carries a <strong>parking-only signed QR</strong> — never the event ticket's — and a random permit number</li>
+          <li>Privacy-friendly: initials and .WORLD ID instead of a full name behind the glass</li>
+          <li>Staff spot-check permits in the same check-in app: scan, or look up a plate</li>
+          <li>Plates can be changed until shortly before the permit becomes valid</li>
+        </ul>
+      </div>
+      <figure class="shot"><img src="img/15-parking.svg" alt="Parking permit and parking check in the staff app" loading="lazy" /><figcaption>A windscreen permit with its own QR, checked in the staff app.</figcaption></figure>
+    </div>
   </div>
 </section>
 
@@ -371,6 +397,7 @@
           <li><strong>Manager</strong> — full access, including “log in as member”</li>
           <li><strong>Registration manager</strong> — attendee lookup and registration duties</li>
           <li><strong>Event operator</strong> — check-in and guest profiles</li>
+          <li><strong>Parking attendant</strong> — verifies parking permits, nothing else</li>
           <li><strong>Regular staff</strong> — a styled staff ticket, no management access</li>
         </ul>
         <p>Assign a pre/day tour to a staff member as a <strong>Guide</strong> or <strong>Supervisor</strong>, and they get a “My Tours” roster with a live check-in view for their group.</p>
@@ -389,11 +416,12 @@
     <div class="row">
       <div class="txt">
         <h3>Everything in one place</h3>
-        <p>Manage tickets per order, handle refunds and transfers, curate delegates, set the hosting family, and configure wallets, badges, the helpdesk and .WORLD SSO — all inside WordPress.</p>
+        <p>Manage tickets per order, handle refunds and transfers, curate delegates, oversee parking, set the hosting family, and configure wallets, badges, the helpdesk and .WORLD SSO — all inside WordPress.</p>
         <ul>
           <li>Per-order Tickets box with stacked, editable attendee cards</li>
           <li>Refunds &amp; cancellations with confirm / decline / reactivate</li>
           <li>Delegates overview with a two-per-association limit</li>
+          <li>Parking Permits: capacity, every valid permit, revoke &amp; reprint</li>
           <li>Attendee badges &amp; PDF receipts for printing</li>
         </ul>
       </div>
@@ -410,7 +438,9 @@
     <p style="color:var(--muted); max-width:64ch">The portal is styled with <strong>UIkit</strong> — the framework behind <strong>YOOtheme&nbsp;Pro</strong> — so it feels native there, and falls back gracefully on any WordPress theme. Add each piece to a page with a shortcode:</p>
     <div class="codes">
       <code>[rt_event_manager_account]</code><span class="desc">The full member account portal — set it as your WooCommerce <em>My account</em> page.</span>
-      <code>[rt_event_manager_checkin]</code><span class="desc">The staff QR check-in web app.</span>
+      <code>[rt_event_manager_checkin]</code><span class="desc">The staff QR check-in web app — tickets, tours and parking permits.</span>
+      <code>[rt_event_manager_calendar]</code><span class="desc">The public event calendar — every listed tour and agenda item, no login.</span>
+      <code>[rt_sbb_timetable]</code><span class="desc">The SBB connection search, prefilled with stations, date and time.</span>
       <code>[world_sso_login]</code><span class="desc">“Sign in with .WORLD” buttons.</span>
       <code>[world_sso_register]</code><span class="desc">.WORLD registration form.</span>
       <code>[oauth_sso_login]</code><span class="desc">Generic OAuth SSO login buttons.</span>
