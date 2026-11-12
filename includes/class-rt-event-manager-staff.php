@@ -23,6 +23,7 @@ class RT_Event_Manager_Staff {
     const ROLE_MANAGER      = 'manager';
     const ROLE_REG_MANAGER  = 'registration_manager';
     const ROLE_OPERATOR     = 'event_operator';
+    const ROLE_PARKING      = 'parking_attendant';
     const ROLE_REGULAR      = 'regular';
 
     /** Capability slugs. */
@@ -31,6 +32,7 @@ class RT_Event_Manager_Staff {
     const CAP_CHECKIN_TOURS = 'checkin_tours';      // scan pre/day-tour check-ins
     const CAP_OPEN_CLOSE    = 'open_close_event';   // open/close a check-in session
     const CAP_VIEW_PROFILES = 'view_profiles';      // see attendee/participant profiles
+    const CAP_CHECKIN_PARKING = 'checkin_parking';  // verify parking permits (spot checks)
 
     /** Tour duty slugs (a staff member attached to a pre/day tour). */
     const DUTY_GUIDE      = 'guide';
@@ -64,6 +66,7 @@ class RT_Event_Manager_Staff {
             self::ROLE_MANAGER     => __('Manager (full access)', 'rt-event-manager'),
             self::ROLE_REG_MANAGER => __('Registration manager', 'rt-event-manager'),
             self::ROLE_OPERATOR    => __('Event operator', 'rt-event-manager'),
+            self::ROLE_PARKING     => __('Parking attendant', 'rt-event-manager'),
             self::ROLE_REGULAR     => __('Regular staff (no access)', 'rt-event-manager'),
         );
     }
@@ -99,17 +102,23 @@ class RT_Event_Manager_Staff {
                     self::CAP_CHECKIN_TOURS => true,
                     self::CAP_OPEN_CLOSE    => true,
                     self::CAP_VIEW_PROFILES => true,
+                    self::CAP_CHECKIN_PARKING => true,
                 );
             case self::ROLE_REG_MANAGER:
                 return array(
                     self::CAP_CHECKIN_MAIN  => true,
                     self::CAP_VIEW_PROFILES => true,
+                    self::CAP_CHECKIN_PARKING => true,
                 );
             case self::ROLE_OPERATOR:
                 return array(
                     self::CAP_CHECKIN_TOURS => true,
                     self::CAP_OPEN_CLOSE    => true,
                     self::CAP_VIEW_PROFILES => true,
+                );
+            case self::ROLE_PARKING:
+                return array(
+                    self::CAP_CHECKIN_PARKING => true,
                 );
             case self::ROLE_REGULAR:
             default:

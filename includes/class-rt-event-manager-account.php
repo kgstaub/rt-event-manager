@@ -223,6 +223,22 @@ class RT_Event_Manager_Account {
             $tabs['mytours'] = __('My Tours', 'rt-event-manager');
         }
 
+        // Parking: event ticket holders (when parking is on sale) and anyone who
+        // already holds a permit. Inserted after Day Tours in the sidebar order.
+        if (class_exists('RT_Event_Manager_Parking') && RT_Event_Manager_Parking::tab_visible($uid)) {
+            $ordered = array();
+            foreach ($tabs as $k => $label) {
+                $ordered[$k] = $label;
+                if ('daytour' === $k) {
+                    $ordered['parking'] = __('Parking', 'rt-event-manager');
+                }
+            }
+            if (!isset($ordered['parking'])) {
+                $ordered['parking'] = __('Parking', 'rt-event-manager');
+            }
+            $tabs = $ordered;
+        }
+
         // Get help: the FreeScout helpdesk, when enabled and configured.
         if (class_exists('RT_Event_Manager_Helpdesk') && RT_Event_Manager_Helpdesk::is_available()) {
             $tabs['help'] = __('Get help', 'rt-event-manager');
@@ -601,6 +617,9 @@ class RT_Event_Manager_Account {
         // ordered by their start time.
         $daytours = array();
         foreach ($this->get_tour_product_ids('daytour') as $pid) {
+            if ($this->is_delegate_tour_product($pid)) {
+                continue; // delegate-only: booked from the Day Tours tab
+            }
             $p = wc_get_product($pid);
             if ($p && $p->is_purchasable() && $p->is_in_stock()) {
                 $daytours[] = $p;
@@ -838,6 +857,9 @@ class RT_Event_Manager_Account {
                 break;
             case 'shop':
                 $this->render_shop();
+                break;
+            case 'parking':
+                RT_Event_Manager_Parking::instance()->render_account_tab();
                 break;
             case 'checkin':
                 $this->render_checkin();
@@ -1347,6 +1369,17 @@ class RT_Event_Manager_Account {
             $h .= '</table>';
         }
 
+        // Valid parking permits on the account.
+        if ($acct && !empty($acct['parking'])) {
+            $h .= '<h4 class="rtacc-fg-h">' . esc_html__('Parking permits', 'rt-event-manager') . '</h4><table class="rtacc-fg-table">';
+            foreach ($acct['parking'] as $pk) {
+                $h .= '<tr><td><strong class="rtacc-parking-plate">' . esc_html($pk['plate']) . '</strong></td><td>'
+                    . esc_html($pk['product']) . ' <span class="rtacc-muted">· ' . esc_html($pk['ref']) . ' · ' . esc_html($pk['dates']) . '</span>'
+                    . '</td><td>' . $badge('valid') . '</td></tr>';
+            }
+            $h .= '</table>';
+        }
+
         // Admins + the highest staff group: log in as this member to verify issues.
         // owner_user_id is empty on legacy tickets — fall back to the order's
         // customer so the control still appears.
@@ -1395,6 +1428,7 @@ class RT_Event_Manager_Account {
             'calendar'  => 'fa-calendar',
             'travel'    => 'fa-passport',
             'shop'      => 'fa-bag-shopping',
+            'parking'   => 'fa-car',
             'help'      => 'fa-comments',
         );
 
@@ -1438,7 +1472,7 @@ class RT_Event_Manager_Account {
         $groups = array(
             array('dashboard'),
             array('profile', 'emergency'),
-            array('calendar', 'tickets', 'pretour', 'daytour', 'travel'),
+            array('calendar', 'tickets', 'pretour', 'daytour', 'parking', 'travel'),
             array('shop', 'orders', 'refunds'),
             array('help'),
         );
@@ -1594,12 +1628,28 @@ class RT_Event_Manager_Account {
 
         $display_name = !empty($sso['name']) ? $sso['name'] : $user->display_name;
 
-        // Event staff get a blue "Event Staff" badge next to the greeting.
-        $staff_badge = '';
-        if (class_exists('RT_Event_Manager_Staff') && RT_Event_Manager_Staff::is_staff($user->ID)) {
-            $staff_badge = ' <span class="rtacc-staff-badge">' . esc_html__('Event Staff', 'rt-event-manager') . '</span>';
+        // Role badges, right-aligned on the greeting line: "Delegate" (approved
+        // delegate account, or the member's own ticket flagged delegate) and
+        // "Event Staff".
+        $badges = '';
+        $is_delegate = ('delegate' === RT_Event_Manager::get_delegate_status($user->ID));
+        if (!$is_delegate) {
+            $own = $this->own_event_ticket_id($tickets);
+            foreach ($tickets as $t) {
+                if ($own && absint($t['id']) === $own && !empty($t['is_delegate'])) {
+                    $is_delegate = true;
+                    break;
+                }
+            }
         }
-        echo '<h2 class="rtacc-title uk-heading-divider">' . esc_html(sprintf(__('Welcome, %s', 'rt-event-manager'), $display_name)) . $staff_badge . '</h2>';
+        if ($is_delegate) {
+            $badges .= '<span class="rtacc-delegate-badge">' . esc_html__('Delegate', 'rt-event-manager') . '</span>';
+        }
+        if (class_exists('RT_Event_Manager_Staff') && RT_Event_Manager_Staff::is_staff($user->ID)) {
+            $badges .= '<span class="rtacc-staff-badge">' . esc_html__('Event Staff', 'rt-event-manager') . '</span>';
+        }
+        echo '<h2 class="rtacc-title rtacc-title--badges uk-heading-divider"><span>' . esc_html(sprintf(__('Welcome, %s', 'rt-event-manager'), $display_name)) . '</span>'
+            . ('' !== $badges ? '<span class="rtacc-title-badges">' . $badges . '</span>' : '') . '</h2>';
 
         echo '<h3 class="rtacc-subtitle">' . esc_html__('Your tickets', 'rt-event-manager') . '</h3>';
         if (empty($tickets)) {
@@ -1732,8 +1782,20 @@ class RT_Event_Manager_Account {
             }
         }
 
+        // The account's parking permit (when the Parking tab is enabled).
+        if (class_exists('RT_Event_Manager_Parking') && 'yes' === get_option('rt_event_manager_show_parking', 'yes')) {
+            $permit = RT_Event_Manager_Parking::user_active_permit($user->ID);
+            if ($permit) {
+                echo '<h3 class="rtacc-subtitle">' . esc_html__('Your parking permit', 'rt-event-manager') . '</h3>';
+                RT_Event_Manager_Parking::instance()->render_permit_card($permit, true);
+            }
+        }
+
         echo '<p class="rtacc-actions">';
         echo '<a class="uk-button uk-button-default" href="' . esc_url($this->tab_url('tickets')) . '">' . esc_html__('Manage tickets', 'rt-event-manager') . '</a> ';
+        if (isset($this->get_tabs()['parking'])) {
+            echo '<a class="uk-button uk-button-default" href="' . esc_url($this->tab_url('parking')) . '">' . esc_html__('Manage parking', 'rt-event-manager') . '</a> ';
+        }
         echo '<a class="uk-button uk-button-default" href="' . esc_url($this->tab_url('orders')) . '">' . esc_html__('View orders', 'rt-event-manager') . '</a>';
         echo '</p>';
     }
@@ -2732,6 +2794,11 @@ class RT_Event_Manager_Account {
         echo '</div>';
 
         $this->maybe_cutoff_notice($can_edit);
+
+        // Delegate-only day tours: a prominent call-to-action for eligible members.
+        if ($is_day) {
+            $this->render_delegate_tour_cta($tickets);
+        }
 
         // Staff duty tours (guide/supervisor) are listed on their own with a note
         // that staff cannot buy tours for themselves.
@@ -4363,6 +4430,11 @@ class RT_Event_Manager_Account {
     private function get_bulk_tour_products($kind) {
         $products = array();
         foreach ($this->get_tour_product_ids($kind) as $pid) {
+            // Delegate-only day tours have their own call-to-action (see
+            // render_delegate_tour_cta), never the generic tour picker.
+            if ($this->is_delegate_tour_product($pid)) {
+                continue;
+            }
             $p = wc_get_product($pid);
             if ($p && $p->is_purchasable() && $p->is_in_stock() && !$this->product_needs_options($p)) {
                 $products[] = $p;
@@ -4462,6 +4534,156 @@ class RT_Event_Manager_Account {
      * @param array $candidates Eligible member ticket rows.
      * @return string
      */
+    /**
+     * Day Tours tab: "You are eligible for the Delegate's Tour" card for each
+     * purchasable delegate-only day tour, when the account has at least one
+     * confirmed delegate. Opens its own dialog listing only the delegates who
+     * are not yet booked (or carting) that tour.
+     *
+     * @param array $tickets The account's tickets.
+     */
+    private function render_delegate_tour_cta($tickets) {
+        if (!class_exists('RT_Event_Manager_Delegate_Tour')) {
+            return;
+        }
+        $delegates = array();
+        foreach ($tickets as $t) {
+            if ('event' === $this->effective_kind($t) && RT_Event_Manager_Delegate_Tour::ticket_is_delegate($t)) {
+                $delegates[absint($t['id'])] = $t;
+            }
+        }
+        if (empty($delegates)) {
+            return;
+        }
+
+        $products = array();
+        foreach ($this->get_tour_product_ids('daytour') as $pid) {
+            if (!$this->is_delegate_tour_product($pid)) {
+                continue;
+            }
+            $p = wc_get_product($pid);
+            if ($p && $p->is_purchasable() && !$this->product_needs_options($p)) {
+                $products[] = $p;
+            }
+        }
+        if (empty($products)) {
+            return;
+        }
+        $products = $this->sort_products_by_start($products);
+
+        // Who already holds (or has in the cart) which tour.
+        $booked = array();
+        foreach ($tickets as $t) {
+            if ('daytour' === $this->effective_kind($t) && absint($t['parent_ticket_id'])) {
+                $booked[absint($t['parent_ticket_id'])][absint($t['product_id'])] = 'booked';
+            }
+        }
+        foreach ($this->get_cart_tour_products('daytour') as $parent => $pids) {
+            foreach ($pids as $pp) {
+                if (!isset($booked[$parent][$pp])) {
+                    $booked[$parent][$pp] = 'cart';
+                }
+            }
+        }
+
+        foreach ($products as $p) {
+            $pid  = $p->get_id();
+            $open = array();     // delegates not yet on this tour
+            $clash = array();    // ...of whom these have an overlapping day tour
+            $in_cart = false;
+            foreach ($delegates as $id => $t) {
+                $state = isset($booked[$id][$pid]) ? $booked[$id][$pid] : '';
+                if ('' === $state) {
+                    $open[$id] = $t;
+                    foreach (array_keys(isset($booked[$id]) ? $booked[$id] : array()) as $other) {
+                        if (RT_Event_Manager::daytours_conflict($other, $pid)) {
+                            $clash[$id] = RT_Event_Manager::product_title($other);
+                            break;
+                        }
+                    }
+                } elseif ('cart' === $state) {
+                    $in_cart = true;
+                }
+            }
+            $bookable = array_diff_key($open, $clash);
+
+            list($start, $end) = RT_Event_Manager::tour_product_range($pid);
+            $when = '';
+            if ($start) {
+                $when = date_i18n('l, j F Y · H:i', $start) . ($end ? '–' . date_i18n('H:i', $end) : '');
+            }
+
+            echo '<div class="rtacc-delegate-cta">';
+            echo '<div class="rtacc-delegate-cta-icon" aria-hidden="true"><i class="fa-solid fa-star"></i></div>';
+            echo '<div class="rtacc-delegate-cta-body">';
+            echo '<div class="rtacc-delegate-cta-kicker">' . esc_html__('Delegates only', 'rt-event-manager') . '</div>';
+            echo '<h3 class="rtacc-delegate-cta-title">' . esc_html__("You are eligible for the Delegate's Tour", 'rt-event-manager') . '</h3>';
+            echo '<p class="rtacc-delegate-cta-meta"><strong>' . esc_html(RT_Event_Manager::product_title($pid)) . '</strong>'
+                . ('' !== $when ? ' · ' . esc_html($when) : '')
+                . ' · ' . wp_kses_post($p->get_price_html()) . '</p>';
+            if (!empty($open) && empty($bookable)) {
+                echo '<p class="rtacc-delegate-cta-note">' . esc_html(sprintf(
+                    /* translators: %s: name of the overlapping day tour */
+                    __('This tour overlaps a day tour you have already booked (%s). Day tours for the same person must not overlap.', 'rt-event-manager'),
+                    reset($clash)
+                )) . '</p>';
+            }
+            if (empty($open)) {
+                echo '<p class="rtacc-delegate-cta-done"><i class="fa-solid fa-check" aria-hidden="true"></i> '
+                    . ($in_cart
+                        ? esc_html__('In your cart.', 'rt-event-manager') . ' <a href="' . esc_url(wc_get_checkout_url()) . '">' . esc_html__('Go to checkout', 'rt-event-manager') . '</a>'
+                        : esc_html__('You are booked on this tour.', 'rt-event-manager'))
+                    . '</p>';
+            }
+            echo '</div>'; // body
+
+            echo '<div class="rtacc-delegate-cta-action">';
+            if (!empty($bookable)) {
+                if ($p->is_in_stock()) {
+                    echo '<button type="button" class="uk-button uk-button-primary" data-rtacc-modal="delegate-' . esc_attr($pid) . '">' . esc_html__("Book the Delegate's Tour", 'rt-event-manager') . '</button>';
+                } else {
+                    echo '<span class="rtacc-badge rtacc-badge--cancelled">' . esc_html__('Fully booked', 'rt-event-manager') . '</span>';
+                }
+            }
+            echo '</div>';
+            echo '</div>'; // .rtacc-delegate-cta
+
+            if (!empty($bookable) && $p->is_in_stock()) {
+                echo '<div class="rtacc-modal" id="rtacc-modal-delegate-' . esc_attr($pid) . '" hidden>';
+                echo '<div class="rtacc-modal-backdrop" data-rtacc-close></div>';
+                echo '<div class="rtacc-modal-dialog">';
+                echo '<form class="rtacc-tour-form rtacc-form uk-form-stacked" data-action="rt_event_manager_add_daytours_to_cart">';
+                echo '<h3 class="rtacc-subtitle">' . esc_html__("Book the Delegate's Tour", 'rt-event-manager') . '</h3>';
+                echo '<input type="hidden" name="product_id" value="' . esc_attr($pid) . '" />';
+                echo '<p class="rtacc-hint">' . esc_html(RT_Event_Manager::product_title($pid)) . ('' !== $when ? ' — ' . esc_html($when) : '') . ' — ' . wp_kses_post($p->get_price_html()) . '</p>';
+                echo '<div class="rtacc-checklist">';
+                $single = (1 === count($bookable));
+                foreach ($open as $id => $t) {
+                    $label = ('' !== $t['holder_name']) ? $t['holder_name'] : sprintf(__('Ticket #%d', 'rt-event-manager'), $id);
+                    if (isset($clash[$id])) {
+                        // Overlaps a day tour this delegate already holds: shown, not selectable.
+                        echo '<label class="rtacc-check is-disabled"><input type="checkbox" disabled /> ' . esc_html($label)
+                            . ' <span class="rtacc-muted">· ' . esc_html(sprintf(__('overlaps %s', 'rt-event-manager'), $clash[$id])) . '</span></label>';
+                        continue;
+                    }
+                    echo '<label class="rtacc-check"><input type="checkbox" name="members[]" value="' . esc_attr($id) . '"' . ($single ? ' checked' : '') . ' /> '
+                        . esc_html($label) . ' <span class="rtacc-muted">· ' . esc_html__('Delegate', 'rt-event-manager') . '</span></label>';
+                }
+                echo '</div>';
+                echo '<div class="rtacc-modal-error rtacc-status is-error" style="display:none;"></div>';
+                echo '<p class="rtacc-actions">';
+                echo '<button type="submit" class="uk-button uk-button-primary">' . esc_html__('Continue to payment', 'rt-event-manager') . '</button>';
+                echo '<button type="button" class="uk-button uk-button-default" data-rtacc-close>' . esc_html__('Cancel', 'rt-event-manager') . '</button>';
+                echo '</p>';
+                echo '</form></div></div>';
+            }
+        }
+    }
+
+    private function is_delegate_tour_product($product_id) {
+        return class_exists('RT_Event_Manager_Delegate_Tour') && RT_Event_Manager_Delegate_Tour::is_delegate_tour($product_id);
+    }
+
     private function tour_add_button_html($candidates, $kind, $label, $modal_key) {
         if (empty($this->get_bulk_tour_products($kind)) || empty($candidates)) {
             return '';
@@ -4578,9 +4800,11 @@ class RT_Event_Manager_Account {
 
         $products = wc_get_products($args);
 
-        // Exclude ticket products regardless of category.
+        // Exclude ticket and parking products regardless of category (parking
+        // has its own tab, where the licence plate is collected).
         $products = array_filter($products, function ($product) {
-            return 'yes' !== get_post_meta($product->get_id(), '_rti_is_ticket', true);
+            return 'yes' !== get_post_meta($product->get_id(), '_rti_is_ticket', true)
+                && 'yes' !== get_post_meta($product->get_id(), '_rti_is_parking', true);
         });
 
         if (empty($products)) {
@@ -5834,6 +6058,16 @@ class RT_Event_Manager_Account {
             $member_kind = RT_Event_Manager::get_ticket_kind($m);
             if (!in_array($member_kind, array('event', 'minor'), true)) {
                 continue; // tours attach to event tickets or Future members
+            }
+
+            // Delegate-only day tour: every selected member must be a confirmed delegate.
+            if ($this->is_delegate_tour_product($product_id) && !RT_Event_Manager_Delegate_Tour::ticket_is_delegate($m)) {
+                $who = ($m['holder_name'] !== '') ? $m['holder_name'] : ('#' . $mid);
+                wp_send_json_error(sprintf(
+                    /* translators: %s: member name */
+                    __('%s is not a confirmed delegate. This day tour is reserved for delegates.', 'rt-event-manager'),
+                    $who
+                ));
             }
 
             // Partial main-event admission: no pretours, and a day tour must fall

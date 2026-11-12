@@ -39,6 +39,7 @@
     function currentSessionKey() { return sessionSelect ? sessionSelect.value : 'main'; }
     function currentSession() { return sessionMap[currentSessionKey()] || null; }
     function isTourSession() { var s = currentSession(); return !!(s && s.kind === 'tour'); }
+    function isParkingSession() { var s = currentSession(); return !!(s && s.kind === 'parking'); }
 
     var stream = null;
     var scanning = false;
@@ -73,7 +74,7 @@
             })
             .then(function () {
                 video.classList.add('is-live');
-                setHint(I18N.scanning || 'Point the camera at the QR code.');
+                setHint(isParkingSession() ? (I18N.scanParking || 'Point the camera at the parking permit QR code…') : (I18N.scanning || 'Point the camera at the QR code.'));
                 scanning = true;
                 if ('BarcodeDetector' in window) {
                     try { detector = new window.BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { detector = null; }
@@ -129,7 +130,8 @@
         post('rt_event_manager_checkin_lookup', params).then(function (res) {
             busy = false;
             if (res && res.success) {
-                if (res.data && res.data.tour) { renderTour(res.data); }
+                if (res.data && res.data.parking) { renderParking(res.data); }
+                else if (res.data && res.data.tour) { renderTour(res.data); }
                 else { renderTicket(res.data); }
             } else {
                 showError((res && res.data && res.data.message) || I18N.notFound);
@@ -143,7 +145,20 @@
         return (I18N.boardedOf || '%1$d of %2$d boarded')
             .replace('%1$d', s.boarded || 0).replace('%2$d', s.total || 0);
     }
+    // Parking session: manual entry looks up a licence plate instead of an
+    // order/ticket number, and the hint names the parking permit.
+    function syncManualFields() {
+        var parking = isParkingSession();
+        if (manual) {
+            Array.prototype.forEach.call(manual.querySelectorAll('.rtem-manual-ticket'), function (el) { el.hidden = parking; });
+            var plateEl = manual.querySelector('.rtem-manual-plate');
+            if (plateEl) { plateEl.hidden = !parking; }
+        }
+        setHint(parking ? (I18N.scanParking || 'Point the camera at the parking permit QR code…') : (I18N.scanning || ''));
+    }
+
     function renderSessionUI() {
+        syncManualFields();
         var s = currentSession();
         if (!s || !sessionState) { return; }
         if (s.kind === 'tour') {
@@ -233,6 +248,32 @@
         }
         var pb = document.getElementById('rtem-profile-btn');
         if (pb) { pb.addEventListener('click', function () { openProfile(d.profile_ticket_id); }); }
+        document.getElementById('rtem-next').addEventListener('click', function () {
+            result.hidden = true; result.innerHTML = ''; startScan();
+        });
+    }
+
+    // ---- Parking permit result ----
+    function renderParking(d) {
+        result.hidden = false;
+        var ok = !!d.valid;
+        var banner = ok
+            ? '<div class="rtem-banner rtem-banner-ok">✓ ' + esc(I18N.parkingValid || 'Valid parking permit') + '</div>'
+            : '<div class="rtem-banner rtem-banner-danger">✕ ' + esc(I18N.parkingInvalid || 'Not valid') + (d.reason ? ' — ' + esc(d.reason) : '') + '</div>';
+        var details =
+            row(I18N.holder || 'Holder', esc(d.holder || '—')) +
+            row(I18N.validDates || 'Valid', esc(d.dates || '')) +
+            row(I18N.permit || 'Permit', esc(d.ref) + ' · ' + esc(d.product) + ' · #' + esc(d.order_id));
+        result.innerHTML =
+            '<div class="rtem-card rtem-card-parking rtem-card-' + (ok ? 'valid' : 'invalid') + '">' +
+            banner +
+            '<div class="rtem-plate-lbl">' + esc(I18N.plate || 'Licence plate') + '</div>' +
+            '<div class="rtem-plate">' + esc(d.plate || '—') + '</div>' +
+            (ok ? '<p class="rtem-hint">' + esc(I18N.checkPlate || 'Check the plate matches the vehicle.') + '</p>' : '') +
+            '<table class="rtem-details">' + details + '</table>' +
+            '<button type="button" class="rtem-btn rtem-btn-next" id="rtem-next">' + esc(I18N.scanNext || 'Scan next') + '</button>' +
+            '</div>';
+
         document.getElementById('rtem-next').addEventListener('click', function () {
             result.hidden = true; result.innerHTML = ''; startScan();
         });
@@ -473,6 +514,16 @@
                 html += '<p class="rtem-muted">—</p>';
             }
 
+            if (acct.parking && acct.parking.length) {
+                html += '<h3 class="rtem-profile-h">' + esc(I18N.parkingPermits || 'Parking permits') + '</h3><table class="rtem-profile-table">';
+                acct.parking.forEach(function (pk) {
+                    html += '<tr><td><strong>' + esc(pk.plate) + '</strong></td><td>' + esc(pk.product) +
+                        '<span class="rtem-profile-type">' + esc(pk.ref) + ' · ' + esc(pk.dates) + '</span>' +
+                        '</td><td><span class="rtem-badge rtem-badge-status rtem-status-valid">' + esc(statusLabel('valid')) + '</span></td></tr>';
+                });
+                html += '</table>';
+            }
+
             html += '<h3 class="rtem-profile-h">' + esc(I18N.emergency || 'Emergency contacts') + '</h3>';
             if (acct.emergency && acct.emergency.length) {
                 acct.emergency.forEach(function (c) {
@@ -534,6 +585,13 @@
         manualToggle.addEventListener('click', function () { manual.hidden = !manual.hidden; });
         manual.addEventListener('submit', function (e) {
             e.preventDefault();
+            if (isParkingSession()) {
+                var plate = (document.getElementById('rtem-plate') || {}).value || '';
+                if (!plate.trim()) { return; }
+                stopScan();
+                lookup({ plate: plate.trim() });
+                return;
+            }
             var order = document.getElementById('rtem-order').value;
             var number = document.getElementById('rtem-number').value || '1';
             if (!order) { return; }

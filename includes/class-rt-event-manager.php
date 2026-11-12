@@ -2897,6 +2897,13 @@ class RT_Event_Manager {
                     $who,
                     $pname
                 ), 'error');
+            } elseif ('daytour' === $kind && self::cart_daytour_clash($parent, $pid, isset($ci['key']) ? $ci['key'] : '')) {
+                wc_add_notice(sprintf(
+                    /* translators: 1: attendee name, 2: day tour product name */
+                    __('%1$s has two day tours in the cart that overlap in time (including “%2$s”). Please remove one of them.', 'rt-event-manager'),
+                    $who,
+                    $pname
+                ), 'error');
             }
         }
     }
@@ -6621,6 +6628,13 @@ class RT_Event_Manager {
                 'default' => 'yes',
             ),
             array(
+                'title'   => __('Parking', 'rt-event-manager'),
+                'desc'    => __('Show the Parking tab (to event ticket holders, when a parking product is on sale)', 'rt-event-manager'),
+                'id'      => 'rt_event_manager_show_parking',
+                'type'    => 'checkbox',
+                'default' => 'yes',
+            ),
+            array(
                 'type' => 'sectionend',
                 'id'   => 'rti_account_tabs',
             ),
@@ -7822,9 +7836,42 @@ class RT_Event_Manager {
      * @param int[] $extra_products
      * @return bool
      */
+    /**
+     * Whether a day-tour cart line overlaps an EARLIER day-tour line in the cart
+     * for the same attendee (checking only earlier lines reports each pair once).
+     *
+     * @param int    $parent   Attendee ticket id.
+     * @param int    $pid      This line's product id.
+     * @param string $line_key This line's cart item key.
+     * @return bool
+     */
+    public static function cart_daytour_clash($parent, $pid, $line_key) {
+        if (!function_exists('WC') || !WC()->cart || '' === (string) $line_key) {
+            return false;
+        }
+        foreach (WC()->cart->get_cart() as $key => $ci) {
+            if ($key === $line_key) {
+                return false; // reached this line: no earlier clash
+            }
+            $other  = isset($ci['product_id']) ? absint($ci['product_id']) : 0;
+            $oparent = isset($ci['rti_parent_ticket_id']) ? absint($ci['rti_parent_ticket_id']) : 0;
+            if ($other && $oparent === absint($parent)
+                && 'daytour' === self::get_ticket_kind_for_product($other)
+                && self::daytours_conflict($other, $pid)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static function host_daytour_conflict($host_id, $new_product, $extra_products = array()) {
         $products = array();
         foreach (self::get_child_daytours($host_id) as $c) {
+            // Refunded / dead-order tours no longer hold the slot (matches the
+            // portal, which hides them via get_tickets_for_user()).
+            if (isset($c['status']) && in_array($c['status'], array('refunded', 'invalid'), true)) {
+                continue;
+            }
             $products[] = absint($c['product_id']);
         }
         foreach ($extra_products as $p) {

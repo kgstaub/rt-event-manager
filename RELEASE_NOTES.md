@@ -1,5 +1,52 @@
 # RT Event Manager — Release Notes
 
+## 2.4.0 — 12 November 2026
+
+**Parking permits.** Sell event parking through WooCommerce and check it at the
+gate. **Backward compatible** — the new tables are created automatically on load;
+no manual migration is required. Safe to update in place.
+
+### ✨ Highlights
+
+- **Sell parking spots** — tick *Parking permit* on a simple product; its stock
+  is the number of spots. Only event ticket holders can book, **one spot per
+  account**, with the vehicle's licence plate.
+- **Parking tab** in the member portal — book a spot, then see the permit as a
+  ticket (QR, plate, dates, status) with **Print permit** and plate changes
+  until 30 minutes before the permit becomes valid.
+- **Printable windscreen permit** — a PDF with a big "P", the plate, the event
+  dates and its own **parking-only QR code**, separate from the event ticket's.
+  The holder is printed as initials and .WORLD ID (e.g. "KS - kenneth.staub"),
+  not by name.
+- **Gate checks in the check-in app** — a *Parking* session verifies a permit,
+  shows the plate to compare with the vehicle, for random spot checks (nothing
+  is recorded). Manual lookup by plate.
+- **Parking attendant** staff role — can verify parking and nothing else.
+- **RT Event → Parking Permits** — all valid permits at a glance (other statuses
+  one click away), capacity, permit search, permit PDFs, plate edits and
+  revoke/reactivate.
+
+**Delegate day tours.** A day tour can be reserved for confirmed delegates.
+
+- Tick **Delegates only** on the day-tour product (and give it a price — 0.00
+  is fine). Eligible members see a **"You are eligible for the Delegate's
+  Tour"** card on the *Day Tours* tab and book from there; only delegates can
+  be selected. It is hidden from the shop and cannot be bought from its product
+  page.
+
+### 📋 For administrators / upgrading
+
+- Create a simple product, tick **Parking permit**, set stock to your number of
+  spots and publish it. The *Parking* tab appears for ticket holders.
+- Make sure **Settings → Event start/end date** are set: permits are valid on
+  those days only.
+- Give gate staff the **Parking attendant** role under *RT Event → Event Staff*,
+  and point them at the check-in page.
+
+See [CHANGELOG.md](CHANGELOG.md) for the itemised change list.
+
+---
+
 ## 2.3.10 — 3 November 2026
 
 The **2.3 line** adds a FreeScout helpdesk, associations and delegates, numbered

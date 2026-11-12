@@ -1,6 +1,6 @@
 # RT Event Manager
 
-[![Version](https://img.shields.io/badge/version-2.3.10-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.0-blue?style=flat-square)](CHANGELOG.md)
 [![Tests · WordPress 7.x](https://img.shields.io/badge/WordPress%207.x-Tests%20Passing-brightgreen?style=flat-square&logo=wordpress&logoColor=white&labelColor=21759B)](#requirements)
 [![Tests · WooCommerce 11.x](https://img.shields.io/badge/WooCommerce%2011.x-Tests%20Passing-brightgreen?style=flat-square&logo=woocommerce&logoColor=white&labelColor=7F54B3)](#requirements)
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue?style=flat-square)](https://www.gnu.org/licenses/gpl-2.0.html)
@@ -15,10 +15,11 @@ handles pretours & day tours, ticket transfers and refund requests, issues
 attendee badges, generates PDF receipts/invoices and letters of invitation, and
 ships a **staff QR check-in web app** with event-staff management. Members can
 open support requests through a **FreeScout helpdesk** tab, and numbered
-**challenge coins** can be sold one number at a time. It also bundles a *Sign in with .WORLD*
+**challenge coins** can be sold one number at a time. Event **parking** is sold
+with a printable windscreen permit that staff verify in the check-in app. It also bundles a *Sign in with .WORLD*
 SSO module for Round Table's identity providers.
 
-- **Version:** 2.3.10
+- **Version:** 2.4.0
 - **Requires:** WordPress 5.0+, PHP 7.4+, WooCommerce 5.0+
 - **Tested up to:** WordPress 7.x, WooCommerce 11.x
 - **License:** GPL-2.0-or-later
@@ -41,6 +42,7 @@ SSO module for Round Table's identity providers.
 - [Transfers & refunds](#transfers--refunds)
 - [Wallet passes (Apple & Google)](#wallet-passes-apple--google)
 - [Staff check-in](#staff-check-in)
+- [Parking permits](#parking-permits)
 - [Helpdesk](#helpdesk)
 - [Visa letters of invitation](#visa-letters-of-invitation)
 - [Badges](#badges)
@@ -102,6 +104,14 @@ SSO module for Round Table's identity providers.
   once; the buyer picks a free number, it is reserved in the cart for 60 minutes,
   claimed on order and released if the order is cancelled, failed or refunded.
   The number is printed on the receipt.
+- **Parking permits** — sell parking spots (stock = capacity) to event ticket
+  holders, one spot per account with a licence plate. Members see their permit
+  as a ticket in a *Parking* tab and print a windscreen permit with its own
+  parking-only QR code; staff spot-check permits by scanning them in the
+  check-in app.
+- **Delegate day tours** — flag a day tour *Delegates only* to reserve it for
+  confirmed delegates; it can be booked only from the *Day Tours* tab of the
+  event account.
 - **Hide from main shop** — a product flag that keeps an item out of the main
   WooCommerce shop and search; it stays in the member-portal Shop and via its
   direct link.
@@ -231,6 +241,10 @@ Rendered by `[rt_event_manager_account]`, the portal replaces the default
 - **Event Calendar** — the official agenda plus the member's own tours.
 - **Order History** — orders with downloadable per-order and combined PDF receipts.
 - **Travel & Visa** — request a letter of invitation.
+- **Parking** — (the permit also appears on the *Dashboard*) before purchase,
+  booking forms for the parking products on sale;
+  afterwards the member's permit as a ticket card (QR, plate editable until
+  30 minutes before validity, *Print permit*). Shown to event ticket holders when parking is on sale.
 - **Shop** — merch/regalia (non-ticket products) in the configured category,
   including products hidden from the main shop.
 - **Get help** — FreeScout support tickets with chat view and attachments
@@ -246,8 +260,20 @@ on the navigation.
 - A **pretour** is one-per-person and attaches to an event or Future-member ticket.
 - **Day tours** may stack, but the plugin blocks adding one whose time slot
   overlaps a day tour the attendee already holds (booked or in the cart), with a
-  clear "already booked for this time slot" message.
+  clear "already booked for this time slot" message. This is enforced on every
+  route — the portal, product page, cart re-check (including two overlapping
+  tours in the cart) and checkout. Cancelled, refunded and dead-order tours do
+  not hold a slot. Overlap needs the tour product's Start/End times; tours
+  without them can't be checked for overlap.
 - Companions/minors may only join the same tour as their guardian.
+- **Delegate day tours** — tick **Delegates only** on a day-tour product to
+  reserve it for confirmed delegates (a ticket flagged *Delegate*, or the
+  account holder's own ticket when the account is a *Delegate*). Eligible
+  members see a **"You are eligible for the Delegate's Tour"** card under the
+  *Day Tours* title with a **Book** button listing only their delegates. It is
+  hidden from the shop, search and the generic "Add a day tour" dialog, its
+  product page has no add-to-cart button, and the cart and checkout refuse it
+  for non-delegates. The product needs a price (0.00 is fine) to be offered.
 
 ---
 
@@ -284,6 +310,48 @@ Publish a page with `[rt_event_manager_checkin]` and give the URL to door staff.
 The page scans a ticket's QR code — a signed check-in token — verifies it and
 marks the ticket checked in. Check-in tokens are valid credentials; do not share
 real attendees' QR codes.
+
+---
+
+## Parking permits
+
+1. Create a **simple** product, tick **Parking permit** in its General tab, and
+   set its stock to the number of spots (or leave stock off for unlimited).
+2. Members with an event (or staff) ticket book parking from the *Parking* tab or
+   the product page, entering the vehicle's **licence plate**. **One parking
+   spot per account**: a member who already holds a permit (confirmed, unpaid or
+   revoked) or has one in the cart cannot add another. Without an event ticket
+   on the account or in the cart, checkout is refused.
+3. Once bought, the *Parking* tab shows the permit as a ticket card with its QR
+   code. When the order is paid it is *Confirmed* and **Print permit** produces
+   a PDF: an A5-landscape windscreen permit (cut from an A4 sheet) with
+   the plate, validity dates, holder as initials and .WORLD ID (WordPress user
+   ID if none, e.g. "KS - kenneth.staub") with family and country below it (e.g. "RT Switzerland"),
+   permit number and a QR code.
+4. Members can change the plate until **30 minutes before the permit becomes
+   valid** (00:00 on the event start date, in the event timezone); the order
+   line is updated too, and the member should reprint the permit. Admins can
+   change plates at any time on the Parking Permits page.
+
+Permits are valid for the **whole event** (*Settings → Event start/end date*).
+The QR encodes a signed, **parking-only** token (`RTIPARK|…`) that is separate
+from the event-ticket QR, so neither works in place of the other.
+
+**Checking permits.** In the check-in app, choose the **Parking** session (or
+scan a permit from any session). The result shows *valid* / *not valid* with the
+reason, and the plate to compare against the vehicle, with holder and dates.
+Checks are random spot checks — nothing is recorded. Manual entry looks up a
+licence plate or a permit number. Permit numbers are random six-digit numbers
+(e.g. P-482913), not sequential. The **Parking attendant** staff
+role can do this and nothing else; managers and registration managers can too.
+A member's **Find Guest** profile also lists their valid parking permits.
+
+**Admin.** *RT Event → Parking Permits* opens on all **valid** permits (status
+links switch to awaiting payment, revoked, cancelled/refunded or all) and shows
+capacity per product. Permits are searchable by plate, name, order # or
+permit #, and list the holder's family and country, with plate editing, the
+permit PDF and **Revoke / Reactivate**. To refund parking, refund the order — the
+permit follows the order's status.
 
 ---
 
@@ -355,6 +423,7 @@ The plugin's admin menus are grouped in their own section directly under
 | Settings                     | `rt-event-manager-settings`     |
 | Badge Template               | `rt-event-badge-template`       |
 | Event Staff                  | `rt-event-manager-staff`        |
+| Parking Permits              | `rt-event-manager-parking`      |
 | Helpdesk                     | `rt-event-manager-helpdesk`     |
 | Visa Settings                | `rt-event-manager-visa-settings`|
 | Visa Letters                 | `rt-event-manager-visa-letters` |
@@ -423,6 +492,7 @@ Created on activation (prefixed with your WordPress table prefix):
 | `rti_pass_registrations`    | Apple Wallet device registrations for push updates.         |
 | `rti_checkin_sessions`, `rti_checkins` | Staff check-in sessions and per-ticket check-in records. |
 | `rti_coin_claims`           | Reserved and claimed challenge-coin numbers.     |
+| `rti_parking_permits`       | Parking permits (plate, status, QR key).         |
 | `oauth_sso_clients`         | Configured `.WORLD` SSO providers.               |
 | `mto_attributes`, `mto_attribute_options`, `mto_combination_items` | Make-to-order / configurable ticket attributes. |
 
@@ -453,7 +523,8 @@ These are consumed by Apple Wallet on the device; you do not call them directly.
 - **Consent** — explicit privacy-policy acceptance is recorded on registration
   and checkout; an admin re-consent trigger invalidates stored acceptances.
 - **Check-in tokens** — the ticket QR encodes a signed check-in token; treat it
-  as a credential and do not publish real attendees' QR codes.
+  as a credential and do not publish real attendees' QR codes. Parking permits
+  use a separate signed token with a per-permit random key.
 
 ---
 
@@ -485,7 +556,7 @@ after 2.1.0 ships as 2.1.6. Keep the plugin header `Version:`, the
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history and
 [RELEASE_NOTES.md](RELEASE_NOTES.md) for the latest highlights. The current
-release is **2.3.10**.
+release is **2.4.0**.
 
 ---
 
