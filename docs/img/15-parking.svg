@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Parking permit and parking check">
+  <rect width="640" height="420" fill="#f7f8fa"/>
+
+  <!-- windscreen permit -->
+  <rect x="36" y="78" width="356" height="248" rx="18" fill="#ffffff" stroke="#0b4ea2" stroke-width="5"/>
+  <!-- P sign -->
+  <rect x="60" y="102" width="62" height="62" rx="12" fill="#0b4ea2"/>
+  <text x="91" y="150" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="bold" fill="#ffffff">P</text>
+  <!-- kicker + event name -->
+  <rect x="138" y="110" width="96" height="9" rx="4.5" fill="#0b4ea2"/>
+  <rect x="138" y="128" width="106" height="13" rx="6.5" fill="#3a4658"/>
+  <rect x="138" y="149" width="78" height="9" rx="4.5" fill="#c9ced4"/>
+  <!-- licence plate -->
+  <rect x="60" y="186" width="168" height="52" rx="7" fill="#ffffff" stroke="#111111" stroke-width="4"/>
+  <text x="144" y="222" text-anchor="middle" font-family="'Courier New', monospace" font-size="27" font-weight="bold" fill="#111111">ZH 12345</text>
+  <!-- details -->
+  <rect x="60" y="256" width="44" height="8" rx="4" fill="#c9ced4"/><rect x="118" y="256" width="104" height="8" rx="4" fill="#3a4658"/>
+  <rect x="60" y="274" width="44" height="8" rx="4" fill="#c9ced4"/><rect x="118" y="274" width="76" height="8" rx="4" fill="#3a4658"/>
+  <rect x="60" y="292" width="44" height="8" rx="4" fill="#c9ced4"/><rect x="118" y="292" width="90" height="8" rx="4" fill="#3a4658"/>
+  <!-- perforation + QR stub -->
+  <line x1="258" y1="90" x2="258" y2="314" stroke="#c9d6ea" stroke-width="3" stroke-dasharray="6 6"/>
+  <rect x="276" y="160" width="96" height="96" rx="6" fill="#ffffff" stroke="#e7e9ec" stroke-width="2"/>
+  <rect x="284" y="168" width="24" height="24" fill="#111111"/><rect x="289" y="173" width="14" height="14" fill="#ffffff"/><rect x="293" y="177" width="6" height="6" fill="#111111"/>
+  <rect x="340" y="168" width="24" height="24" fill="#111111"/><rect x="345" y="173" width="14" height="14" fill="#ffffff"/><rect x="349" y="177" width="6" height="6" fill="#111111"/>
+  <rect x="284" y="224" width="24" height="24" fill="#111111"/><rect x="289" y="229" width="14" height="14" fill="#ffffff"/><rect x="293" y="233" width="6" height="6" fill="#111111"/>
+  <rect x="316" y="170" width="8" height="8" fill="#111111"/><rect x="328" y="182" width="8" height="8" fill="#111111"/>
+  <rect x="316" y="200" width="8" height="8" fill="#111111"/><rect x="332" y="204" width="8" height="8" fill="#111111"/>
+  <rect x="344" y="216" width="8" height="8" fill="#111111"/><rect x="356" y="200" width="8" height="8" fill="#111111"/>
+  <rect x="320" y="232" width="8" height="8" fill="#111111"/><rect x="340" y="236" width="8" height="8" fill="#111111"/><rect x="356" y="236" width="8" height="8" fill="#111111"/>
+  <rect x="276" y="120" width="96" height="22" rx="7" fill="#CC0B24"/>
+  <rect x="298" y="128" width="52" height="6" rx="3" fill="#ffffff"/>
+
+  <!-- phone: parking check -->
+  <rect x="430" y="40" width="176" height="340" rx="26" fill="#12233d"/>
+  <rect x="443" y="62" width="150" height="296" rx="14" fill="#ffffff"/>
+  <rect x="490" y="48" width="56" height="7" rx="3.5" fill="#2b3a52"/>
+  <!-- valid banner -->
+  <rect x="455" y="78" width="126" height="34" rx="8" fill="#d1f0da"/>
+  <circle cx="474" cy="95" r="10" fill="#1a8a34"/>
+  <path d="M469 95 l4 4 l7 -8" stroke="#ffffff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="490" y="90" width="78" height="9" rx="4.5" fill="#14532d"/>
+  <!-- plate on screen -->
+  <rect x="463" y="130" width="38" height="7" rx="3.5" fill="#c9ced4"/>
+  <rect x="463" y="144" width="110" height="36" rx="6" fill="#ffffff" stroke="#111111" stroke-width="3"/>
+  <text x="518" y="169" text-anchor="middle" font-family="'Courier New', monospace" font-size="18" font-weight="bold" fill="#111111">ZH 12345</text>
+  <!-- detail rows -->
+  <rect x="463" y="198" width="38" height="7" rx="3.5" fill="#c9ced4"/><rect x="515" y="198" width="58" height="7" rx="3.5" fill="#3a4658"/>
+  <rect x="463" y="216" width="38" height="7" rx="3.5" fill="#c9ced4"/><rect x="515" y="216" width="50" height="7" rx="3.5" fill="#3a4658"/>
+  <rect x="463" y="234" width="38" height="7" rx="3.5" fill="#c9ced4"/><rect x="515" y="234" width="44" height="7" rx="3.5" fill="#3a4658"/>
+  <!-- scan next button -->
+  <rect x="463" y="310" width="110" height="30" rx="8" fill="#f2f4f7" stroke="#e7e9ec" stroke-width="2"/>
+  <rect x="490" y="321" width="56" height="8" rx="4" fill="#5c6672"/>
+</svg>
