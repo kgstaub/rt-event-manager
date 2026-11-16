@@ -1,6 +1,6 @@
 # RT Event Manager
 
-[![Version](https://img.shields.io/badge/version-2.4.0-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.0-blue?style=flat-square)](CHANGELOG.md)
 [![Tests · WordPress 7.x](https://img.shields.io/badge/WordPress%207.x-Tests%20Passing-brightgreen?style=flat-square&logo=wordpress&logoColor=white&labelColor=21759B)](#requirements)
 [![Tests · WooCommerce 11.x](https://img.shields.io/badge/WooCommerce%2011.x-Tests%20Passing-brightgreen?style=flat-square&logo=woocommerce&logoColor=white&labelColor=7F54B3)](#requirements)
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue?style=flat-square)](https://www.gnu.org/licenses/gpl-2.0.html)
@@ -19,7 +19,7 @@ open support requests through a **FreeScout helpdesk** tab, and numbered
 with a printable windscreen permit that staff verify in the check-in app. It also bundles a *Sign in with .WORLD*
 SSO module for Round Table's identity providers.
 
-- **Version:** 2.4.0
+- **Version:** 2.5.0
 - **Requires:** WordPress 5.0+, PHP 7.4+, WooCommerce 5.0+
 - **Tested up to:** WordPress 7.x, WooCommerce 11.x
 - **License:** GPL-2.0-or-later
@@ -43,6 +43,7 @@ SSO module for Round Table's identity providers.
 - [Wallet passes (Apple & Google)](#wallet-passes-apple--google)
 - [Staff check-in](#staff-check-in)
 - [Parking permits](#parking-permits)
+- [Group Import](#group-import)
 - [Helpdesk](#helpdesk)
 - [Visa letters of invitation](#visa-letters-of-invitation)
 - [Badges](#badges)
@@ -112,6 +113,10 @@ SSO module for Round Table's identity providers.
 - **Delegate day tours** — flag a day tour *Delegates only* to reserve it for
   confirmed delegates; it can be booked only from the *Day Tours* tab of the
   event account.
+- **Group Import** — import a board from .WORLD (admin signs in to the .WORLD
+  API) or a group from Excel/CSV, pick individuals, and give each an account
+  and a coupon-paid event ticket on a Completed order. They sign in with
+  .WORLD and find their ticket.
 - **Hide from main shop** — a product flag that keeps an item out of the main
   WooCommerce shop and search; it stays in the member-portal Shop and via its
   direct link.
@@ -355,6 +360,48 @@ permit follows the order's status.
 
 ---
 
+## Group Import
+
+*RT Event → Group Import* creates accounts and event tickets for a whole group
+at once — typically an international board — with a coupon-paid order for each,
+so the tickets appear on invoices.
+
+1. **Choose a source.**
+   - *From .WORLD:* sign in with your own .WORLD account (family, username,
+     password, 2FA code if enabled; Production or Demo). Choose a family, then
+     its international board or a child level (e.g. a national association), or
+     enter a level ID. Optionally include board assistants and — for a
+     national level — the **area presidents** (each area's President, taken
+     from that area's board). Your password is
+     sent only to .WORLD; the access token is stored encrypted for 2 hours.
+   - *From Excel / CSV:* upload a sheet with **First name, Last name, Email**
+     and optionally **.WORLD ID, Family, Club, Association, Function, Phone,
+     Country** (Association is needed to make someone a delegate). A
+     template can be downloaded from the page.
+2. **Preview.** Tick the people to import. Fill in any missing emails (.WORLD
+   only returns emails members share). Tick **Delegate** for anyone who should
+   be a delegate (off by default; the usual delegate rules apply — the preview
+   shows each person's association, which delegates need). People who already
+   hold an event ticket can be ticked to update only their profile and
+   delegate status; they don't get a second order.
+3. **Import.** Choose the event ticket product and a coupon that covers the
+   full price (e.g. 100% off). Each ticked person gets an account (existing
+   ones are reused, matched by .WORLD ID then email), a **Completed** order
+   with the coupon applied, and their event ticket. No emails are sent.
+
+When an imported member signs in with .WORLD they are matched to that account
+(by .WORLD ID, then email) and see their ticket in the portal as usual.
+
+**International boards** (imported from a family's international level, or from
+Excel with a Club ending in "Board") get club **RTI Board** (41I / LCI / ACI /
+TCI Board for the other families) and keep their **home association**, e.g.
+*RT Switzerland*. The club is locked: .WORLD sign-in, checkout and the member's
+profile keep "RTI Board" instead of their home club, while the association
+still follows their home club. Admins can still change the club on the user's
+wp-admin profile.
+
+---
+
 ## Helpdesk
 
 Under *RT Event → Helpdesk* enable the *Get help* tab and set the FreeScout URL,
@@ -424,6 +471,7 @@ The plugin's admin menus are grouped in their own section directly under
 | Badge Template               | `rt-event-badge-template`       |
 | Event Staff                  | `rt-event-manager-staff`        |
 | Parking Permits              | `rt-event-manager-parking`      |
+| Group Import                 | `rt-event-manager-group-import` |
 | Helpdesk                     | `rt-event-manager-helpdesk`     |
 | Visa Settings                | `rt-event-manager-visa-settings`|
 | Visa Letters                 | `rt-event-manager-visa-letters` |
@@ -556,7 +604,7 @@ after 2.1.0 ships as 2.1.6. Keep the plugin header `Version:`, the
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history and
 [RELEASE_NOTES.md](RELEASE_NOTES.md) for the latest highlights. The current
-release is **2.4.0**.
+release is **2.5.0**.
 
 ---
 

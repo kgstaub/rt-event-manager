@@ -1792,7 +1792,8 @@ class RT_Event_Manager {
             update_user_meta($user_id, 'rti_family', sanitize_text_field($_POST['rti_family']));
         }
 
-        if (isset($_POST['rti_club'])) {
+        $club_locked = class_exists('Multi_OAuth_SSO_User_Handler') && Multi_OAuth_SSO_User_Handler::org_locked($user_id);
+        if (isset($_POST['rti_club']) && !$club_locked) {
             update_user_meta($user_id, 'rti_club', sanitize_text_field($_POST['rti_club']));
         }
 
@@ -2165,7 +2166,11 @@ class RT_Event_Manager {
             'billing_rti_world_id' => 'world_id',
         );
 
+        $locked = class_exists('Multi_OAuth_SSO_User_Handler') && Multi_OAuth_SSO_User_Handler::org_locked($user_id);
         foreach ($fields as $post_key => $meta_key) {
+            if ($locked && in_array($meta_key, Multi_OAuth_SSO_User_Handler::org_locked_keys(), true)) {
+                continue; // club locked (international board)
+            }
             if (isset($_POST[$post_key])) {
                 update_user_meta($user_id, $meta_key, sanitize_text_field($_POST[$post_key]));
             }
@@ -3271,6 +3276,37 @@ class RT_Event_Manager {
      * @param array $data Ticket data
      * @return int|false Inserted row ID or false
      */
+    /**
+     * Create a ticket row outside the checkout form (e.g. the Group Import).
+     * Same upsert as checkout, keyed on (order_id, ticket_index).
+     *
+     * @param array $data Ticket fields (see insert_ticket()).
+     * @return int|bool Inserted id, true on update, false on failure.
+     */
+    public function create_ticket_row($data) {
+        $data = wp_parse_args($data, array(
+            'combination_id'   => 0,
+            'parent_ticket_id' => 0,
+            'ticket_kind'      => 'event',
+            'minor_type'       => '',
+            'ticket_index'     => 0,
+            'holder_name'      => '',
+            'phone'            => '',
+            'dob'              => '',
+            'rti_family'       => '',
+            'rti_club'         => '',
+            'association'      => '',
+            'function_role'    => '',
+            'dietary'          => '',
+            'allergy_details'  => '',
+            'world_id'         => '',
+            'qr_code_url'      => '',
+            'status'           => 'draft',
+            'owner_user_id'    => 0,
+        ));
+        return $this->insert_ticket($data);
+    }
+
     private function insert_ticket($data) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'rti_tickets';

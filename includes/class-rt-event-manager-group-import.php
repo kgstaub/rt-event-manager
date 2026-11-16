@@ -1,0 +1,1354 @@
+<?php
+/**
+ * RT Event Manager — Group Import.
+ *
+ * Imports a group of people (e.g. an international board) and gives each one
+ * an account and a full event ticket, paid by a coupon so a proper order /
+ * invoice exists. When they later sign in with .WORLD they land in that
+ * account and see their ticket like any other member.
+ *
+ * Sources:
+ * - .WORLD: an admin signs in to the .WORLD API (developer.roundtable.world)
+ *   with their own .WORLD credentials, picks a family and level (international
+ *   by default) and loads that level's board. The API token is kept encrypted
+ *   in a short-lived per-admin transient; the password is never stored.
+ * - Excel / CSV: an uploaded sheet (template downloadable from the page).
+ *
+ * Every source ends in the same preview: one row per person with a checkbox,
+ * an editable email (the .WORLD API only returns emails members share) and the
+ * account match (existing / new / already has a ticket). The admin chooses the
+ * ticket product and coupon and imports the ticked rows.
+ *
+ * Each imported person gets: a WordPress account (or their existing one, found
+ * by .WORLD ID, else email), a Completed WooCommerce order for the ticket with
+ * the coupon applied, and the event ticket row. No emails are sent.
+ *
+ * @package RT_Event_Manager
+ */
+
+defined('ABSPATH') || exit;
+
+class RT_Event_Manager_Group_Import {
+
+    /** @var RT_Event_Manager_Group_Import|null */
+    private static $instance = null;
+
+    const PAGE_SLUG = 'rt-event-manager-group-import';
+    const CAP       = 'manage_woocommerce';
+    const NONCE     = 'rti_group_import';
+    const API_PROD  = 'https://api.roundtable.world/v1/app/';
+    const API_DEMO  = 'https://api.roundtable-demo.world/v1/app/';
+    const TTL       = 7200; // token / preview lifetime (seconds)
+
+    public static function instance() {
+        if (null === self::$instance) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    private function __construct() {
+        add_action('admin_menu', array($this, 'add_admin_menu'), 61);
+        add_action('admin_init', array($this, 'handle_post'));
+        add_action('admin_post_rti_group_import_template', array($this, 'download_template'));
+    }
+
+    public function add_admin_menu() {
+        add_submenu_page(
+            'rt-event-manager',
+            __('Group Import', 'rt-event-manager'),
+            __('Group Import', 'rt-event-manager'),
+            self::CAP,
+            self::PAGE_SLUG,
+            array($this, 'render_page')
+        );
+    }
+
+    /* ---------------------------------------------------------------------
+     * Helpers
+     * ------------------------------------------------------------------- */
+
+    /** Family id → short code (same as tickets / wallet passes). */
+    public static function families() {
+        return array(
+            '0' => 'RT',
+            '1' => 'C41',
+            '2' => 'LC',
+            '3' => 'AC',
+            '4' => 'TC',
+        );
+    }
+
+    private static function family_names() {
+        return array(
+            '0' => __('Round Table', 'rt-event-manager'),
+            '1' => __('41 Club', 'rt-event-manager'),
+            '2' => __('Ladies Circle', 'rt-event-manager'),
+            '3' => __('Agora Club', 'rt-event-manager'),
+            '4' => __('Tangent Club', 'rt-event-manager'),
+        );
+    }
+
+    /** Parse "RT", "41", "C41", "Ladies Circle", "2" … into a family id ('' if unknown). */
+    private static function parse_family($value) {
+        $v = strtolower(trim((string) $value));
+        if ('' === $v) {
+            return '';
+        }
+        if (in_array($v, array('0', '1', '2', '3', '4'), true)) {
+            return $v;
+        }
+        $map = array(
+            'rt' => '0', 'round table' => '0', 'roundtable' => '0',
+            'c41' => '1', '41' => '1', '41 club' => '1', '41club' => '1', 'club 41' => '1',
+            'lc' => '2', 'ladies circle' => '2', 'ladiescircle' => '2',
+            'ac' => '3', 'agora' => '3', 'agora club' => '3',
+            'tc' => '4', 'tangent' => '4', 'tangent club' => '4',
+        );
+        return isset($map[$v]) ? $map[$v] : '';
+    }
+
+    private static function parse_country($value) {
+        $v = trim((string) $value);
+        if ('' === $v || !function_exists('WC') || !WC()->countries) {
+            return '';
+        }
+        $countries = WC()->countries->get_countries();
+        $up = strtoupper($v);
+        if (2 === strlen($up) && isset($countries[$up])) {
+            return $up;
+        }
+        foreach ($countries as $code => $name) {
+            if (0 === strcasecmp(html_entity_decode($name, ENT_QUOTES, 'UTF-8'), $v)) {
+                return $code;
+            }
+        }
+        return '';
+    }
+
+    private static function uid() {
+        return get_current_user_id();
+    }
+
+    private function page_url($args = array()) {
+        return add_query_arg(array_merge(array('page' => self::PAGE_SLUG), $args), admin_url('admin.php'));
+    }
+
+    private function redirect($args = array()) {
+        wp_safe_redirect($this->page_url($args));
+        exit;
+    }
+
+    private function flash($type, $message) {
+        set_transient('rti_gi_flash_' . self::uid(), array('type' => $type, 'message' => $message), 120);
+    }
+
+    /* ---------------------------------------------------------------------
+     * Per-admin state (preview rows, .WORLD session)
+     * ------------------------------------------------------------------- */
+
+    private function get_rows() {
+        $rows = get_transient('rti_gi_rows_' . self::uid());
+        return is_array($rows) ? $rows : array();
+    }
+
+    private function set_rows($rows, $source_label) {
+        set_transient('rti_gi_rows_' . self::uid(), array_values($rows), self::TTL);
+        set_transient('rti_gi_source_' . self::uid(), $source_label, self::TTL);
+    }
+
+    private function clear_rows() {
+        delete_transient('rti_gi_rows_' . self::uid());
+        delete_transient('rti_gi_source_' . self::uid());
+    }
+
+    private static function encrypt($plain) {
+        return class_exists('RT_Event_Manager_Helpdesk') ? RT_Event_Manager_Helpdesk::encrypt($plain) : base64_encode($plain);
+    }
+
+    private static function decrypt($cipher) {
+        return class_exists('RT_Event_Manager_Helpdesk') ? RT_Event_Manager_Helpdesk::decrypt($cipher) : base64_decode($cipher);
+    }
+
+    /** The admin's .WORLD API session: {token, base, name} or null. */
+    private function world_session() {
+        $raw = get_transient('rti_gi_world_' . self::uid());
+        if (!$raw) {
+            return null;
+        }
+        $data = json_decode((string) self::decrypt($raw), true);
+        return (is_array($data) && !empty($data['token'])) ? $data : null;
+    }
+
+    private function set_world_session($data) {
+        set_transient('rti_gi_world_' . self::uid(), self::encrypt(wp_json_encode($data)), self::TTL);
+    }
+
+    /* ---------------------------------------------------------------------
+     * .WORLD API
+     * ------------------------------------------------------------------- */
+
+    /**
+     * Call the .WORLD API. Returns decoded JSON or WP_Error.
+     *
+     * @param string     $method
+     * @param string     $path   Relative path, must end with "/".
+     * @param array|null $body
+     * @param array|null $session {token, base}; null for unauthenticated calls.
+     * @param string     $base   API base when no session is given.
+     */
+    private function api($method, $path, $body = null, $session = null, $base = '') {
+        $base = $session ? $session['base'] : ($base ? $base : self::API_PROD);
+        $args = array(
+            'method'  => $method,
+            'timeout' => 25,
+            'headers' => array(
+                'Accept'       => 'application/json',
+                'Content-Type' => 'application/json',
+            ),
+        );
+        if ($session) {
+            $args['headers']['Authorization'] = 'Token ' . $session['token'];
+        }
+        if (null !== $body) {
+            $args['body'] = wp_json_encode($body);
+        }
+        $res = wp_remote_request($base . ltrim($path, '/'), $args);
+        if (is_wp_error($res)) {
+            return $res;
+        }
+        $code = (int) wp_remote_retrieve_response_code($res);
+        $data = json_decode(wp_remote_retrieve_body($res), true);
+        if ($code >= 200 && $code < 300) {
+            return is_array($data) ? $data : array();
+        }
+        $msg = '';
+        if (is_array($data)) {
+            foreach (array('error_message', 'detail', 'error_code', 'message') as $k) {
+                if (!empty($data[$k]) && is_string($data[$k])) {
+                    $msg = $data[$k];
+                    break;
+                }
+            }
+        }
+        if (429 === $code) {
+            $msg = __('The .WORLD API rate limit was reached. Please wait a minute and try again.', 'rt-event-manager');
+        } elseif (403 === $code && '' === $msg) {
+            $msg = __('Access denied by .WORLD (your session may have expired, or you lack access to this level).', 'rt-event-manager');
+        }
+        $err_code = (is_array($data) && !empty($data['error_code'])) ? (string) $data['error_code'] : 'http_' . $code;
+        return new WP_Error($err_code, '' !== $msg ? $msg : sprintf(__('.WORLD API error (HTTP %d).', 'rt-event-manager'), $code));
+    }
+
+    /** Families (top-level organisations) — cached per session. */
+    private function world_families($session) {
+        $key = 'rti_gi_fam_' . md5($session['base']);
+        $cached = get_transient($key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+        $res = $this->api('GET', 'directory/all-families/', null, $session);
+        if (is_wp_error($res)) {
+            return $res;
+        }
+        $list = isset($res['results']) && is_array($res['results']) ? $res['results'] : $res;
+        set_transient($key, $list, HOUR_IN_SECONDS);
+        return $list;
+    }
+
+    /** First non-empty scalar among $keys in $arr. */
+    private static function pick($arr, $keys) {
+        foreach ($keys as $k) {
+            if (is_array($arr) && isset($arr[$k]) && is_scalar($arr[$k]) && '' !== trim((string) $arr[$k])) {
+                return trim((string) $arr[$k]);
+            }
+        }
+        return '';
+    }
+
+    /** Walk any nested profile data and collect values whose key matches. */
+    private static function collect($data, $needle, &$out, $key = '') {
+        if (is_array($data)) {
+            foreach ($data as $k => $v) {
+                self::collect($v, $needle, $out, is_string($k) ? $k : $key);
+            }
+        } elseif (is_scalar($data) && '' !== trim((string) $data) && false !== stripos($key, $needle)) {
+            $out[] = trim((string) $data);
+        }
+    }
+
+    /** Normalise one board entry → [id, first, last, function, club, club_domain]. */
+    private static function parse_board_entry($item) {
+        $person = (isset($item['member']) && is_array($item['member'])) ? $item['member'] : $item;
+        $function = '';
+        foreach (array('function', 'function_name', 'role', 'title', 'position') as $k) {
+            if (isset($item[$k])) {
+                $function = is_array($item[$k]) ? self::pick($item[$k], array('name', 'title')) : trim((string) $item[$k]);
+                if ('' !== $function) {
+                    break;
+                }
+            }
+        }
+        $level = (isset($person['level']) && is_array($person['level'])) ? $person['level'] : array();
+        $first = self::pick($person, array('first_name', 'firstname'));
+        $last  = self::pick($person, array('last_name', 'lastname'));
+        if ('' === $first && '' === $last) {
+            $parts = preg_split('/\s+/', self::pick($person, array('name', 'full_name')), 2);
+            $first = isset($parts[0]) ? $parts[0] : '';
+            $last  = isset($parts[1]) ? $parts[1] : '';
+        }
+        return array(
+            'world_id'    => self::pick($person, array('id', 'member_id', 'user_id')),
+            'first_name'  => $first,
+            'last_name'   => $last,
+            'function'    => $function,
+            'club'        => self::pick($level, array('name')),
+            'club_domain' => self::pick($level, array('subdomain')),
+            'path'        => self::pick($level, array('path')),
+        );
+    }
+
+    /**
+     * Association code from a .WORLD level path ("rt/be/92" → "be"). The
+     * plugin derives the association label from this code (see
+     * RT_Event_Manager::association_from_club()), as it does from a club
+     * subdomain ("92-be") for members who signed in with .WORLD.
+     */
+    private static function code_from_path($path) {
+        $parts = array_values(array_filter(explode('/', strtolower(trim((string) $path))), 'strlen'));
+        return isset($parts[1]) ? $parts[1] : '';
+    }
+
+    /** A member's club level (name, subdomain, path) via the member search. */
+    private function lookup_member_level($session, $world_id, $first, $last) {
+        $query = trim($first . ' ' . $last);
+        if ('' === $query) {
+            return array();
+        }
+        $res = $this->api('POST', 'members/search/', array('query' => $query, 'order_by' => 'last_name'), $session);
+        if (is_wp_error($res) || empty($res['results']) || !is_array($res['results'])) {
+            return array();
+        }
+        foreach ($res['results'] as $m) {
+            if (is_array($m) && isset($m['id']) && (string) $m['id'] === (string) $world_id && !empty($m['level']) && is_array($m['level'])) {
+                return $m['level'];
+            }
+        }
+        return array();
+    }
+
+    /**
+     * Load a level's board from .WORLD into preview rows.
+     *
+     * @return array|WP_Error Rows.
+     */
+    /** Club label for an international board: "RTI Board", "41I Board", "LCI Board", … */
+    public static function international_board_club($family) {
+        $map = array('0' => 'RTI', '1' => '41I', '2' => 'LCI', '3' => 'ACI', '4' => 'TCI');
+        $f   = (string) $family;
+        return trim((isset($map[$f]) ? $map[$f] : '') . ' ' . __('Board', 'rt-event-manager'));
+    }
+
+    /** Whether a function title is a (sitting) President — not Vice / Past. */
+    private static function is_president($function) {
+        $f = strtolower((string) $function);
+        return (bool) preg_match('/presid/u', $f)
+            && !preg_match('/vice|past|former|immediate|ipp|ehemalig|alt|vize|vice-|deputy/u', $f);
+    }
+
+    /**
+     * The President of each area below a level (areas are .WORLD levels with
+     * sync_level 2 — their presidents sit on the area's own board, not on the
+     * association board). Each entry is tagged with its area name.
+     *
+     * @return array Board entries.
+     */
+    private function area_president_entries($session, $level) {
+        $out = array();
+        foreach ((array) (isset($level['children']) ? $level['children'] : array()) as $child) {
+            if (!is_array($child) || empty($child['id'])) {
+                continue;
+            }
+            if (isset($child['sync_level']) && 2 !== (int) $child['sync_level']) {
+                continue; // a club or another non-area level
+            }
+            $area = $this->api('GET', 'directory/' . absint($child['id']) . '/', null, $session);
+            if (is_wp_error($area) || (isset($area['sync_level']) && 2 !== (int) $area['sync_level'])) {
+                continue;
+            }
+            $area_name = isset($area['name']) ? (string) $area['name'] : (isset($child['name']) ? (string) $child['name'] : '');
+            foreach ((array) (isset($area['board']) ? $area['board'] : array()) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $e = self::parse_board_entry($item);
+                if (self::is_president($e['function'])) {
+                    $item['_rti_area'] = $area_name;
+                    $out[] = $item;
+                }
+            }
+        }
+        return $out;
+    }
+
+    private function world_board_rows($session, $level_id, $with_assistants, $with_area_presidents = false) {
+        $level = $this->api('GET', 'directory/' . absint($level_id) . '/', null, $session);
+        if (is_wp_error($level)) {
+            return $level;
+        }
+        $family = isset($level['sync_family']) ? (string) absint($level['sync_family']) : '';
+        // Loading a national (association) board: everyone in it — including the
+        // area presidents below it — belongs to that association.
+        $assoc_code = '';
+        if (isset($level['sync_level']) && 3 === (int) $level['sync_level']) {
+            $assoc_code = self::pick($level, array('subdomain'));
+            if ('' === $assoc_code) {
+                $assoc_code = self::code_from_path(self::pick($level, array('path')));
+            }
+        }
+        // Loading an international (family-level) board: these members keep
+        // their home association (derived from their club below), but their
+        // club is "RTI Board" — locked so a later .WORLD sign-in does not
+        // replace it with their home club.
+        $is_international = isset($level['sync_level']) && 4 === (int) $level['sync_level'];
+        $board_club       = $is_international ? self::international_board_club($family) : '';
+        $board  = isset($level['board']) && is_array($level['board']) ? $level['board'] : array();
+        if ($with_assistants && !empty($level['board_assistants']) && is_array($level['board_assistants'])) {
+            $board = array_merge($board, $level['board_assistants']);
+        }
+        if ($with_area_presidents) {
+            $board = array_merge($board, $this->area_president_entries($session, $level));
+        }
+        if (empty($board)) {
+            return new WP_Error('empty', __('This level has no board members in .WORLD (or they are not visible to your account).', 'rt-event-manager'));
+        }
+
+        $rows = array();
+        $seen = array();
+        foreach ($board as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $e = self::parse_board_entry($item);
+            if ('' === $e['world_id'] || isset($seen[$e['world_id']])) {
+                continue;
+            }
+            if (!empty($item['_rti_area'])) {
+                // Area president: label with the area ("President — Area 5").
+                $e['function'] = trim(('' !== $e['function'] ? $e['function'] : __('President', 'rt-event-manager')) . ' — ' . $item['_rti_area']);
+            }
+            $seen[$e['world_id']] = true;
+
+            // Profile: names, shared email / phone (privacy-filtered by .WORLD).
+            $email = '';
+            $phone = '';
+            $profile = $this->api('GET', 'members/' . rawurlencode($e['world_id']) . '/', null, $session);
+            if (!is_wp_error($profile) && is_array($profile)) {
+                foreach ((array) (isset($profile['profile_categories']) ? $profile['profile_categories'] : array()) as $cat) {
+                    $vals = isset($cat['values']) ? $cat['values'] : array();
+                    if (isset($cat['code']) && 'personal' === $cat['code']) {
+                        $e['first_name'] = self::pick($vals, array('first_name')) ?: $e['first_name'];
+                        $e['last_name']  = self::pick($vals, array('last_name')) ?: $e['last_name'];
+                    }
+                }
+                $emails = array();
+                self::collect($profile, 'email', $emails);
+                foreach ($emails as $em) {
+                    if (is_email($em)) {
+                        $email = $em;
+                        break;
+                    }
+                }
+                $phones = array();
+                self::collect($profile, 'mobile', $phones);
+                if (empty($phones)) {
+                    self::collect($profile, 'phone', $phones);
+                }
+                foreach ($phones as $ph) {
+                    if (preg_match('/\d{5,}/', preg_replace('/\s+/', '', $ph))) {
+                        $phone = $ph;
+                        break;
+                    }
+                }
+            }
+
+            // Club / association code: from the board entry, else the national
+            // level being loaded, else the member's club via the member search.
+            $club_domain = $e['club_domain'];
+            if ('' === $club_domain && '' !== $e['path']) {
+                $club_domain = self::code_from_path($e['path']);
+            }
+            if ('' === $club_domain && '' !== $assoc_code) {
+                $club_domain = $assoc_code;
+            }
+            if ('' === $club_domain || '' === $e['club']) {
+                $lvl = $this->lookup_member_level($session, $e['world_id'], $e['first_name'], $e['last_name']);
+                if (!empty($lvl)) {
+                    if ('' === $e['club']) {
+                        $e['club'] = self::pick($lvl, array('name'));
+                    }
+                    if ('' === $club_domain) {
+                        $club_domain = self::pick($lvl, array('subdomain'));
+                        if ('' === $club_domain) {
+                            $club_domain = self::code_from_path(self::pick($lvl, array('path')));
+                        }
+                    }
+                }
+            }
+
+            $intl = $is_international && empty($item['_rti_area']);
+            $rows[] = array(
+                'world_id'    => $e['world_id'],
+                'first_name'  => $e['first_name'],
+                'last_name'   => $e['last_name'],
+                'email'       => $email,
+                'phone'       => $phone,
+                'family'      => $family,
+                'club'        => $intl ? $board_club : $e['club'],
+                'club_domain' => $club_domain,
+                'association' => '',
+                'org_lock'    => $intl ? 1 : 0,
+                'function'    => $e['function'],
+                'country'     => '',
+            );
+        }
+        return $rows;
+    }
+
+    /* ---------------------------------------------------------------------
+     * Excel / CSV
+     * ------------------------------------------------------------------- */
+
+    private static function header_map() {
+        return array(
+            'first_name' => array('first name', 'firstname', 'first', 'vorname', 'prénom', 'prenom', 'given name'),
+            'last_name'  => array('last name', 'lastname', 'last', 'surname', 'nachname', 'nom', 'family name'),
+            'email'      => array('email', 'e-mail', 'mail', 'email address', 'e-mail address'),
+            'world_id'   => array('.world id', 'world id', 'world_id', 'worldid', '.world', 'member id'),
+            'family'     => array('family', 'organisation', 'organization', 'familie'),
+            'club'       => array('club'),
+            'association' => array('association', 'national association', 'verband', 'association nationale'),
+            'function'   => array('function', 'role', 'position', 'funktion'),
+            'phone'      => array('phone', 'mobile', 'telephone', 'telefon', 'phone number'),
+            'country'    => array('country', 'land', 'pays'),
+        );
+    }
+
+    /** @return array|WP_Error Rows parsed from an uploaded sheet. */
+    private function excel_rows($file) {
+        if (!class_exists('\PhpOffice\PhpSpreadsheet\IOFactory')) {
+            return new WP_Error('lib', __('The spreadsheet library is missing (vendor/ not installed).', 'rt-event-manager'));
+        }
+        $ext = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, array('xlsx', 'xls', 'csv'), true)) {
+            return new WP_Error('type', __('Please upload an .xlsx, .xls or .csv file.', 'rt-event-manager'));
+        }
+        try {
+            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReader('csv' === $ext ? 'Csv' : ('xls' === $ext ? 'Xls' : 'Xlsx'));
+            $reader->setReadDataOnly(true);
+            $sheet = $reader->load($file['tmp_name'])->getActiveSheet()->toArray(null, true, true, false);
+        } catch (\Throwable $e) {
+            return new WP_Error('read', sprintf(__('Could not read the file: %s', 'rt-event-manager'), $e->getMessage()));
+        }
+        if (count($sheet) < 2) {
+            return new WP_Error('empty', __('The file has no data rows.', 'rt-event-manager'));
+        }
+
+        // Map columns by header name.
+        $cols = array();
+        foreach ((array) $sheet[0] as $i => $h) {
+            $h = strtolower(trim((string) $h));
+            foreach (self::header_map() as $field => $aliases) {
+                if (in_array($h, $aliases, true) && !isset($cols[$field])) {
+                    $cols[$field] = $i;
+                }
+            }
+        }
+        if (!isset($cols['first_name'], $cols['last_name'], $cols['email'])) {
+            return new WP_Error('headers', __('The first row must contain at least the columns "First name", "Last name" and "Email". Download the template for the expected layout.', 'rt-event-manager'));
+        }
+
+        $rows = array();
+        for ($r = 1; $r < count($sheet); $r++) {
+            $line = $sheet[$r];
+            $get = function ($f) use ($cols, $line) {
+                return isset($cols[$f], $line[$cols[$f]]) ? trim((string) $line[$cols[$f]]) : '';
+            };
+            if ('' === $get('first_name') . $get('last_name') . $get('email')) {
+                continue; // blank line
+            }
+            $rows[] = array(
+                'world_id'    => $get('world_id'),
+                'first_name'  => $get('first_name'),
+                'last_name'   => $get('last_name'),
+                'email'       => sanitize_email($get('email')),
+                'phone'       => $get('phone'),
+                'family'      => self::parse_family($get('family')),
+                'club'        => $get('club'),
+                'club_domain' => '',
+                'association' => $get('association'),
+                'org_lock'    => preg_match('/\bboard\s*$/i', $get('club')) ? 1 : 0,
+                'function'    => $get('function'),
+                'country'     => self::parse_country($get('country')),
+            );
+        }
+        return $rows;
+    }
+
+    public function download_template() {
+        if (!current_user_can(self::CAP)) {
+            wp_die(esc_html__('Not allowed.', 'rt-event-manager'));
+        }
+        check_admin_referer(self::NONCE);
+        if (!class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+            wp_die(esc_html__('The spreadsheet library is missing (vendor/ not installed).', 'rt-event-manager'));
+        }
+        $book  = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $book->getActiveSheet();
+        $sheet->setTitle('Group import');
+        $sheet->fromArray(array(
+            array('First name', 'Last name', 'Email', '.WORLD ID', 'Family', 'Club', 'Association', 'Function', 'Phone', 'Country'),
+            array('Jane', 'Example', 'jane@example.org', '', 'RT', 'RT 1 Example', 'RT Switzerland', 'President', '+41 79 000 00 00', 'CH'),
+        ), null, 'A1');
+        $sheet->getStyle('A1:J1')->getFont()->setBold(true);
+        foreach (range('A', 'J') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+        nocache_headers();
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="group-import-template.xlsx"');
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($book);
+        $writer->save('php://output');
+        exit;
+    }
+
+    /* ---------------------------------------------------------------------
+     * Account matching
+     * ------------------------------------------------------------------- */
+
+    /** Existing user for a row: by .WORLD ID, else by email. */
+    private static function find_user($row) {
+        if (!empty($row['world_id'])) {
+            $ids = get_users(array(
+                'meta_key'   => 'world_id',
+                'meta_value' => (string) $row['world_id'],
+                'number'     => 1,
+                'fields'     => 'ID',
+            ));
+            if (!empty($ids)) {
+                return get_userdata((int) $ids[0]);
+            }
+        }
+        if (!empty($row['email']) && is_email($row['email'])) {
+            $u = get_user_by('email', $row['email']);
+            if ($u) {
+                return $u;
+            }
+        }
+        return null;
+    }
+
+    /* ---------------------------------------------------------------------
+     * POST handling (Post/Redirect/Get)
+     * ------------------------------------------------------------------- */
+
+    public function handle_post() {
+        if (empty($_POST['rti_gi_action']) || !isset($_GET['page']) || self::PAGE_SLUG !== $_GET['page']) {
+            return;
+        }
+        if (!current_user_can(self::CAP)) {
+            wp_die(esc_html__('Not allowed.', 'rt-event-manager'));
+        }
+        check_admin_referer(self::NONCE);
+        $action = sanitize_key(wp_unslash($_POST['rti_gi_action']));
+
+        switch ($action) {
+            case 'world_login':
+                $this->post_world_login();
+                break;
+            case 'world_logout':
+                delete_transient('rti_gi_world_' . self::uid());
+                $this->flash('success', __('Signed out of .WORLD.', 'rt-event-manager'));
+                $this->redirect(array('source' => 'world'));
+                break;
+            case 'world_board':
+                $this->post_world_board();
+                break;
+            case 'excel_upload':
+                $this->post_excel_upload();
+                break;
+            case 'import':
+                $this->post_import();
+                break;
+            case 'clear':
+                $this->clear_rows();
+                $this->redirect();
+                break;
+        }
+    }
+
+    private function post_world_login() {
+        $username = isset($_POST['world_username']) ? sanitize_text_field(wp_unslash($_POST['world_username'])) : '';
+        $password = isset($_POST['world_password']) ? (string) wp_unslash($_POST['world_password']) : '';
+        $family   = isset($_POST['world_family']) ? absint($_POST['world_family']) : 0;
+        $tfa      = isset($_POST['world_tfa']) ? sanitize_text_field(wp_unslash($_POST['world_tfa'])) : '';
+        $base     = (isset($_POST['world_env']) && 'demo' === $_POST['world_env']) ? self::API_DEMO : self::API_PROD;
+
+        if ('' === $username || '' === $password) {
+            $this->flash('error', __('Please enter your .WORLD username and password.', 'rt-event-manager'));
+            $this->redirect(array('source' => 'world'));
+        }
+        $res = $this->api('POST', 'login/', array(
+            'username'    => $username,
+            'password'    => $password,
+            'sync_family' => $family,
+            'tfa_code'    => $tfa,
+        ), null, $base);
+        unset($password);
+
+        if (is_wp_error($res)) {
+            $msg = ('tfa_required' === $res->get_error_code())
+                ? __('Your .WORLD account uses two-factor authentication — please enter the current 2FA code.', 'rt-event-manager')
+                : $res->get_error_message();
+            $this->flash('error', $msg);
+            $this->redirect(array('source' => 'world'));
+        }
+        if (empty($res['global_auth_token'])) {
+            $this->flash('error', __('.WORLD did not return an access token.', 'rt-event-manager'));
+            $this->redirect(array('source' => 'world'));
+        }
+        $me = isset($res['me']) && is_array($res['me']) ? $res['me'] : array();
+        $this->set_world_session(array(
+            'token' => (string) $res['global_auth_token'],
+            'base'  => $base,
+            'name'  => trim(self::pick($me, array('first_name')) . ' ' . self::pick($me, array('last_name'))),
+        ));
+        $this->flash('success', __('Signed in to .WORLD.', 'rt-event-manager'));
+        $this->redirect(array('source' => 'world'));
+    }
+
+    private function post_world_board() {
+        $session = $this->world_session();
+        if (!$session) {
+            $this->flash('error', __('Your .WORLD session has expired — please sign in again.', 'rt-event-manager'));
+            $this->redirect(array('source' => 'world'));
+        }
+        $level = isset($_POST['world_level_manual']) ? absint($_POST['world_level_manual']) : 0;
+        if (!$level && isset($_POST['world_level'])) {
+            $level = absint($_POST['world_level']);
+        }
+        if (!$level) {
+            $this->flash('error', __('Please choose a level.', 'rt-event-manager'));
+            $this->redirect(array('source' => 'world'));
+        }
+        $rows = $this->world_board_rows($session, $level, !empty($_POST['world_assistants']), !empty($_POST['world_area_presidents']));
+        if (is_wp_error($rows)) {
+            if ('http_403' === $rows->get_error_code()) {
+                delete_transient('rti_gi_world_' . self::uid());
+            }
+            $this->flash('error', $rows->get_error_message());
+            $this->redirect(array('source' => 'world'));
+        }
+        $label = isset($_POST['world_level_label']) ? sanitize_text_field(wp_unslash($_POST['world_level_label'])) : '';
+        $this->set_rows($rows, sprintf(__('.WORLD board: %s', 'rt-event-manager'), '' !== $label ? $label : '#' . $level));
+        $this->redirect();
+    }
+
+    private function post_excel_upload() {
+        if (empty($_FILES['rti_gi_file']) || !empty($_FILES['rti_gi_file']['error'])) {
+            $this->flash('error', __('Please choose a file to upload.', 'rt-event-manager'));
+            $this->redirect(array('source' => 'excel'));
+        }
+        $rows = $this->excel_rows($_FILES['rti_gi_file']);
+        if (is_wp_error($rows)) {
+            $this->flash('error', $rows->get_error_message());
+            $this->redirect(array('source' => 'excel'));
+        }
+        $this->set_rows($rows, sprintf(__('Spreadsheet: %s', 'rt-event-manager'), sanitize_file_name($_FILES['rti_gi_file']['name'])));
+        $this->redirect();
+    }
+
+    /* ---------------------------------------------------------------------
+     * Import
+     * ------------------------------------------------------------------- */
+
+    private function post_import() {
+        $rows       = $this->get_rows();
+        $selected   = isset($_POST['rti_gi_sel']) ? array_map('absint', (array) $_POST['rti_gi_sel']) : array();
+        $emails     = isset($_POST['rti_gi_email']) ? (array) wp_unslash($_POST['rti_gi_email']) : array();
+        $delegates  = isset($_POST['rti_gi_delegate']) ? array_map('absint', array_keys((array) $_POST['rti_gi_delegate'])) : array();
+        $product_id = isset($_POST['rti_gi_product']) ? absint($_POST['rti_gi_product']) : 0;
+        $coupon     = isset($_POST['rti_gi_coupon']) ? wc_format_coupon_code(wp_unslash($_POST['rti_gi_coupon'])) : '';
+        $product    = $product_id ? wc_get_product($product_id) : null;
+
+        if (empty($rows) || empty($selected)) {
+            $this->flash('error', __('Please tick at least one person to import.', 'rt-event-manager'));
+            $this->redirect();
+        }
+        if (!$product || !RT_Event_Manager::is_ticket_product($product_id) || 'event' !== RT_Event_Manager::get_ticket_kind_for_product($product_id)) {
+            $this->flash('error', __('Please choose the event ticket product.', 'rt-event-manager'));
+            $this->redirect();
+        }
+        if ('' === $coupon || !wc_get_coupon_id_by_code($coupon)) {
+            $this->flash('error', __('Please choose a valid coupon.', 'rt-event-manager'));
+            $this->redirect();
+        }
+
+        // Keep edited emails on the rows (so a failed run can be retried).
+        foreach ($emails as $i => $em) {
+            $i = absint($i);
+            if (isset($rows[$i])) {
+                $rows[$i]['email'] = sanitize_email($em);
+            }
+        }
+        $this->set_rows($rows, (string) get_transient('rti_gi_source_' . self::uid()));
+
+        $batch   = 'GI-' . current_time('Ymd-His');
+        $results = array();
+        $this->mute_emails(true);
+        foreach ($selected as $i) {
+            if (!isset($rows[$i])) {
+                continue;
+            }
+            $results[] = $this->import_row($rows[$i], $product, $coupon, $batch, in_array($i, $delegates, true));
+        }
+        $this->mute_emails(false);
+
+        set_transient('rti_gi_result_' . self::uid(), array('batch' => $batch, 'rows' => $results), self::TTL);
+        $this->redirect(array('done' => 1));
+    }
+
+    /** Suppress WooCommerce emails while importing (no notifications). */
+    private function mute_emails($on) {
+        $ids = array('new_order', 'customer_processing_order', 'customer_completed_order', 'customer_on_hold_order', 'customer_invoice', 'customer_new_account', 'customer_note');
+        foreach ($ids as $id) {
+            if ($on) {
+                add_filter('woocommerce_email_enabled_' . $id, '__return_false', 999);
+            } else {
+                remove_filter('woocommerce_email_enabled_' . $id, '__return_false', 999);
+            }
+        }
+    }
+
+    /**
+     * Import one person: account + Completed order (with coupon) + ticket.
+     *
+     * @return array {name, email, outcome: created|linked|skipped|error, message, user_id, order_id}
+     */
+    private function import_row($row, $product, $coupon, $batch, $make_delegate = false) {
+        $name = trim($row['first_name'] . ' ' . $row['last_name']);
+        $out  = array('name' => $name, 'email' => $row['email'], 'outcome' => 'error', 'message' => '', 'user_id' => 0, 'order_id' => 0);
+
+        if ('' === $name) {
+            $out['message'] = __('No name.', 'rt-event-manager');
+            return $out;
+        }
+        if (empty($row['email']) || !is_email($row['email'])) {
+            $out['message'] = __('No valid email address.', 'rt-event-manager');
+            return $out;
+        }
+
+        // 1) Account: existing (by .WORLD ID, else email) or new.
+        $user    = self::find_user($row);
+        $created = false;
+        if (!$user) {
+            $login = sanitize_user(current(explode('@', $row['email'])), true);
+            if ('' === $login) {
+                $login = 'member';
+            }
+            $base_login = $login;
+            $n = 1;
+            while (username_exists($login)) {
+                $login = $base_login . $n++;
+            }
+            $uid = wp_insert_user(array(
+                'user_login'           => $login,
+                'user_email'           => $row['email'],
+                'user_pass'            => wp_generate_password(24, true, true),
+                'first_name'           => $row['first_name'],
+                'last_name'            => $row['last_name'],
+                'display_name'         => $name,
+                'role'                 => get_role('customer') ? 'customer' : get_option('default_role', 'subscriber'),
+                'show_admin_bar_front' => false,
+            ));
+            if (is_wp_error($uid)) {
+                $out['message'] = $uid->get_error_message();
+                return $out;
+            }
+            $user    = get_userdata($uid);
+            $created = true;
+        }
+        $uid = (int) $user->ID;
+        $out['user_id'] = $uid;
+
+        // Profile data: fill gaps only, never overwrite what the member has.
+        $meta = array(
+            'world_id'           => $row['world_id'],
+            'rti_family'         => $row['family'],
+            'rti_club'           => $row['club'],
+            'rti_club_domain'    => $row['club_domain'],
+            'rti_association'    => isset($row['association']) ? $row['association'] : '',
+            'rti_function'       => $row['function'],
+            'billing_first_name' => $row['first_name'],
+            'billing_last_name'  => $row['last_name'],
+            'billing_email'      => $row['email'],
+            'billing_phone'      => $row['phone'],
+            'billing_country'    => $row['country'],
+        );
+        foreach ($meta as $k => $v) {
+            if ('' !== (string) $v && '' === (string) get_user_meta($uid, $k, true)) {
+                update_user_meta($uid, $k, $v);
+            }
+        }
+        if ($created) {
+            update_user_meta($uid, 'rti_group_import', $batch);
+        }
+
+        // International board: club "RTI Board" (always set, even on existing
+        // accounts) and locked against .WORLD sign-in. The association stays
+        // their home association.
+        if (!empty($row['org_lock'])) {
+            update_user_meta($uid, 'rti_club', '' !== $row['club'] ? $row['club'] : self::international_board_club($row['family']));
+            update_user_meta($uid, 'rti_org_locked', 'yes');
+            // Undo an earlier "… International" association label.
+            if (preg_match('/\binternational\s*$/i', (string) get_user_meta($uid, 'rti_association', true))) {
+                if ('' !== (string) $row['association']) {
+                    update_user_meta($uid, 'rti_association', $row['association']);
+                } else {
+                    delete_user_meta($uid, 'rti_association');
+                }
+            }
+            // Keep their existing event ticket in step (re-runs of the import).
+            global $wpdb;
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->prefix}rti_tickets SET rti_club = %s, association = %s
+                 WHERE owner_user_id = %d AND ticket_kind = 'event' AND parent_ticket_id = 0 AND LOWER(holder_name) = LOWER(%s)",
+                (string) get_user_meta($uid, 'rti_club', true), RT_Event_Manager::delegate_user_association($uid), $uid, $name
+            ));
+        }
+
+        // Delegate (ticked in the preview): same rules as RT Event → Delegates.
+        // Unticked never removes an existing delegate status.
+        $delegate_note = '';
+        if ($make_delegate) {
+            if ('delegate' === RT_Event_Manager::get_delegate_status($uid)) {
+                $delegate_note = __('Already a delegate.', 'rt-event-manager');
+            } elseif (method_exists('RT_Event_Manager', 'can_manage_delegate') && !RT_Event_Manager::can_manage_delegate()) {
+                $delegate_note = __('Not set as delegate: you are not allowed to manage delegates.', 'rt-event-manager');
+            } else {
+                $reason = RT_Event_Manager::delegate_block_reason($uid);
+                if ('' === $reason) {
+                    update_user_meta($uid, 'rti_delegate', 'delegate');
+                    delete_user_meta($uid, 'rti_delegate_requested');
+                    $delegate_note = __('Set as delegate.', 'rt-event-manager');
+                } else {
+                    /* translators: %s: reason */
+                    $delegate_note = sprintf(__('Not set as delegate: %s', 'rt-event-manager'), $reason);
+                }
+            }
+        }
+        $out['message'] = $delegate_note;
+
+        // 2) Already holds an event ticket → nothing to do.
+        if (RT_Event_Manager::instance()->user_has_event_ticket($uid)) {
+            $out['outcome'] = 'skipped';
+            $out['message'] = trim(__('Already has an event ticket.', 'rt-event-manager') . ' ' . $delegate_note);
+            return $out;
+        }
+
+        // 3) Order with the ticket, coupon applied, Completed.
+        try {
+            $order = wc_create_order(array('customer_id' => $uid, 'created_via' => 'rt-group-import'));
+            if (is_wp_error($order)) {
+                throw new \Exception($order->get_error_message());
+            }
+            $order->add_product($product, 1);
+            $order->set_billing_first_name($row['first_name']);
+            $order->set_billing_last_name($row['last_name']);
+            $order->set_billing_email($row['email']);
+            if ('' !== $row['phone']) {
+                $order->set_billing_phone($row['phone']);
+            }
+            if ('' !== $row['country']) {
+                $order->set_billing_country($row['country']);
+            }
+            $order->calculate_totals();
+            $applied = $order->apply_coupon($coupon);
+            if (is_wp_error($applied)) {
+                throw new \Exception($applied->get_error_message());
+            }
+            $order->calculate_totals();
+            if ((float) $order->get_total() > 0.0) {
+                throw new \Exception(sprintf(
+                    /* translators: %s: remaining amount */
+                    __('The coupon leaves %s to pay, so the order was not created. Use a coupon that covers the full ticket price.', 'rt-event-manager'),
+                    wp_strip_all_tags(wc_price($order->get_total(), array('currency' => $order->get_currency())))
+                ));
+            }
+            $order->set_payment_method_title(__('Group import (coupon)', 'rt-event-manager'));
+            $order->update_meta_data('_rti_group_import', $batch);
+            $order->save();
+            $order->update_status('completed', sprintf(__('Created by Group Import (%s).', 'rt-event-manager'), $batch));
+        } catch (\Exception $e) {
+            if (isset($order) && $order instanceof WC_Order && $order->get_id()) {
+                $order->delete(true);
+            }
+            $out['message'] = trim($e->getMessage() . ' ' . $delegate_note);
+            return $out;
+        }
+        $out['order_id'] = $order->get_id();
+
+        // 4) The ticket row, owned by the member.
+        $world_id = (string) get_user_meta($uid, 'world_id', true);
+        $assoc    = method_exists('RT_Event_Manager', 'delegate_user_association') ? RT_Event_Manager::delegate_user_association($uid) : '';
+        RT_Event_Manager::instance()->create_ticket_row(array(
+            'order_id'      => $order->get_id(),
+            'product_id'    => $product->get_id(),
+            'ticket_kind'   => 'event',
+            'ticket_index'  => 0,
+            'holder_name'   => $name,
+            'phone'         => $row['phone'],
+            'rti_family'    => (string) get_user_meta($uid, 'rti_family', true),
+            'rti_club'      => (string) get_user_meta($uid, 'rti_club', true),
+            'association'   => $assoc,
+            'function_role' => (string) get_user_meta($uid, 'rti_function', true),
+            'world_id'      => $world_id,
+            'qr_code_url'   => '' !== $world_id ? 'tablerworld:///member?id=' . $world_id : '',
+            'status'        => rt_event_manager_determine_ticket_status($order, $name),
+            'owner_user_id' => $uid,
+        ));
+
+        $out['outcome'] = $created ? 'created' : 'linked';
+        return $out;
+    }
+
+    /* ---------------------------------------------------------------------
+     * Page
+     * ------------------------------------------------------------------- */
+
+    /** Event ticket products for the product picker (main admissions first). */
+    private function ticket_products() {
+        $ids = get_posts(array(
+            'post_type'      => 'product',
+            'post_status'    => array('publish', 'private'),
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+        ));
+        $out = array();
+        foreach ($ids as $id) {
+            if (RT_Event_Manager::is_ticket_product($id) && 'event' === RT_Event_Manager::get_ticket_kind_for_product($id)) {
+                $out[] = wc_get_product($id);
+            }
+        }
+        usort($out, function ($a, $b) {
+            $ma = RT_Event_Manager::is_main_admission_product($a->get_id()) ? 0 : 1;
+            $mb = RT_Event_Manager::is_main_admission_product($b->get_id()) ? 0 : 1;
+            return $ma <=> $mb;
+        });
+        return array_filter($out);
+    }
+
+    private function coupons() {
+        return get_posts(array(
+            'post_type'      => 'shop_coupon',
+            'post_status'    => 'publish',
+            'posts_per_page' => 200,
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+        ));
+    }
+
+    /**
+     * Loading indicator: a form marked data-rti-loading shows a spinner and its
+     * message next to the submit button, and its buttons are disabled so the
+     * (slow) .WORLD queries / import are not submitted twice.
+     */
+    private function loading_script() {
+        ?>
+        <style>
+            .rti-gi-loading { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; color: #50575e; font-style: italic; vertical-align: middle; }
+            .rti-gi-loading .spinner { float: none; margin: 0; visibility: visible; }
+        </style>
+        <script>
+        document.addEventListener('submit', function (e) {
+            var form = e.target;
+            if (!form || !form.getAttribute || !form.hasAttribute('data-rti-loading')) { return; }
+            if (form.getAttribute('data-rti-busy')) { e.preventDefault(); return; }
+            form.setAttribute('data-rti-busy', '1');
+            var btn = e.submitter || form.querySelector('[type="submit"]');
+            var note = document.createElement('span');
+            note.className = 'rti-gi-loading';
+            note.setAttribute('role', 'status');
+            note.innerHTML = '<span class="spinner is-active"></span>';
+            note.appendChild(document.createTextNode(form.getAttribute('data-rti-loading')));
+            if (btn && btn.parentNode) { btn.parentNode.insertBefore(note, btn.nextSibling); } else { form.appendChild(note); }
+            // Disable after the submit has been captured, so the button's value is still sent.
+            setTimeout(function () {
+                Array.prototype.forEach.call(form.querySelectorAll('button, input[type="submit"]'), function (b) { b.disabled = true; });
+            }, 0);
+        }, true);
+        </script>
+        <?php
+    }
+
+    public function render_page() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+        $this->loading_script();
+        $source = isset($_GET['source']) && 'excel' === $_GET['source'] ? 'excel' : 'world';
+        $rows   = $this->get_rows();
+
+        echo '<div class="wrap rti-group-import"><h1>' . esc_html__('Group Import', 'rt-event-manager') . '</h1>';
+        echo '<p class="description" style="max-width:780px">' . esc_html__('Import a group — for example an international board — from .WORLD or a spreadsheet. Each ticked person gets an account and a full event ticket on a Completed order paid by the coupon you choose. No emails are sent. When they sign in with .WORLD they find their account and ticket.', 'rt-event-manager') . '</p>';
+
+        $flash = get_transient('rti_gi_flash_' . self::uid());
+        if ($flash) {
+            delete_transient('rti_gi_flash_' . self::uid());
+            echo '<div class="notice notice-' . ('error' === $flash['type'] ? 'error' : 'success') . ' is-dismissible"><p>' . esc_html($flash['message']) . '</p></div>';
+        }
+
+        if (!empty($_GET['done'])) {
+            $this->render_results();
+        }
+
+        if (!empty($rows)) {
+            $this->render_preview($rows);
+            echo '</div>';
+            return;
+        }
+
+        echo '<h2 class="nav-tab-wrapper">';
+        echo '<a class="nav-tab' . ('world' === $source ? ' nav-tab-active' : '') . '" href="' . esc_url($this->page_url(array('source' => 'world'))) . '">' . esc_html__('From .WORLD', 'rt-event-manager') . '</a>';
+        echo '<a class="nav-tab' . ('excel' === $source ? ' nav-tab-active' : '') . '" href="' . esc_url($this->page_url(array('source' => 'excel'))) . '">' . esc_html__('From Excel / CSV', 'rt-event-manager') . '</a>';
+        echo '</h2>';
+
+        if ('excel' === $source) {
+            $this->render_excel_form();
+        } else {
+            $this->render_world_form();
+        }
+        echo '</div>';
+    }
+
+    private function render_world_form() {
+        $session = $this->world_session();
+        if (!$session) {
+            echo '<h3>' . esc_html__('Sign in to .WORLD', 'rt-event-manager') . '</h3>';
+            echo '<p class="description" style="max-width:780px">' . esc_html__('Sign in with your own .WORLD account to read board members through the .WORLD API. Your password is sent to .WORLD only and is not stored; the access token is kept encrypted for 2 hours for your admin account.', 'rt-event-manager') . '</p>';
+            echo '<form method="post" action="' . esc_url($this->page_url(array('source' => 'world'))) . '" autocomplete="off" data-rti-loading="' . esc_attr__('Signing in to .WORLD…', 'rt-event-manager') . '">';
+            wp_nonce_field(self::NONCE);
+            echo '<input type="hidden" name="rti_gi_action" value="world_login" />';
+            echo '<table class="form-table" role="presentation">';
+            echo '<tr><th><label for="world_family">' . esc_html__('Family', 'rt-event-manager') . '</label></th><td><select name="world_family" id="world_family">';
+            foreach (self::family_names() as $id => $label) {
+                echo '<option value="' . esc_attr($id) . '">' . esc_html($label) . '</option>';
+            }
+            echo '</select></td></tr>';
+            echo '<tr><th><label for="world_username">' . esc_html__('.WORLD username', 'rt-event-manager') . '</label></th><td><input type="text" name="world_username" id="world_username" class="regular-text" autocomplete="username" /></td></tr>';
+            echo '<tr><th><label for="world_password">' . esc_html__('Password', 'rt-event-manager') . '</label></th><td><input type="password" name="world_password" id="world_password" class="regular-text" autocomplete="current-password" /></td></tr>';
+            echo '<tr><th><label for="world_tfa">' . esc_html__('2FA code', 'rt-event-manager') . '</label></th><td><input type="text" name="world_tfa" id="world_tfa" class="small-text" inputmode="numeric" autocomplete="one-time-code" /> <span class="description">' . esc_html__('Only if your .WORLD account uses two-factor authentication.', 'rt-event-manager') . '</span></td></tr>';
+            echo '<tr><th>' . esc_html__('Environment', 'rt-event-manager') . '</th><td><label><input type="radio" name="world_env" value="prod" checked /> ' . esc_html__('Production', 'rt-event-manager') . '</label> &nbsp; <label><input type="radio" name="world_env" value="demo" /> ' . esc_html__('Demo (testing)', 'rt-event-manager') . '</label></td></tr>';
+            echo '</table>';
+            submit_button(__('Sign in to .WORLD', 'rt-event-manager'));
+            echo '</form>';
+            return;
+        }
+
+        // Signed in: choose family → level → load board.
+        echo '<form method="post" action="' . esc_url($this->page_url(array('source' => 'world'))) . '" style="margin:12px 0">';
+        wp_nonce_field(self::NONCE);
+        echo '<input type="hidden" name="rti_gi_action" value="world_logout" />';
+        echo '<p>' . esc_html(sprintf(__('Signed in to .WORLD as %s.', 'rt-event-manager'), '' !== $session['name'] ? $session['name'] : __('your account', 'rt-event-manager')))
+            . (self::API_DEMO === $session['base'] ? ' <strong>' . esc_html__('(Demo)', 'rt-event-manager') . '</strong>' : '')
+            . ' <button class="button button-small">' . esc_html__('Sign out', 'rt-event-manager') . '</button></p>';
+        echo '</form>';
+
+        $families = $this->world_families($session);
+        if (is_wp_error($families)) {
+            echo '<div class="notice notice-error"><p>' . esc_html($families->get_error_message()) . '</p></div>';
+            $families = array();
+        }
+        $fam_level = isset($_GET['family_level']) ? absint($_GET['family_level']) : 0;
+
+        // Step 1: family (international level).
+        echo '<form method="get" action="' . esc_url(admin_url('admin.php')) . '" data-rti-loading="' . esc_attr__('Loading levels from .WORLD…', 'rt-event-manager') . '">';
+        echo '<input type="hidden" name="page" value="' . esc_attr(self::PAGE_SLUG) . '" /><input type="hidden" name="source" value="world" />';
+        echo '<p><label for="family_level"><strong>' . esc_html__('Family', 'rt-event-manager') . '</strong></label> <select name="family_level" id="family_level">';
+        echo '<option value="">' . esc_html__('— Choose —', 'rt-event-manager') . '</option>';
+        foreach ((array) $families as $f) {
+            if (!is_array($f) || empty($f['id'])) {
+                continue;
+            }
+            echo '<option value="' . esc_attr($f['id']) . '"' . selected($fam_level, (int) $f['id'], false) . '>' . esc_html(isset($f['name']) ? $f['name'] : ('#' . $f['id'])) . '</option>';
+        }
+        echo '</select> <button class="button">' . esc_html__('Show levels', 'rt-event-manager') . '</button></p>';
+        echo '</form>';
+
+        if (!$fam_level) {
+            return;
+        }
+
+        // Step 2: level (the international level itself, or a child such as a national association).
+        $level = $this->api('GET', 'directory/' . $fam_level . '/', null, $session);
+        if (is_wp_error($level)) {
+            echo '<div class="notice notice-error"><p>' . esc_html($level->get_error_message()) . '</p></div>';
+            return;
+        }
+        $fam_name = isset($level['name']) ? (string) $level['name'] : ('#' . $fam_level);
+        echo '<form method="post" action="' . esc_url($this->page_url(array('source' => 'world'))) . '" data-rti-loading="' . esc_attr__('Loading the board from .WORLD — this can take up to a minute with area presidents…', 'rt-event-manager') . '">';
+        wp_nonce_field(self::NONCE);
+        echo '<input type="hidden" name="rti_gi_action" value="world_board" />';
+        echo '<table class="form-table" role="presentation">';
+        echo '<tr><th><label for="world_level">' . esc_html__('Board of', 'rt-event-manager') . '</label></th><td><select name="world_level" id="world_level" onchange="this.form.world_level_label.value=this.options[this.selectedIndex].text">';
+        echo '<option value="' . esc_attr($fam_level) . '">' . esc_html(sprintf(__('%s (international board)', 'rt-event-manager'), $fam_name)) . '</option>';
+        foreach ((array) (isset($level['children']) ? $level['children'] : array()) as $c) {
+            if (is_array($c) && !empty($c['id'])) {
+                echo '<option value="' . esc_attr($c['id']) . '">' . esc_html(isset($c['name']) ? $c['name'] : ('#' . $c['id'])) . '</option>';
+            }
+        }
+        echo '</select><input type="hidden" name="world_level_label" value="' . esc_attr(sprintf(__('%s (international board)', 'rt-event-manager'), $fam_name)) . '" />';
+        echo '<p class="description">' . esc_html__('Or enter a .WORLD level ID directly:', 'rt-event-manager') . ' <input type="number" name="world_level_manual" class="small-text" min="1" /></p></td></tr>';
+        echo '<tr><th>' . esc_html__('Include', 'rt-event-manager') . '</th><td>'
+            . '<label><input type="checkbox" name="world_assistants" value="1" /> ' . esc_html__('Board assistants', 'rt-event-manager') . '</label><br />'
+            . '<label><input type="checkbox" name="world_area_presidents" value="1" /> ' . esc_html__('Area presidents', 'rt-event-manager') . '</label>'
+            . '<p class="description">' . esc_html__('For a national level: also loads the President of each area below it (they sit on the area board, not the national board). Takes a little longer.', 'rt-event-manager') . '</p>'
+            . '</td></tr>';
+        echo '</table>';
+        submit_button(__('Load board', 'rt-event-manager'));
+        echo '</form>';
+    }
+
+    private function render_excel_form() {
+        $tpl = wp_nonce_url(admin_url('admin-post.php?action=rti_group_import_template'), self::NONCE);
+        echo '<p style="max-width:780px">' . esc_html__('Upload an .xlsx, .xls or .csv file with one person per row. Required columns: First name, Last name, Email. Optional: .WORLD ID, Family (RT, C41, LC, AC, TC), Club, Association (needed to make someone a delegate), Function, Phone, Country.', 'rt-event-manager')
+            . ' <a href="' . esc_url($tpl) . '">' . esc_html__('Download the template', 'rt-event-manager') . '</a>.</p>';
+        echo '<p class="description" style="max-width:780px">' . esc_html__('Tip: include the .WORLD ID where you know it — members are then matched to their account on .WORLD sign-in even if their .WORLD email differs from the one in the sheet.', 'rt-event-manager') . '</p>';
+        echo '<form method="post" enctype="multipart/form-data" action="' . esc_url($this->page_url(array('source' => 'excel'))) . '" data-rti-loading="' . esc_attr__('Reading the spreadsheet…', 'rt-event-manager') . '">';
+        wp_nonce_field(self::NONCE);
+        echo '<input type="hidden" name="rti_gi_action" value="excel_upload" />';
+        echo '<p><input type="file" name="rti_gi_file" accept=".xlsx,.xls,.csv" required /></p>';
+        submit_button(__('Upload and preview', 'rt-event-manager'));
+        echo '</form>';
+    }
+
+    private function render_preview($rows) {
+        $source_label = (string) get_transient('rti_gi_source_' . self::uid());
+        $families     = self::families();
+        $products     = $this->ticket_products();
+        $coupons      = $this->coupons();
+
+        echo '<h2>' . esc_html__('Preview', 'rt-event-manager') . ($source_label ? ' <span style="font-weight:400;color:#646970">— ' . esc_html($source_label) . '</span>' : '') . '</h2>';
+        echo '<p class="description">' . esc_html__('Tick the people to import. Emails can be edited — .WORLD only returns emails members share, so fill in any that are missing. Tick "Delegate" to make someone a delegate (off by default; the usual delegate rules apply — hosting family, two per association).', 'rt-event-manager') . '</p>';
+
+        echo '<form method="post" action="' . esc_url($this->page_url()) . '" data-rti-loading="' . esc_attr__('Creating accounts, orders and tickets — please keep this page open…', 'rt-event-manager') . '">';
+        wp_nonce_field(self::NONCE);
+        echo '<input type="hidden" name="rti_gi_action" value="import" />';
+
+        echo '<table class="widefat striped" style="margin-top:8px"><thead><tr>';
+        echo '<td class="check-column"><input type="checkbox" onclick="var c=this.checked;this.closest(\'table\').querySelectorAll(\'tbody input.rti-gi-sel:not(:disabled)\').forEach(function(x){x.checked=c;});" /></td>';
+        foreach (array(__('Name', 'rt-event-manager'), __('Email', 'rt-event-manager'), __('.WORLD ID', 'rt-event-manager'), __('Family / Club', 'rt-event-manager'), __('Function', 'rt-event-manager')) as $h) {
+            echo '<th>' . esc_html($h) . '</th>';
+        }
+        // Delegate column: select-all for the changeable delegate checkboxes.
+        echo '<th><label style="white-space:nowrap"><input type="checkbox" title="' . esc_attr__('Select all delegates', 'rt-event-manager') . '" onclick="var c=this.checked;this.closest(\'table\').querySelectorAll(\'tbody input.rti-gi-dl:not(:disabled)\').forEach(function(x){x.checked=c;});" /> '
+            . esc_html__('Delegate', 'rt-event-manager') . '</label></th>';
+        echo '<th>' . esc_html__('Account', 'rt-event-manager') . '</th>';
+        echo '</tr></thead><tbody>';
+        foreach ($rows as $i => $r) {
+            $user   = self::find_user($r);
+            $has    = $user && RT_Event_Manager::instance()->user_has_event_ticket($user->ID);
+            $status = $user
+                ? ($has
+                    ? '<span style="color:#996800">' . esc_html__('Existing — already has a ticket (only profile and delegate are updated)', 'rt-event-manager') . '</span>'
+                    : '<a href="' . esc_url(get_edit_user_link($user->ID)) . '">' . esc_html(sprintf(__('Existing account #%d', 'rt-event-manager'), $user->ID)) . '</a>')
+                : esc_html__('New account', 'rt-event-manager');
+            $fam = (isset($r['family']) && '' !== $r['family'] && isset($families[$r['family']])) ? $families[$r['family']] : '';
+            echo '<tr>';
+            echo '<th scope="row" class="check-column"><input type="checkbox" class="rti-gi-sel" name="rti_gi_sel[]" value="' . esc_attr($i) . '"' . ($has ? '' : ' checked') . ' /></th>';
+            echo '<td><strong>' . esc_html(trim($r['first_name'] . ' ' . $r['last_name'])) . '</strong></td>';
+            echo '<td><input type="email" name="rti_gi_email[' . esc_attr($i) . ']" value="' . esc_attr($r['email']) . '" class="regular-text"' . ('' === $r['email'] ? ' placeholder="' . esc_attr__('Email required', 'rt-event-manager') . '" style="border-color:#d63638"' : '') . ' /></td>';
+            echo '<td>' . esc_html($r['world_id']) . '</td>';
+            // Association the member will have (needed for delegate status).
+            $assoc = $user ? RT_Event_Manager::delegate_user_association($user->ID) : '';
+            if (!empty($r['org_lock']) && preg_match('/\binternational\s*$/i', $assoc)) {
+                $assoc = ''; // an earlier "… International" label — replaced by the home association
+            }
+            if ('' === $assoc) {
+                $assoc = RT_Event_Manager::association_from_club(isset($r['club_domain']) ? $r['club_domain'] : '', isset($r['family']) ? $r['family'] : '');
+            }
+            if ('' === $assoc && !empty($r['association'])) {
+                $assoc = $r['association'];
+            }
+            echo '<td>' . esc_html(trim($fam . ' ' . $r['club']))
+                . '<br /><small style="color:' . ('' === $assoc ? '#d63638' : '#646970') . '">'
+                . esc_html('' !== $assoc ? $assoc : __('No association — cannot be a delegate', 'rt-event-manager')) . '</small></td>';
+            echo '<td>' . esc_html($r['function']) . '</td>';
+            $is_dl = $user && 'delegate' === RT_Event_Manager::get_delegate_status($user->ID);
+            echo '<td>' . ($is_dl
+                ? '<span title="' . esc_attr__('Already a delegate', 'rt-event-manager') . '">✓ ' . esc_html__('Delegate', 'rt-event-manager') . '</span>'
+                : '<label><input type="checkbox" class="rti-gi-dl" name="rti_gi_delegate[' . esc_attr($i) . ']" value="1" /> ' . esc_html__('Delegate', 'rt-event-manager') . '</label>') . '</td>';
+            echo '<td>' . $status . '</td>'; // phpcs:ignore -- escaped above
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+
+        echo '<table class="form-table" role="presentation">';
+        echo '<tr><th><label for="rti_gi_product">' . esc_html__('Ticket', 'rt-event-manager') . '</label></th><td><select name="rti_gi_product" id="rti_gi_product" required>';
+        foreach ($products as $p) {
+            echo '<option value="' . esc_attr($p->get_id()) . '">' . esc_html($p->get_name()) . ' — ' . esc_html(wp_strip_all_tags($p->get_price_html())) . '</option>';
+        }
+        echo '</select></td></tr>';
+        echo '<tr><th><label for="rti_gi_coupon">' . esc_html__('Coupon', 'rt-event-manager') . '</label></th><td><select name="rti_gi_coupon" id="rti_gi_coupon" required>';
+        echo '<option value="">' . esc_html__('— Choose a coupon —', 'rt-event-manager') . '</option>';
+        foreach ($coupons as $c) {
+            $wc = new WC_Coupon($c->ID);
+            $amount = ('percent' === $wc->get_discount_type()) ? $wc->get_amount() . '%' : wp_strip_all_tags(wc_price($wc->get_amount()));
+            echo '<option value="' . esc_attr($wc->get_code()) . '">' . esc_html(strtoupper($wc->get_code()) . ' — ' . $amount) . '</option>';
+        }
+        echo '</select><p class="description">' . esc_html__('The coupon must cover the full ticket price (e.g. 100% off). Each order is created as Completed with the coupon applied, so it appears on the invoice.', 'rt-event-manager') . '</p></td></tr>';
+        echo '</table>';
+
+        echo '<p class="submit"><button type="submit" class="button button-primary" onclick="return confirm(\'' . esc_js(__('Create accounts, orders and tickets for the ticked people?', 'rt-event-manager')) . '\');">' . esc_html__('Import selected', 'rt-event-manager') . '</button></p>';
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url($this->page_url()) . '">';
+        wp_nonce_field(self::NONCE);
+        echo '<input type="hidden" name="rti_gi_action" value="clear" /><button class="button">' . esc_html__('Start over', 'rt-event-manager') . '</button>';
+        echo '</form>';
+    }
+
+    private function render_results() {
+        $res = get_transient('rti_gi_result_' . self::uid());
+        if (!is_array($res) || empty($res['rows'])) {
+            return;
+        }
+        $labels = array(
+            'created' => __('Account created, ticket issued', 'rt-event-manager'),
+            'linked'  => __('Existing account, ticket issued', 'rt-event-manager'),
+            'skipped' => __('No new ticket', 'rt-event-manager'),
+            'error'   => __('Error', 'rt-event-manager'),
+        );
+        $counts = array_count_values(wp_list_pluck($res['rows'], 'outcome'));
+        echo '<div class="notice notice-info"><p><strong>' . esc_html(sprintf(__('Import %s finished.', 'rt-event-manager'), $res['batch'])) . '</strong> '
+            . esc_html(sprintf(
+                /* translators: 1: created, 2: linked, 3: skipped, 4: errors */
+                __('%1$d new accounts, %2$d existing accounts ticketed, %3$d skipped, %4$d errors.', 'rt-event-manager'),
+                isset($counts['created']) ? $counts['created'] : 0,
+                isset($counts['linked']) ? $counts['linked'] : 0,
+                isset($counts['skipped']) ? $counts['skipped'] : 0,
+                isset($counts['error']) ? $counts['error'] : 0
+            )) . '</p></div>';
+        echo '<table class="widefat striped" style="max-width:1000px;margin-bottom:24px"><thead><tr><th>' . esc_html__('Name', 'rt-event-manager') . '</th><th>' . esc_html__('Email', 'rt-event-manager') . '</th><th>' . esc_html__('Result', 'rt-event-manager') . '</th><th>' . esc_html__('Order', 'rt-event-manager') . '</th></tr></thead><tbody>';
+        foreach ($res['rows'] as $r) {
+            $order = $r['order_id'] ? wc_get_order($r['order_id']) : null;
+            echo '<tr><td>' . ($r['user_id'] ? '<a href="' . esc_url(get_edit_user_link($r['user_id'])) . '">' . esc_html($r['name']) . '</a>' : esc_html($r['name'])) . '</td>';
+            echo '<td>' . esc_html($r['email']) . '</td>';
+            echo '<td>' . esc_html($labels[$r['outcome']]) . ('' !== $r['message'] ? ' — ' . esc_html($r['message']) : '') . '</td>';
+            echo '<td>' . ($order ? '<a href="' . esc_url($order->get_edit_order_url()) . '">#' . esc_html($order->get_order_number()) . '</a>' : '—') . '</td></tr>';
+        }
+        echo '</tbody></table>';
+    }
+}
