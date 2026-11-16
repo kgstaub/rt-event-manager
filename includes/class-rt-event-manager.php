@@ -7289,6 +7289,14 @@ class RT_Event_Manager {
             return array(); // admission with no window → unrestricted
         }
         $end = self::tour_dt_to_ts(get_post_meta($product_id, '_rti_end', true));
+        // A window ending in the small hours (e.g. 02:00 after the party) does
+        // not add another admission day.
+        if ($end > $start && $end - $start >= 12 * HOUR_IN_SECONDS) {
+            $local = (new DateTime('@' . $end))->setTimezone(self::event_timezone());
+            if ((int) $local->format('G') < 6) {
+                $end -= ((int) $local->format('G') + 1) * HOUR_IN_SECONDS;
+            }
+        }
         return self::dates_in_range($start, $end);
     }
 
@@ -7375,30 +7383,6 @@ class RT_Event_Manager {
      *
      * @return array<int,string[]>
      */
-    /**
-     * Whole days (Y-m-d, event timezone) of the event itself, from the Event
-     * start / end settings. Empty when no event start is set.
-     *
-     * @return string[]
-     */
-    public static function event_window_dates() {
-        static $cache = null;
-        if (null === $cache) {
-            $start = self::tour_dt_to_ts(get_option('rt_event_manager_event_start', ''));
-            $end   = self::tour_dt_to_ts(get_option('rt_event_manager_event_end', ''));
-            // An event ending in the small hours (e.g. 02:00 after the party)
-            // does not add a day that admissions must cover.
-            if ($start && $end > $start) {
-                $local = (new DateTime('@' . $end))->setTimezone(self::event_timezone());
-                if ((int) $local->format('G') < 6 && $end - $start >= DAY_IN_SECONDS) {
-                    $end -= 6 * HOUR_IN_SECONDS;
-                }
-            }
-            $cache = $start ? self::dates_in_range($start, $end) : array();
-        }
-        return $cache;
-    }
-
     private static function all_admission_windows() {
         static $cache = null;
         if (null !== $cache) {
@@ -7437,42 +7421,22 @@ class RT_Event_Manager {
         if (empty($mine)) {
             return false; // no window → unrestricted / full
         }
-        // When the event dates are set, they decide: an admission is full when
-        // it covers every event day, partial when it misses one. Other admission
-        // products (e.g. a staff pass or a window ending after midnight) no
-        // longer turn a full pass partial.
-        $event = self::event_window_dates();
-        if (!empty($event)) {
-            foreach ($event as $day) {
+        // Partial = some other DATED admission product is valid on a day this
+        // one is not (e.g. a Friday-only pass vs. the Thu–Sun full weekend).
+        // Undated admission products and the event settings are ignored, so a
+        // test/staff product without dates or an event range that includes
+        // arrival days can no longer turn the widest pass green.
+        foreach (self::all_admission_windows() as $other_pid => $theirs) {
+            if ((int) $other_pid === $pid || empty($theirs)) {
+                continue;
+            }
+            foreach ($theirs as $day) {
                 if (!in_array($day, $mine, true)) {
                     return true;
                 }
             }
-            return false;
         }
-        $count = count($mine);
-        foreach (self::all_admission_windows() as $other_pid => $theirs) {
-            if ((int) $other_pid === $pid) {
-                continue;
-            }
-            if (empty($theirs)) {
-                return true; // another admission is unrestricted; this dated one is partial
-            }
-            if (count($theirs) <= $count) {
-                continue; // not wider than mine
-            }
-            $superset = true;
-            foreach ($mine as $day) {
-                if (!in_array($day, $theirs, true)) {
-                    $superset = false;
-                    break;
-                }
-            }
-            if ($superset) {
-                return true; // a wider admission covers all my days → I am partial
-            }
-        }
-        return false; // nothing wider → this is a full admission
+        return false;
     }
 
     /**

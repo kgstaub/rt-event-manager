@@ -3,6 +3,17 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.5.5] — 2026-11-16
+
+### Fixed
+- **Full weekend tickets still shown green (partial admission).** The 2.5.4
+  check compared the ticket with the event start / end settings, which can
+  include days no ticket covers (e.g. arrival). An admission is now **partial
+  only when another dated "Main event admission" product is valid on a day it
+  is not** — a Friday-only pass is partial, the widest pass never is. Undated
+  admission products and the event settings no longer matter, and a window
+  ending before 06:00 does not count the next day.
+
 ## [2.5.4] — 2026-11-16
 
 ### Added
