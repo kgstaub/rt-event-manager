@@ -2159,6 +2159,10 @@ class RT_Event_Manager_Account {
             if ('delegate' !== $delegate && RT_Event_Manager::is_delegate_eligible($user_id)) {
                 if ($requested) {
                     echo '<span class="rtacc-delegate-requested">' . esc_html__('Delegate status requested', 'rt-event-manager') . '</span>';
+                } elseif ('' === trim(RT_Event_Manager::delegate_user_association($user_id))) {
+                    // Delegates are counted per association — it must be known first.
+                    echo '<button type="button" class="uk-button uk-button-default" disabled>' . esc_html__('Request Delegate status', 'rt-event-manager') . '</button>';
+                    echo '<span class="rtacc-hint rtacc-delegate-needs-assoc">' . esc_html__('Fill in your Association above and save your profile to request Delegate status.', 'rt-event-manager') . '</span>';
                 } else {
                     echo '<button type="button" class="uk-button uk-button-default rtacc-delegate-request">' . esc_html__('Request Delegate status', 'rt-event-manager') . '</button>';
                 }
@@ -4103,6 +4107,8 @@ class RT_Event_Manager_Account {
         if ($is_confirmed && in_array($kind, array('event', 'minor'), true) && $ticket_host_ok && empty($t['is_delegate'])) {
             if (!empty($t['delegate_requested'])) {
                 $opt_items[] = '<span class="rtacc-menu-item rtacc-menu-item--muted" role="menuitem"><i class="fa-solid fa-user-check" aria-hidden="true"></i> ' . esc_html__('Delegate status requested', 'rt-event-manager') . '</span>';
+            } elseif ('' === trim((string) (isset($t['association']) ? $t['association'] : ''))) {
+                $opt_items[] = '<span class="rtacc-menu-item rtacc-menu-item--muted" role="menuitem" title="' . esc_attr__('Add the attendee\'s association to their ticket details first.', 'rt-event-manager') . '"><i class="fa-solid fa-user-check" aria-hidden="true"></i> ' . esc_html__('Delegate status needs an association', 'rt-event-manager') . '</span>';
             } else {
                 $opt_items[] = '<button type="button" class="rtacc-menu-item rtacc-ticket-delegate-btn" data-ticket="' . esc_attr($id) . '" role="menuitem"><i class="fa-solid fa-user-check" aria-hidden="true"></i> ' . esc_html__('Request delegate status', 'rt-event-manager') . '</button>';
             }
@@ -5594,6 +5600,9 @@ class RT_Event_Manager_Account {
         if (!RT_Event_Manager::is_delegate_eligible($user_id)) {
             wp_send_json_error(array('message' => __('Delegate status is only available to members of the hosting family.', 'rt-event-manager')));
         }
+        if ('' === trim(RT_Event_Manager::delegate_user_association($user_id))) {
+            wp_send_json_error(array('message' => __('Please fill in your Association in your profile first.', 'rt-event-manager')));
+        }
         update_user_meta($user_id, 'rti_delegate_requested', time());
         wp_send_json_success(array('message' => __('Your request has been submitted.', 'rt-event-manager')));
     }
@@ -5618,6 +5627,9 @@ class RT_Event_Manager_Account {
         }
         if (!empty($t['is_delegate'])) {
             wp_send_json_success(array('message' => __('This attendee is already a delegate.', 'rt-event-manager')));
+        }
+        if ('' === trim((string) (isset($t['association']) ? $t['association'] : ''))) {
+            wp_send_json_error(array('message' => __('Please add the attendee\'s association to their ticket details first.', 'rt-event-manager')));
         }
         RT_Event_Manager::instance()->update_ticket($ticket_id, array('delegate_requested' => 1));
         wp_send_json_success(array('message' => __('Delegate status requested for this attendee.', 'rt-event-manager')));

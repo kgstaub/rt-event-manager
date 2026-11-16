@@ -5128,6 +5128,13 @@ class RT_Event_Manager {
         });
 
         echo '<h2>' . esc_html(sprintf(__('Pending requests (%d)', 'rt-event-manager'), count($pending))) . '</h2>';
+        // .WORLD association lookup (uses the Group Import .WORLD sign-in).
+        $world_ok = class_exists('RT_Event_Manager_Group_Import') && current_user_can('manage_woocommerce');
+        $lookups  = get_transient('rti_dl_lookup_' . get_current_user_id());
+        $lookups  = is_array($lookups) ? $lookups : array();
+        if ($world_ok && !empty($pending) && !RT_Event_Manager_Group_Import::instance()->has_world_session()) {
+            echo '<p class="description">' . esc_html__('To look up a requester\'s association on .WORLD, first', 'rt-event-manager') . ' <a href="' . esc_url(RT_Event_Manager_Group_Import::world_signin_url()) . '">' . esc_html__('sign in to .WORLD on the Group Import page', 'rt-event-manager') . '</a>.</p>';
+        }
         if (empty($pending)) {
             echo '<p>' . esc_html__('None.', 'rt-event-manager') . '</p>';
         } else {
@@ -5139,13 +5146,21 @@ class RT_Event_Manager {
                 echo '<tr>';
                 echo '<td>' . esc_html($u->display_name) . '</td>';
                 echo '<td>' . esc_html($u->user_email) . '</td>';
-                echo '<td>' . esc_html(self::delegate_user_association($u->ID)) . '</td>';
+                $assoc = self::delegate_user_association($u->ID);
+                echo '<td>' . ('' !== trim($assoc) ? esc_html($assoc) : '<span style="color:#b32d2e">' . esc_html__('Missing — the member must add it in their profile', 'rt-event-manager') . '</span>') . '</td>';
                 echo '<td>' . esc_html($when ? date_i18n(get_option('date_format'), $when) : '—') . '</td>';
                 echo '<td>';
                 $this->delegate_action_form($u->ID, 'make', __('Approve', 'rt-event-manager'), 'button-primary');
                 echo ' ';
                 $this->delegate_action_form($u->ID, 'dismiss', __('Dismiss', 'rt-event-manager'), '');
+                if ($world_ok) {
+                    echo ' ';
+                    $this->delegate_action_form($u->ID, 'world_lookup', __('Find association on .WORLD', 'rt-event-manager'), '');
+                }
                 echo '</td></tr>';
+                if (isset($lookups[$u->ID])) {
+                    $this->render_delegate_lookup($u->ID, $lookups[$u->ID]);
+                }
             }
             echo '</tbody></table>';
         }
@@ -5308,6 +5323,35 @@ class RT_Event_Manager {
     }
 
     /** A small inline POST form for a delegate action button. */
+    /** Results of a .WORLD association lookup under a pending request row. */
+    private function render_delegate_lookup($user_id, $result) {
+        echo '<tr class="rti-dl-lookup"><td colspan="5" style="background:#f6f7f7">';
+        if (!empty($result['error'])) {
+            echo '<span style="color:#b32d2e">' . esc_html($result['error']) . '</span>';
+        } elseif (empty($result['candidates'])) {
+            echo esc_html__('No matching member found on .WORLD.', 'rt-event-manager');
+        } else {
+            echo '<strong>' . esc_html__('.WORLD matches', 'rt-event-manager') . '</strong>';
+            echo '<table class="widefat" style="margin-top:6px"><tbody>';
+            foreach ($result['candidates'] as $c) {
+                echo '<tr><td>' . esc_html($c['name']) . ($c['exact'] ? ' <span class="dashicons dashicons-yes-alt" style="color:#00a32a" title="' . esc_attr__('Same .WORLD ID as the account', 'rt-event-manager') . '"></span>' : '') . '</td>';
+                echo '<td>' . esc_html($c['club']) . '<br /><small>' . esc_html($c['path']) . '</small></td>';
+                echo '<td>' . ('' !== $c['association'] ? '<strong>' . esc_html($c['association']) . '</strong>' : '<em>' . esc_html__('Association not recognised', 'rt-event-manager') . '</em>') . '</td><td>';
+                if ('' !== $c['association']) {
+                    echo '<form method="post" style="display:inline;">';
+                    wp_nonce_field('rti_delegate_action');
+                    echo '<input type="hidden" name="rti_delegate_user" value="' . esc_attr($user_id) . '" />';
+                    echo '<input type="hidden" name="rti_delegate_assoc" value="' . esc_attr($c['association']) . '" />';
+                    echo '<button type="submit" class="button" name="rti_delegate_action" value="set_assoc">' . esc_html__('Use this association', 'rt-event-manager') . '</button>';
+                    echo '</form>';
+                }
+                echo '</td></tr>';
+            }
+            echo '</tbody></table>';
+        }
+        echo '</td></tr>';
+    }
+
     private function delegate_action_form($user_id, $action, $label, $btn_class) {
         echo '<form method="post" style="display:inline;">';
         wp_nonce_field('rti_delegate_action');
@@ -5459,6 +5503,33 @@ class RT_Event_Manager {
                 } elseif ('dismiss' === $action) {
                     delete_user_meta($uid, 'rti_delegate_requested');
                     $this->set_admin_flash(__('Delegate request dismissed.', 'rt-event-manager'), 'success');
+                } elseif ('world_lookup' === $action && class_exists('RT_Event_Manager_Group_Import') && current_user_can('manage_woocommerce')) {
+                    $found   = RT_Event_Manager_Group_Import::instance()->world_lookup_association($uid);
+                    $key     = 'rti_dl_lookup_' . get_current_user_id();
+                    $lookups = get_transient($key);
+                    $lookups = is_array($lookups) ? $lookups : array();
+                    $lookups[$uid] = is_wp_error($found)
+                        ? array('error' => $found->get_error_message())
+                        : array('candidates' => $found);
+                    set_transient($key, $lookups, 30 * MINUTE_IN_SECONDS);
+                } elseif ('set_assoc' === $action) {
+                    $assoc = isset($_POST['rti_delegate_assoc']) ? sanitize_text_field(wp_unslash($_POST['rti_delegate_assoc'])) : '';
+                    if ('' !== $assoc) {
+                        update_user_meta($uid, 'rti_association', $assoc);
+                        // Keep the member's own event ticket in step.
+                        global $wpdb;
+                        $wpdb->query($wpdb->prepare(
+                            "UPDATE {$wpdb->prefix}rti_tickets SET association = %s WHERE owner_user_id = %d AND ticket_kind = 'event' AND parent_ticket_id = 0 AND (association = '' OR association IS NULL)",
+                            $assoc, $uid
+                        ));
+                        $key     = 'rti_dl_lookup_' . get_current_user_id();
+                        $lookups = get_transient($key);
+                        if (is_array($lookups)) {
+                            unset($lookups[$uid]);
+                            set_transient($key, $lookups, 30 * MINUTE_IN_SECONDS);
+                        }
+                        $this->set_admin_flash(sprintf(__('Association set to %s.', 'rt-event-manager'), $assoc), 'success');
+                    }
                 }
             }
             $this->redirect_admin_page('rt-event-manager-delegates');

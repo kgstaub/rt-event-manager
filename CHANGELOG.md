@@ -3,6 +3,41 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.5.6] — 2026-11-16
+
+### Fixed
+- **Some Group Import duplicates were not listed** (e.g. Manuel Bolliger with
+  tickets on two orders). The likely-duplicates list only paired same-name
+  *accounts* where the imported one had never signed in, so it missed the
+  person's own ticket bought on someone else's order, imported accounts that
+  have since signed in, and both tickets on one account. *Merge duplicates* now
+  starts with **Duplicate tickets**: every live Group Import event ticket whose
+  holder name (ignoring case / accents) or .WORLD ID matches another live event
+  ticket, with **Refund Group Import ticket** (no emails; the refunded ticket
+  is hidden from the account) and, when they are different accounts, **Merge
+  account**.
+- **.WORLD sign-in created a second account for members imported before
+  2.5.2** (e.g. Yannick Schoon: imported as `yannick.schoon` with the .world
+  address as email; signing in used that address as username). Sign-in now
+  also matches the .world address against account **emails and billing
+  emails**, and *Likely duplicates* pairs an imported account with the account
+  whose username is its email.
+
+### Changed
+- **Delegate requests need an association.** The *Request Delegate status*
+  button (profile) and the attendee ticket's *Request delegate status* are
+  disabled until an association is filled in, with a hint; the request
+  endpoints refuse it too. Pending requests without one show "Missing" in red
+  on the Delegates page.
+
+### Added
+- **Find a requester's association on .WORLD** (*Delegates → Pending
+  requests*): with a .WORLD sign-in from the Group Import page, *Find
+  association on .WORLD* searches the member directory by name and lists the
+  matches (club, level path, derived association; a tick when the .WORLD ID
+  matches the account). *Use this association* saves it to the member and their
+  own event ticket.
+
 ## [2.5.5] — 2026-11-16
 
 ### Fixed

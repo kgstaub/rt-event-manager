@@ -1,6 +1,6 @@
 # RT Event Manager
 
-[![Version](https://img.shields.io/badge/version-2.5.5-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.6-blue?style=flat-square)](CHANGELOG.md)
 [![Tests · WordPress 7.x](https://img.shields.io/badge/WordPress%207.x-Tests%20Passing-brightgreen?style=flat-square&logo=wordpress&logoColor=white&labelColor=21759B)](#requirements)
 [![Tests · WooCommerce 11.x](https://img.shields.io/badge/WooCommerce%2011.x-Tests%20Passing-brightgreen?style=flat-square&logo=woocommerce&logoColor=white&labelColor=7F54B3)](#requirements)
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue?style=flat-square)](https://www.gnu.org/licenses/gpl-2.0.html)
@@ -19,7 +19,7 @@ open support requests through a **FreeScout helpdesk** tab, and numbered
 with a printable windscreen permit that staff verify in the check-in app. It also bundles a *Sign in with .WORLD*
 SSO module for Round Table's identity providers.
 
-- **Version:** 2.5.5
+- **Version:** 2.5.6
 - **Requires:** WordPress 5.0+, PHP 7.4+, WooCommerce 5.0+
 - **Tested up to:** WordPress 7.x, WooCommerce 11.x
 - **License:** GPL-2.0-or-later
@@ -97,7 +97,10 @@ SSO module for Round Table's identity providers.
 - **Associations & delegates** — a member's association is derived from their
   `.WORLD` club subdomain (overridable when not SSO-derived). Members can request
   delegate status, which is approved in *RT Event → Delegates* (hosting-family
-  eligibility, at most two delegates per association).
+  eligibility, at most two delegates per association). Members can request
+  delegate status only once their association is filled in; admins signed in to
+  .WORLD (Group Import) can look up a requester's association from the pending
+  list (*Find association on .WORLD* → *Use this association*).
 - **Helpdesk (FreeScout)** — a *Get help* portal tab where members open
   topic-tagged support tickets and continue them in a chat-style view, with file
   attachments both ways and an unread-reply badge.
@@ -404,6 +407,11 @@ ticket as usual.
 duplicate is deleted — and lists likely duplicates from earlier imports. If the
 kept account already has a ticket, the duplicate's Group Import ticket is
 refunded.
+Its **Duplicate tickets** list catches every Group Import ticket for a person
+who already holds another active event ticket (same holder name or .WORLD ID),
+on any account or order — e.g. their own ticket bought by a club mate — with
+**Refund Group Import ticket** (keeps both accounts) and, where the accounts
+differ, **Merge account**.
 
 **Coupon invoices** (another tab) lists every active ticket issued under a
 coupon — holder, club, product, order and the amount the coupon covered — and
@@ -625,7 +633,7 @@ after 2.1.0 ships as 2.1.6. Keep the plugin header `Version:`, the
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history and
 [RELEASE_NOTES.md](RELEASE_NOTES.md) for the latest highlights. The current
-release is **2.5.5**.
+release is **2.5.6**.
 
 ---
 
