@@ -1,6 +1,6 @@
 # RT Event Manager
 
-[![Version](https://img.shields.io/badge/version-2.5.4-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.5-blue?style=flat-square)](CHANGELOG.md)
 [![Tests · WordPress 7.x](https://img.shields.io/badge/WordPress%207.x-Tests%20Passing-brightgreen?style=flat-square&logo=wordpress&logoColor=white&labelColor=21759B)](#requirements)
 [![Tests · WooCommerce 11.x](https://img.shields.io/badge/WooCommerce%2011.x-Tests%20Passing-brightgreen?style=flat-square&logo=woocommerce&logoColor=white&labelColor=7F54B3)](#requirements)
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue?style=flat-square)](https://www.gnu.org/licenses/gpl-2.0.html)
@@ -19,7 +19,7 @@ open support requests through a **FreeScout helpdesk** tab, and numbered
 with a printable windscreen permit that staff verify in the check-in app. It also bundles a *Sign in with .WORLD*
 SSO module for Round Table's identity providers.
 
-- **Version:** 2.5.4
+- **Version:** 2.5.5
 - **Requires:** WordPress 5.0+, PHP 7.4+, WooCommerce 5.0+
 - **Tested up to:** WordPress 7.x, WooCommerce 11.x
 - **License:** GPL-2.0-or-later
@@ -217,9 +217,11 @@ and given a **Start/End** window. This makes it a mutually-exclusive admission:
 - **One per person** — a person may hold only one admission (full **or** partial),
   enforced across the order and the buyer's account (matched by `.WORLD` ID or
   holder name). Buying admissions for other named attendees is still allowed.
-- **Full vs partial** — the widest admission on offer is "full"; a product whose
-  window covers fewer days is "partial" (e.g. a Friday-only pass). A partial
-  admission is shown in emerald green with its own date.
+- **Full vs partial** — an admission is "partial" when another dated, published
+  admission product is valid on a day it is not (e.g. a Friday-only pass next to
+  the full weekend); the widest pass is always "full". Undated admission
+  products are ignored, and a window ending before 06:00 does not count the next
+  day. A partial admission is shown in emerald green with its own date.
 - **Partial restrictions** — a partial admission cannot include a **pretour**, and
   a **day tour** can be added only when its whole Start–End falls inside the
   admission's window. Main-desk check-in is refused outside the valid day(s).
@@ -623,7 +625,7 @@ after 2.1.0 ships as 2.1.6. Keep the plugin header `Version:`, the
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history and
 [RELEASE_NOTES.md](RELEASE_NOTES.md) for the latest highlights. The current
-release is **2.5.4**.
+release is **2.5.5**.
 
 ---
 
