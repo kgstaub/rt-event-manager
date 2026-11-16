@@ -1174,6 +1174,11 @@ class RT_Event_Manager_Account {
             $ors[] = 't.id = %d';       $params[] = intval($q);
         }
         $where = "t.ticket_kind IN ('event','minor') AND (" . implode(' OR ', $ors) . ')';
+        // Refunded / cancelled / invalid tickets (e.g. a merged duplicate's
+        // Group Import ticket) only show when looked up by order or ticket number.
+        if (!is_numeric($q)) {
+            $where .= " AND t.status NOT IN ('refunded','cancelled','invalid')";
+        }
 
         // Pure event guides only see attendees on the tours they are assigned to.
         $uid = get_current_user_id();

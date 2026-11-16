@@ -52,6 +52,7 @@ class RT_Event_Manager_Group_Import {
         add_action('admin_init', array($this, 'handle_post'));
         add_action('admin_post_rti_group_import_template', array($this, 'download_template'));
         add_action('admin_init', array($this, 'maybe_fix_world_ids'));
+        add_action('admin_init', array($this, 'maybe_flag_merge_refunds'));
     }
 
     /**
@@ -61,6 +62,36 @@ class RT_Event_Manager_Group_Import {
      * signed in with .WORLD, move it to `world_member_id` and clear it from
      * their tickets, so it can neither mismatch nor show a wrong member QR.
      */
+    /**
+     * One-time (2.5.3): flag Group Import orders refunded by an earlier merge
+     * (before `_rti_merge_refunded` existed) so their tickets are hidden from
+     * the kept account.
+     */
+    public function maybe_flag_merge_refunds() {
+        if (get_option('rt_event_manager_gi_merge_flag_v1') || !function_exists('wc_get_orders')) {
+            return;
+        }
+        update_option('rt_event_manager_gi_merge_flag_v1', 1, false);
+        $orders = wc_get_orders(array(
+            'status'     => array('refunded'),
+            'limit'      => -1,
+            'meta_key'   => '_rti_group_import',
+            'meta_compare' => 'EXISTS',
+        ));
+        foreach ((array) $orders as $order) {
+            if ('yes' === $order->get_meta('_rti_merge_refunded')) {
+                continue;
+            }
+            foreach (wc_get_order_notes(array('order_id' => $order->get_id())) as $note) {
+                if (false !== strpos($note->content, 'already holds a ticket')) {
+                    $order->update_meta_data('_rti_merge_refunded', 'yes');
+                    $order->save();
+                    break;
+                }
+            }
+        }
+    }
+
     public function maybe_fix_world_ids() {
         if ('yes' === get_option('rt_event_manager_gi_worldid_fix_v1') || !current_user_can(self::CAP)) {
             return;
@@ -910,6 +941,9 @@ class RT_Event_Manager_Group_Import {
         if (!$order || in_array($order->get_status(), array('refunded', 'cancelled'), true)) {
             return;
         }
+        // Marks the ticket as a merge leftover, hidden from the kept account.
+        $order->update_meta_data('_rti_merge_refunded', 'yes');
+        $order->save();
         $items = array();
         foreach ($order->get_items() as $item_id => $item) {
             $items[$item_id] = array('qty' => $item->get_quantity(), 'refund_total' => 0, 'refund_tax' => array());
