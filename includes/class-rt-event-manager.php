@@ -5224,11 +5224,26 @@ class RT_Event_Manager {
             if ((int) $u->ID === (int) $exclude_user_id) {
                 continue;
             }
+            // International board members (club "RTI Board", set by the Group
+            // Import) are delegates in their own right and do not use one of
+            // their national association's delegate places.
+            if (self::is_international_board_member($u->ID)) {
+                continue;
+            }
             if (self::delegate_user_association($u->ID) === $association) {
                 $count++;
             }
         }
         return $count;
+    }
+
+    /**
+     * Whether a member is on an international board (club locked to e.g.
+     * "RTI Board" by the Group Import). Such delegates neither count toward nor
+     * are limited by their national association's delegate places.
+     */
+    public static function is_international_board_member($user_id) {
+        return $user_id && 'yes' === get_user_meta($user_id, 'rti_org_locked', true);
     }
 
     /** Max delegates allowed per association at the event. */
@@ -5252,7 +5267,8 @@ class RT_Event_Manager {
         if ('' === $assoc) {
             return __('This member has no association, so they cannot be a delegate.', 'rt-event-manager');
         }
-        if (self::delegate_count_for_association($assoc, $user_id) >= self::DELEGATE_MAX_PER_ASSOCIATION) {
+        if (!self::is_international_board_member($user_id)
+            && self::delegate_count_for_association($assoc, $user_id) >= self::DELEGATE_MAX_PER_ASSOCIATION) {
             return sprintf(
                 /* translators: 1: association name, 2: max delegates */
                 __('%1$s already has the maximum of %2$d delegates.', 'rt-event-manager'),
