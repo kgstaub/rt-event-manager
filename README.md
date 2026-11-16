@@ -1,6 +1,6 @@
 # RT Event Manager
 
-[![Version](https://img.shields.io/badge/version-2.5.0-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.2-blue?style=flat-square)](CHANGELOG.md)
 [![Tests · WordPress 7.x](https://img.shields.io/badge/WordPress%207.x-Tests%20Passing-brightgreen?style=flat-square&logo=wordpress&logoColor=white&labelColor=21759B)](#requirements)
 [![Tests · WooCommerce 11.x](https://img.shields.io/badge/WooCommerce%2011.x-Tests%20Passing-brightgreen?style=flat-square&logo=woocommerce&logoColor=white&labelColor=7F54B3)](#requirements)
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue?style=flat-square)](https://www.gnu.org/licenses/gpl-2.0.html)
@@ -19,7 +19,7 @@ open support requests through a **FreeScout helpdesk** tab, and numbered
 with a printable windscreen permit that staff verify in the check-in app. It also bundles a *Sign in with .WORLD*
 SSO module for Round Table's identity providers.
 
-- **Version:** 2.5.0
+- **Version:** 2.5.2
 - **Requires:** WordPress 5.0+, PHP 7.4+, WooCommerce 5.0+
 - **Tested up to:** WordPress 7.x, WooCommerce 11.x
 - **License:** GPL-2.0-or-later
@@ -389,8 +389,19 @@ so the tickets appear on invoices.
    ones are reused, matched by .WORLD ID then email), a **Completed** order
    with the coupon applied, and their event ticket. No emails are sent.
 
-When an imported member signs in with .WORLD they are matched to that account
-(by .WORLD ID, then email) and see their ticket in the portal as usual.
+Existing accounts are matched by **email** — every email .WORLD returns is
+checked against account emails, billing emails and usernames (.WORLD sign-in
+uses the member's .world address as the username). New accounts get that
+.world address as their username. If only an account with the same name exists,
+the preview offers to use it. When an imported member signs in with .WORLD they
+are matched to that account (by .WORLD ID, email, then username) and see their
+ticket as usual.
+
+**Merge duplicates** (a tab on the same page) merges any account into another
+— orders, tickets, parking permits, delegate status and club move over and the
+duplicate is deleted — and lists likely duplicates from earlier imports. If the
+kept account already has a ticket, the duplicate's Group Import ticket is
+refunded.
 
 **International boards** (imported from a family's international level, or from
 Excel with a Club ending in "Board") get club **RTI Board** (41I / LCI / ACI /
@@ -398,7 +409,8 @@ TCI Board for the other families) and keep their **home association**, e.g.
 *RT Switzerland*. The club is locked: .WORLD sign-in, checkout and the member's
 profile keep "RTI Board" instead of their home club, while the association
 still follows their home club. Admins can still change the club on the user's
-wp-admin profile.
+wp-admin profile. As delegates, international board members do not count toward
+(and are not limited by) their national association's two delegate places.
 
 ---
 
@@ -604,7 +616,7 @@ after 2.1.0 ships as 2.1.6. Keep the plugin header `Version:`, the
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history and
 [RELEASE_NOTES.md](RELEASE_NOTES.md) for the latest highlights. The current
-release is **2.5.0**.
+release is **2.5.2**.
 
 ---
 

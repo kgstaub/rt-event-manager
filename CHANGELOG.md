@@ -3,6 +3,44 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.5.2] — 2026-11-16
+
+### Fixed
+- **Group Import created second accounts for people who already had one.**
+  .WORLD sign-in uses the member's **club-level** account ID and their
+  **.world address as the username** (e.g. first.last@34-ch.roundtable.world),
+  often with a personal email; the board import read the **family-level** ID
+  and compared emails only, so it missed existing accounts. Now:
+  - The import matches by **email first** — every email .WORLD returns, checked
+    against account emails, billing emails **and usernames** — then by a
+    spreadsheet .WORLD ID. The family-level API ID is kept separately
+    (`world_member_id`) and no longer stored as `world_id`.
+  - New accounts get the member's **.world address as username**, like .WORLD
+    sign-in, so both land on the same account.
+  - .WORLD sign-in now also matches an existing account by **username**.
+  - If no email matches but an account with the **same name** exists, the
+    preview offers "Use existing account" (ticked by default).
+  - One-time clean-up: for imported accounts that never signed in, the wrong
+    ID is moved to `world_member_id` and cleared from their tickets.
+
+### Added
+- **Merge accounts** (*Group Import → Merge duplicates*): merge any account into
+  another (by ID, email or username), plus a list of likely duplicates left by
+  earlier imports (same name, never signed in with .WORLD). Orders, tickets,
+  parking permits, coin claims, delegate status and the RTI Board club move to
+  the kept account; the duplicate is deleted. If the kept account already holds
+  a ticket, the duplicate's **Group Import ticket is refunded** (zero refund,
+  place restocked, ticket marked refunded). No emails are sent.
+
+## [2.5.1] — 2026-11-16
+
+### Fixed
+- **RTI Board delegates no longer take a national association's place.**
+  International board members (club "RTI Board" etc., from the Group Import)
+  keep their home association, but as delegates they no longer count toward
+  that association's limit of two delegates, and the limit does not block
+  making them a delegate.
+
 ## [2.5.0] — 2026-11-16
 
 ### Added

@@ -857,6 +857,15 @@ class Multi_OAuth_SSO_User_Handler {
         if (!$user) {
             $user = get_user_by('email', $user_email);
         }
+        // Then by username: .WORLD sign-in and the Group Import both use the
+        // member's .world address as the username, so an imported account is
+        // found even when the member signs in with a different (personal) email.
+        if (!$user && !empty($mapped_data['core']['user_login'])) {
+            $user = get_user_by('login', $mapped_data['core']['user_login']);
+        }
+        if (!$user && !empty($user_info['username']) && is_string($user_info['username'])) {
+            $user = get_user_by('login', $user_info['username']);
+        }
 
         if ($user) {
             // Update existing user

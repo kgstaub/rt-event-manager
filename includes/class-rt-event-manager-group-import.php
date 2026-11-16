@@ -51,6 +51,39 @@ class RT_Event_Manager_Group_Import {
         add_action('admin_menu', array($this, 'add_admin_menu'), 61);
         add_action('admin_init', array($this, 'handle_post'));
         add_action('admin_post_rti_group_import_template', array($this, 'download_template'));
+        add_action('admin_init', array($this, 'maybe_fix_world_ids'));
+    }
+
+    /**
+     * One-time clean-up (2.5.2): imports before 2.5.2 stored the .WORLD API's
+     * family-level member ID as `world_id`, which is not the (club-level) ID
+     * members sign in with. For accounts the import ticketed that have never
+     * signed in with .WORLD, move it to `world_member_id` and clear it from
+     * their tickets, so it can neither mismatch nor show a wrong member QR.
+     */
+    public function maybe_fix_world_ids() {
+        if ('yes' === get_option('rt_event_manager_gi_worldid_fix_v1') || !current_user_can(self::CAP)) {
+            return;
+        }
+        global $wpdb;
+        foreach (self::imported_customer_ids() as $uid) {
+            if (self::signed_in_with_world($uid)) {
+                continue;
+            }
+            $wid = (string) get_user_meta($uid, 'world_id', true);
+            if ('' === $wid) {
+                continue;
+            }
+            if ('' === (string) get_user_meta($uid, 'world_member_id', true)) {
+                update_user_meta($uid, 'world_member_id', $wid);
+            }
+            delete_user_meta($uid, 'world_id');
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->prefix}rti_tickets SET world_id = '', qr_code_url = '' WHERE owner_user_id = %d AND world_id = %s",
+                $uid, $wid
+            ));
+        }
+        update_option('rt_event_manager_gi_worldid_fix_v1', 'yes', false);
     }
 
     public function add_admin_menu() {
@@ -440,8 +473,9 @@ class RT_Event_Manager_Group_Import {
             $seen[$e['world_id']] = true;
 
             // Profile: names, shared email / phone (privacy-filtered by .WORLD).
-            $email = '';
-            $phone = '';
+            $email      = '';
+            $all_emails = array();
+            $phone      = '';
             $profile = $this->api('GET', 'members/' . rawurlencode($e['world_id']) . '/', null, $session);
             if (!is_wp_error($profile) && is_array($profile)) {
                 foreach ((array) (isset($profile['profile_categories']) ? $profile['profile_categories'] : array()) as $cat) {
@@ -451,13 +485,33 @@ class RT_Event_Manager_Group_Import {
                         $e['last_name']  = self::pick($vals, array('last_name')) ?: $e['last_name'];
                     }
                 }
-                $emails = array();
-                self::collect($profile, 'email', $emails);
-                foreach ($emails as $em) {
-                    if (is_email($em)) {
+                $found = array();
+                self::collect($profile, 'email', $found);
+                foreach ($found as $em) {
+                    $em = strtolower(trim($em));
+                    if (is_email($em) && !in_array($em, $all_emails, true)) {
+                        $all_emails[] = $em;
+                    }
+                }
+                // Prefer the email that already belongs to an account, then the
+                // member's .world address (what .WORLD sign-in uses as the
+                // username), else the first one.
+                foreach ($all_emails as $em) {
+                    if (self::user_by_email($em)) {
                         $email = $em;
                         break;
                     }
+                }
+                if ('' === $email) {
+                    foreach ($all_emails as $em) {
+                        if (self::is_world_address($em)) {
+                            $email = $em;
+                            break;
+                        }
+                    }
+                }
+                if ('' === $email && !empty($all_emails)) {
+                    $email = $all_emails[0];
                 }
                 $phones = array();
                 self::collect($profile, 'mobile', $phones);
@@ -498,7 +552,11 @@ class RT_Event_Manager_Group_Import {
 
             $intl = $is_international && empty($item['_rti_area']);
             $rows[] = array(
-                'world_id'    => $e['world_id'],
+                // The API returns the family-level account ID, which is NOT the
+                // (club-level) .WORLD ID members sign in with — keep it apart.
+                'world_id'        => '',
+                'world_member_id' => $e['world_id'],
+                'emails'          => $all_emails,
                 'first_name'  => $e['first_name'],
                 'last_name'   => $e['last_name'],
                 'email'       => $email,
@@ -626,21 +684,107 @@ class RT_Event_Manager_Group_Import {
      * Account matching
      * ------------------------------------------------------------------- */
 
-    /** Existing user for a row: by .WORLD ID, else by email. */
-    private static function find_user($row) {
-        if (!empty($row['world_id'])) {
-            $ids = get_users(array(
-                'meta_key'   => 'world_id',
-                'meta_value' => (string) $row['world_id'],
-                'number'     => 1,
-                'fields'     => 'ID',
-            ));
-            if (!empty($ids)) {
-                return get_userdata((int) $ids[0]);
+    /** A member's .WORLD address, e.g. first.last@34-ch.roundtable.world. */
+    private static function is_world_address($email) {
+        return (bool) preg_match('/@[^@\s]+\.world$/i', trim((string) $email));
+    }
+
+    /**
+     * An account by login email, by username (.WORLD sign-in uses the member's
+     * .world address as the username), else by billing email.
+     */
+    private static function user_by_email($email) {
+        $email = trim((string) $email);
+        if ('' === $email || !is_email($email)) {
+            return null;
+        }
+        $u = get_user_by('email', $email);
+        if ($u) {
+            return $u;
+        }
+        $u = get_user_by('login', $email);
+        if ($u) {
+            return $u;
+        }
+        $ids = get_users(array('meta_key' => 'billing_email', 'meta_value' => $email, 'number' => 1, 'fields' => 'ID'));
+        return !empty($ids) ? get_userdata((int) $ids[0]) : null;
+    }
+
+    private static function user_by_meta($key, $value) {
+        if ('' === (string) $value) {
+            return null;
+        }
+        $ids = get_users(array('meta_key' => $key, 'meta_value' => (string) $value, 'number' => 1, 'fields' => 'ID'));
+        return !empty($ids) ? get_userdata((int) $ids[0]) : null;
+    }
+
+    /** Accounts with exactly this first + last name (case-insensitive). */
+    private static function users_by_name($first, $last, $exclude = 0) {
+        $first = trim((string) $first);
+        $last  = trim((string) $last);
+        if ('' === $first || '' === $last) {
+            return array();
+        }
+        $ids = get_users(array(
+            'meta_query' => array(
+                'relation' => 'AND',
+                array('key' => 'first_name', 'value' => $first),
+                array('key' => 'last_name', 'value' => $last),
+            ),
+            'exclude' => $exclude ? array((int) $exclude) : array(),
+            'number'  => 10,
+            'fields'  => 'ID',
+        ));
+        return array_map('intval', (array) $ids);
+    }
+
+    /** Whether the account has ever signed in with .WORLD (SSO). */
+    private static function signed_in_with_world($user_id) {
+        return '' !== (string) get_user_meta($user_id, 'oauth_sso_provider', true);
+    }
+
+    /**
+     * Best same-name account for a row that matched nothing by email: an
+     * account that has signed in with .WORLD first, else any.
+     */
+    private static function name_match($row, $exclude = 0) {
+        $ids = self::users_by_name(isset($row['first_name']) ? $row['first_name'] : '', isset($row['last_name']) ? $row['last_name'] : '', $exclude);
+        foreach ($ids as $id) {
+            if (self::signed_in_with_world($id)) {
+                return get_userdata($id);
             }
         }
-        if (!empty($row['email']) && is_email($row['email'])) {
-            $u = get_user_by('email', $row['email']);
+        return !empty($ids) ? get_userdata($ids[0]) : null;
+    }
+
+    /**
+     * Existing user for a row. The .WORLD email is the unique key: the row's
+     * email, then any other email .WORLD returned for the person; only then a
+     * .WORLD ID given in a spreadsheet, and finally the .WORLD member ID an
+     * earlier import stored.
+     */
+    private static function find_user($row) {
+        $emails = array();
+        if (!empty($row['email'])) {
+            $emails[] = $row['email'];
+        }
+        foreach ((array) (isset($row['emails']) ? $row['emails'] : array()) as $em) {
+            $emails[] = $em;
+        }
+        foreach (array_unique($emails) as $em) {
+            $u = self::user_by_email($em);
+            if ($u) {
+                return $u;
+            }
+        }
+        if (!empty($row['world_id'])) {
+            $u = self::user_by_meta('world_id', $row['world_id']);
+            if ($u) {
+                return $u;
+            }
+        }
+        if (!empty($row['world_member_id'])) {
+            $u = self::user_by_meta('world_member_id', $row['world_member_id']);
             if ($u) {
                 return $u;
             }
@@ -684,7 +828,238 @@ class RT_Event_Manager_Group_Import {
                 $this->clear_rows();
                 $this->redirect();
                 break;
+            case 'merge':
+                $this->post_merge();
+                break;
         }
+    }
+
+    /* ---------------------------------------------------------------------
+     * Duplicates created by earlier imports
+     * ------------------------------------------------------------------- */
+
+    /** Customers of Group Import orders (the accounts the import ticketed). */
+    private static function imported_customer_ids() {
+        if (!function_exists('wc_get_orders')) {
+            return array();
+        }
+        $ids = wc_get_orders(array(
+            'limit'      => -1,
+            'return'     => 'ids',
+            'meta_key'   => '_rti_group_import',
+            'meta_compare' => 'EXISTS',
+        ));
+        $out = array();
+        foreach ((array) $ids as $oid) {
+            $o = wc_get_order($oid);
+            if ($o && $o->get_customer_id()) {
+                $out[(int) $o->get_customer_id()] = true;
+            }
+        }
+        foreach (get_users(array('meta_key' => 'rti_group_import', 'meta_compare' => 'EXISTS', 'fields' => 'ID', 'number' => 2000)) as $uid) {
+            $out[(int) $uid] = true;
+        }
+        return array_keys($out);
+    }
+
+    /**
+     * Pairs [duplicate, existing]: an account ticketed by the Group Import that
+     * has never signed in with .WORLD, and another account with the same name.
+     */
+    private static function duplicate_pairs() {
+        $pairs = array();
+        foreach (self::imported_customer_ids() as $dup) {
+            if (self::signed_in_with_world($dup)) {
+                continue;
+            }
+            $u = get_userdata($dup);
+            if (!$u) {
+                continue;
+            }
+            $target = self::name_match(array('first_name' => $u->first_name, 'last_name' => $u->last_name), $dup);
+            if ($target) {
+                $pairs[] = array('dup' => $u, 'target' => $target);
+            }
+        }
+        return $pairs;
+    }
+
+    /** An account from an ID, email or username. */
+    private static function resolve_user($ref) {
+        $ref = trim((string) $ref);
+        if ('' === $ref) {
+            return null;
+        }
+        if (ctype_digit($ref)) {
+            $u = get_userdata((int) $ref);
+            if ($u) {
+                return $u;
+            }
+        }
+        $u = get_user_by('email', $ref);
+        return $u ? $u : get_user_by('login', $ref);
+    }
+
+    /**
+     * Refund a Group Import order (coupon-paid, so a zero-amount refund that
+     * restocks the ticket); its tickets become refunded via the order-refund
+     * handling. Falls back to setting the status when WooCommerce declines a
+     * zero refund.
+     */
+    private function refund_import_order($order, $reason) {
+        if (!$order || in_array($order->get_status(), array('refunded', 'cancelled'), true)) {
+            return;
+        }
+        $items = array();
+        foreach ($order->get_items() as $item_id => $item) {
+            $items[$item_id] = array('qty' => $item->get_quantity(), 'refund_total' => 0, 'refund_tax' => array());
+        }
+        $refund = wc_create_refund(array(
+            'order_id'       => $order->get_id(),
+            'amount'         => 0,
+            'reason'         => $reason,
+            'line_items'     => $items,
+            'restock_items'  => true,
+            'refund_payment' => false,
+        ));
+        $order = wc_get_order($order->get_id());
+        if ($order && 'refunded' !== $order->get_status()) {
+            if (is_wp_error($refund)) {
+                // No refund object — put the ticket place back ourselves.
+                if (function_exists('wc_increase_stock_levels')) {
+                    wc_increase_stock_levels($order);
+                }
+            }
+            $order->update_status('refunded', $reason);
+        }
+    }
+
+    private function post_merge() {
+        $dup    = isset($_POST['dup']) ? get_userdata(absint($_POST['dup'])) : null;
+        $target = isset($_POST['target']) ? get_userdata(absint($_POST['target'])) : null;
+        if (isset($_POST['dup_ref'])) {
+            $dup = self::resolve_user(wp_unslash($_POST['dup_ref']));
+        }
+        if (isset($_POST['target_ref'])) {
+            $target = self::resolve_user(wp_unslash($_POST['target_ref']));
+        }
+        $dup_id    = $dup ? (int) $dup->ID : 0;
+        $target_id = $target ? (int) $target->ID : 0;
+        if (!$dup || !$target) {
+            $this->flash('error', __('Account not found — enter an ID, email or username for both accounts.', 'rt-event-manager'));
+            $this->redirect(array('source' => 'merge'));
+        }
+        if ($dup_id === $target_id || user_can($dup_id, 'manage_options') || $dup_id === get_current_user_id()) {
+            $this->flash('error', __('These accounts cannot be merged (same account, or the duplicate is an administrator / you).', 'rt-event-manager'));
+            $this->redirect(array('source' => 'merge'));
+        }
+        global $wpdb;
+        $this->mute_emails(true);
+
+        // Does the kept account already hold its own event ticket? Then the
+        // duplicate's Group Import ticket is refunded rather than added.
+        $target_had_ticket = RT_Event_Manager::instance()->user_has_event_ticket($target_id);
+        $refunded = 0;
+
+        // Tickets, parking permits, coin claims → kept account.
+        $wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}rti_tickets SET owner_user_id = %d WHERE owner_user_id = %d", $target_id, $dup_id));
+
+        // Orders → kept account (Group Import orders refunded when it already had a ticket).
+        foreach ((array) wc_get_orders(array('customer_id' => $dup_id, 'limit' => -1)) as $order) {
+            $order->set_customer_id($target_id);
+            $order->add_order_note(sprintf(__('Customer merged from duplicate account #%1$d into #%2$d.', 'rt-event-manager'), $dup_id, $target_id));
+            $order->save();
+            if ($target_had_ticket && '' !== (string) $order->get_meta('_rti_group_import')) {
+                $this->refund_import_order($order, sprintf(__('Duplicate account #%1$d merged into #%2$d, which already holds a ticket — Group Import ticket refunded.', 'rt-event-manager'), $dup_id, $target_id));
+                $refunded++;
+            }
+        }
+        foreach (array('rti_parking_permits', 'rti_coin_claims') as $t) {
+            $table = $wpdb->prefix . $t;
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table) {
+                $wpdb->query($wpdb->prepare("UPDATE $table SET user_id = %d WHERE user_id = %d", $target_id, $dup_id));
+            }
+        }
+        // The existing account's real .WORLD ID on the moved tickets.
+        $wid = (string) get_user_meta($target_id, 'world_id', true);
+        if ('' !== $wid) {
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->prefix}rti_tickets SET world_id = %s, qr_code_url = %s WHERE owner_user_id = %d AND ticket_kind IN ('event','staff') AND (world_id = '' OR world_id = %s)",
+                $wid, 'tablerworld:///member?id=' . $wid, $target_id, (string) get_user_meta($dup_id, 'world_id', true)
+            ));
+        }
+        // Delegate status, RTI Board club lock and gaps.
+        if ('delegate' === get_user_meta($dup_id, 'rti_delegate', true)) {
+            update_user_meta($target_id, 'rti_delegate', 'delegate');
+            delete_user_meta($target_id, 'rti_delegate_requested');
+        }
+        if ('yes' === get_user_meta($dup_id, 'rti_org_locked', true)) {
+            update_user_meta($target_id, 'rti_org_locked', 'yes');
+            update_user_meta($target_id, 'rti_club', (string) get_user_meta($dup_id, 'rti_club', true));
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->prefix}rti_tickets SET rti_club = %s WHERE owner_user_id = %d AND ticket_kind = 'event' AND parent_ticket_id = 0",
+                (string) get_user_meta($target_id, 'rti_club', true), $target_id
+            ));
+        }
+        foreach (array('world_member_id', 'rti_family', 'rti_club_domain', 'rti_association', 'rti_function', 'billing_phone', 'billing_country') as $k) {
+            $v = (string) get_user_meta($dup_id, $k, true);
+            if ('' !== $v && '' === (string) get_user_meta($target_id, $k, true)) {
+                update_user_meta($target_id, $k, $v);
+            }
+        }
+
+        // Remove the duplicate (anything it authored goes to the kept account).
+        require_once ABSPATH . 'wp-admin/includes/user.php';
+        wp_delete_user($dup_id, $target_id);
+        $this->mute_emails(false);
+
+        $msg = sprintf(__('Merged duplicate account #%1$d into %2$s (#%3$d).', 'rt-event-manager'), $dup_id, $target->display_name, $target_id);
+        if ($refunded) {
+            $msg .= ' ' . sprintf(_n('%d Group Import ticket was refunded because the account already had a ticket.', '%d Group Import tickets were refunded because the account already had a ticket.', $refunded, 'rt-event-manager'), $refunded);
+        }
+        $this->flash('success', $msg);
+        $this->redirect(array('source' => 'merge'));
+    }
+
+    private function render_merge() {
+        $pairs = self::duplicate_pairs();
+        echo '<p class="description" style="max-width:820px">' . esc_html__('Merging moves orders, tickets, parking permits, delegate status and the RTI Board club from the duplicate to the kept account, then deletes the duplicate. If the kept account already holds an event ticket, the duplicate\'s Group Import ticket is refunded (no emails are sent).', 'rt-event-manager') . '</p>';
+
+        // Manual merge of any two accounts.
+        echo '<h3>' . esc_html__('Merge two accounts', 'rt-event-manager') . '</h3>';
+        echo '<form method="post" action="' . esc_url($this->page_url(array('source' => 'merge'))) . '" onsubmit="return confirm(\'' . esc_js(__('Merge the duplicate into the kept account and delete the duplicate? This cannot be undone.', 'rt-event-manager')) . '\');">';
+        wp_nonce_field(self::NONCE);
+        echo '<input type="hidden" name="rti_gi_action" value="merge" />';
+        echo '<p><label>' . esc_html__('Duplicate (will be deleted)', 'rt-event-manager') . '<br /><input type="text" name="dup_ref" class="regular-text" placeholder="' . esc_attr__('ID, email or username', 'rt-event-manager') . '" required /></label></p>';
+        echo '<p><label>' . esc_html__('Keep (receives everything)', 'rt-event-manager') . '<br /><input type="text" name="target_ref" class="regular-text" placeholder="' . esc_attr__('ID, email or username', 'rt-event-manager') . '" required /></label></p>';
+        echo '<p><button class="button button-primary">' . esc_html__('Merge', 'rt-event-manager') . '</button></p>';
+        echo '</form>';
+
+        echo '<h3>' . esc_html__('Likely duplicates from the Group Import', 'rt-event-manager') . '</h3>';
+        echo '<p class="description" style="max-width:820px">' . esc_html__('Accounts the Group Import ticketed that have never signed in with .WORLD, next to another account with the same name — usually the same person, who signs in with a different email.', 'rt-event-manager') . '</p>';
+        if (empty($pairs)) {
+            echo '<p><strong>' . esc_html__('No duplicates found.', 'rt-event-manager') . '</strong></p>';
+            return;
+        }
+        $orders = function ($uid) {
+            return count((array) wc_get_orders(array('customer_id' => $uid, 'limit' => -1, 'return' => 'ids')));
+        };
+        echo '<table class="widefat striped" style="max-width:1100px"><thead><tr><th>' . esc_html__('Imported (duplicate)', 'rt-event-manager') . '</th><th>' . esc_html__('Existing account', 'rt-event-manager') . '</th><th></th></tr></thead><tbody>';
+        foreach ($pairs as $p) {
+            $d = $p['dup'];
+            $t = $p['target'];
+            echo '<tr>';
+            echo '<td><a href="' . esc_url(get_edit_user_link($d->ID)) . '">#' . esc_html($d->ID) . ' ' . esc_html($d->display_name) . '</a><br /><small>' . esc_html($d->user_email) . ' · ' . esc_html(sprintf(_n('%d order', '%d orders', $orders($d->ID), 'rt-event-manager'), $orders($d->ID))) . '</small></td>';
+            echo '<td><a href="' . esc_url(get_edit_user_link($t->ID)) . '">#' . esc_html($t->ID) . ' ' . esc_html($t->display_name) . '</a><br /><small>' . esc_html($t->user_email) . ' · '
+                . (self::signed_in_with_world($t->ID) ? esc_html__('signed in with .WORLD', 'rt-event-manager') : esc_html__('never signed in with .WORLD', 'rt-event-manager'))
+                . ' · ' . esc_html(sprintf(_n('%d order', '%d orders', $orders($t->ID), 'rt-event-manager'), $orders($t->ID))) . '</small></td>';
+            echo '<td><form method="post" action="' . esc_url($this->page_url(array('source' => 'merge'))) . '" onsubmit="return confirm(\'' . esc_js(sprintf(__('Merge #%1$d into #%2$d and delete #%1$d? This cannot be undone.', 'rt-event-manager'), $d->ID, $t->ID)) . '\');">';
+            wp_nonce_field(self::NONCE);
+            echo '<input type="hidden" name="rti_gi_action" value="merge" /><input type="hidden" name="dup" value="' . esc_attr($d->ID) . '" /><input type="hidden" name="target" value="' . esc_attr($t->ID) . '" />';
+            echo '<button class="button button-primary">' . esc_html__('Merge into existing', 'rt-event-manager') . '</button></form></td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
     }
 
     private function post_world_login() {
@@ -777,6 +1152,7 @@ class RT_Event_Manager_Group_Import {
         $selected   = isset($_POST['rti_gi_sel']) ? array_map('absint', (array) $_POST['rti_gi_sel']) : array();
         $emails     = isset($_POST['rti_gi_email']) ? (array) wp_unslash($_POST['rti_gi_email']) : array();
         $delegates  = isset($_POST['rti_gi_delegate']) ? array_map('absint', array_keys((array) $_POST['rti_gi_delegate'])) : array();
+        $links      = isset($_POST['rti_gi_link']) ? array_map('absint', (array) $_POST['rti_gi_link']) : array();
         $product_id = isset($_POST['rti_gi_product']) ? absint($_POST['rti_gi_product']) : 0;
         $coupon     = isset($_POST['rti_gi_coupon']) ? wc_format_coupon_code(wp_unslash($_POST['rti_gi_coupon'])) : '';
         $product    = $product_id ? wc_get_product($product_id) : null;
@@ -810,7 +1186,7 @@ class RT_Event_Manager_Group_Import {
             if (!isset($rows[$i])) {
                 continue;
             }
-            $results[] = $this->import_row($rows[$i], $product, $coupon, $batch, in_array($i, $delegates, true));
+            $results[] = $this->import_row($rows[$i], $product, $coupon, $batch, in_array($i, $delegates, true), isset($links[$i]) ? $links[$i] : 0);
         }
         $this->mute_emails(false);
 
@@ -820,7 +1196,7 @@ class RT_Event_Manager_Group_Import {
 
     /** Suppress WooCommerce emails while importing (no notifications). */
     private function mute_emails($on) {
-        $ids = array('new_order', 'customer_processing_order', 'customer_completed_order', 'customer_on_hold_order', 'customer_invoice', 'customer_new_account', 'customer_note');
+        $ids = array('new_order', 'customer_processing_order', 'customer_completed_order', 'customer_on_hold_order', 'customer_invoice', 'customer_new_account', 'customer_note', 'customer_refunded_order', 'customer_partially_refunded_order', 'cancelled_order');
         foreach ($ids as $id) {
             if ($on) {
                 add_filter('woocommerce_email_enabled_' . $id, '__return_false', 999);
@@ -835,7 +1211,7 @@ class RT_Event_Manager_Group_Import {
      *
      * @return array {name, email, outcome: created|linked|skipped|error, message, user_id, order_id}
      */
-    private function import_row($row, $product, $coupon, $batch, $make_delegate = false) {
+    private function import_row($row, $product, $coupon, $batch, $make_delegate = false, $link_user_id = 0) {
         $name = trim($row['first_name'] . ' ' . $row['last_name']);
         $out  = array('name' => $name, 'email' => $row['email'], 'outcome' => 'error', 'message' => '', 'user_id' => 0, 'order_id' => 0);
 
@@ -843,16 +1219,35 @@ class RT_Event_Manager_Group_Import {
             $out['message'] = __('No name.', 'rt-event-manager');
             return $out;
         }
-        if (empty($row['email']) || !is_email($row['email'])) {
+        // 1) Account: existing (by email, then IDs), else the same-name account
+        // ticked in the preview, else a new one.
+        $user    = self::find_user($row);
+        $created = false;
+        if (!$user && $link_user_id) {
+            $user = get_userdata($link_user_id);
+            if ($user && (empty($row['email']) || !is_email($row['email']))) {
+                $row['email']  = $user->user_email;
+                $out['email']  = $user->user_email;
+            }
+        }
+        if (!$user && (empty($row['email']) || !is_email($row['email']))) {
             $out['message'] = __('No valid email address.', 'rt-event-manager');
             return $out;
         }
-
-        // 1) Account: existing (by .WORLD ID, else email) or new.
-        $user    = self::find_user($row);
-        $created = false;
         if (!$user) {
-            $login = sanitize_user(current(explode('@', $row['email'])), true);
+            // Username = the member's .world address, as .WORLD sign-in creates
+            // it, so both paths land on the same account.
+            $world_login = '';
+            foreach (array_merge(array($row['email']), (array) (isset($row['emails']) ? $row['emails'] : array())) as $em) {
+                if (self::is_world_address($em)) {
+                    $world_login = strtolower(trim($em));
+                    break;
+                }
+            }
+            $login = sanitize_user('' !== $world_login ? $world_login : $row['email'], true);
+            if ('' === $login) {
+                $login = sanitize_user(current(explode('@', $row['email'])), true);
+            }
             if ('' === $login) {
                 $login = 'member';
             }
@@ -884,6 +1279,7 @@ class RT_Event_Manager_Group_Import {
         // Profile data: fill gaps only, never overwrite what the member has.
         $meta = array(
             'world_id'           => $row['world_id'],
+            'world_member_id'    => isset($row['world_member_id']) ? $row['world_member_id'] : '',
             'rti_family'         => $row['family'],
             'rti_club'           => $row['club'],
             'rti_club_domain'    => $row['club_domain'],
@@ -1098,7 +1494,10 @@ class RT_Event_Manager_Group_Import {
             return;
         }
         $this->loading_script();
-        $source = isset($_GET['source']) && 'excel' === $_GET['source'] ? 'excel' : 'world';
+        $source = isset($_GET['source']) ? sanitize_key(wp_unslash($_GET['source'])) : 'world';
+        if (!in_array($source, array('world', 'excel', 'merge'), true)) {
+            $source = 'world';
+        }
         $rows   = $this->get_rows();
 
         echo '<div class="wrap rti-group-import"><h1>' . esc_html__('Group Import', 'rt-event-manager') . '</h1>';
@@ -1114,7 +1513,7 @@ class RT_Event_Manager_Group_Import {
             $this->render_results();
         }
 
-        if (!empty($rows)) {
+        if (!empty($rows) && 'merge' !== $source) {
             $this->render_preview($rows);
             echo '</div>';
             return;
@@ -1123,9 +1522,12 @@ class RT_Event_Manager_Group_Import {
         echo '<h2 class="nav-tab-wrapper">';
         echo '<a class="nav-tab' . ('world' === $source ? ' nav-tab-active' : '') . '" href="' . esc_url($this->page_url(array('source' => 'world'))) . '">' . esc_html__('From .WORLD', 'rt-event-manager') . '</a>';
         echo '<a class="nav-tab' . ('excel' === $source ? ' nav-tab-active' : '') . '" href="' . esc_url($this->page_url(array('source' => 'excel'))) . '">' . esc_html__('From Excel / CSV', 'rt-event-manager') . '</a>';
+        echo '<a class="nav-tab' . ('merge' === $source ? ' nav-tab-active' : '') . '" href="' . esc_url($this->page_url(array('source' => 'merge'))) . '">' . esc_html__('Merge duplicates', 'rt-event-manager') . '</a>';
         echo '</h2>';
 
-        if ('excel' === $source) {
+        if ('merge' === $source) {
+            $this->render_merge();
+        } elseif ('excel' === $source) {
             $this->render_excel_form();
         } else {
             $this->render_world_form();
@@ -1259,18 +1661,30 @@ class RT_Event_Manager_Group_Import {
         echo '</tr></thead><tbody>';
         foreach ($rows as $i => $r) {
             $user   = self::find_user($r);
+            $cand   = $user ? null : self::name_match($r);
             $has    = $user && RT_Event_Manager::instance()->user_has_event_ticket($user->ID);
-            $status = $user
-                ? ($has
+            if ($user) {
+                $status = $has
                     ? '<span style="color:#996800">' . esc_html__('Existing — already has a ticket (only profile and delegate are updated)', 'rt-event-manager') . '</span>'
-                    : '<a href="' . esc_url(get_edit_user_link($user->ID)) . '">' . esc_html(sprintf(__('Existing account #%d', 'rt-event-manager'), $user->ID)) . '</a>')
-                : esc_html__('New account', 'rt-event-manager');
+                    : '<a href="' . esc_url(get_edit_user_link($user->ID)) . '">' . esc_html(sprintf(__('Existing account #%d', 'rt-event-manager'), $user->ID)) . '</a>';
+            } elseif ($cand) {
+                // No email match, but an account with the same name exists —
+                // most likely the same person signed in with another email.
+                $cand_has = RT_Event_Manager::instance()->user_has_event_ticket($cand->ID);
+                $status = '<label style="color:#996800"><input type="checkbox" name="rti_gi_link[' . esc_attr($i) . ']" value="' . esc_attr($cand->ID) . '" checked /> '
+                    . esc_html(sprintf(__('Use existing account #%1$d (same name, %2$s)', 'rt-event-manager'), $cand->ID, $cand->user_email)) . '</label>'
+                    . ($cand_has ? '<br /><small>' . esc_html__('It already has a ticket — only profile and delegate are updated.', 'rt-event-manager') . '</small>' : '')
+                    . '<br /><small>' . esc_html__('Untick to create a separate new account.', 'rt-event-manager') . '</small>';
+                $has = $cand_has;
+            } else {
+                $status = esc_html__('New account', 'rt-event-manager');
+            }
             $fam = (isset($r['family']) && '' !== $r['family'] && isset($families[$r['family']])) ? $families[$r['family']] : '';
             echo '<tr>';
             echo '<th scope="row" class="check-column"><input type="checkbox" class="rti-gi-sel" name="rti_gi_sel[]" value="' . esc_attr($i) . '"' . ($has ? '' : ' checked') . ' /></th>';
             echo '<td><strong>' . esc_html(trim($r['first_name'] . ' ' . $r['last_name'])) . '</strong></td>';
             echo '<td><input type="email" name="rti_gi_email[' . esc_attr($i) . ']" value="' . esc_attr($r['email']) . '" class="regular-text"' . ('' === $r['email'] ? ' placeholder="' . esc_attr__('Email required', 'rt-event-manager') . '" style="border-color:#d63638"' : '') . ' /></td>';
-            echo '<td>' . esc_html($r['world_id']) . '</td>';
+            echo '<td>' . esc_html('' !== (string) $r['world_id'] ? $r['world_id'] : (isset($r['world_member_id']) ? $r['world_member_id'] : '')) . '</td>';
             // Association the member will have (needed for delegate status).
             $assoc = $user ? RT_Event_Manager::delegate_user_association($user->ID) : '';
             if (!empty($r['org_lock']) && preg_match('/\binternational\s*$/i', $assoc)) {
