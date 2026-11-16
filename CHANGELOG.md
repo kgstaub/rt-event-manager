@@ -3,6 +3,19 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.5.3] — 2026-11-16
+
+### Fixed
+- **Find Guest showed merged duplicates twice.** Refunded, cancelled and
+  invalid tickets (such as a merged duplicate's refunded Group Import ticket)
+  no longer appear in name, email or phone searches; they are still found by
+  order or ticket number.
+- **Merged accounts showed the refunded duplicate ticket.** The Group Import
+  ticket refunded by *Merge duplicates* is now hidden from the kept account:
+  the guest profile's account tickets, the member's cancelled-tickets view and
+  the Refunds tab. Its order is flagged `_rti_merge_refunded`; merges done in
+  2.5.2 are flagged once on update.
+
 ## [2.5.2] — 2026-11-16
 
 ### Fixed

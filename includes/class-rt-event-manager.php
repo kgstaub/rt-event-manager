@@ -3435,7 +3435,35 @@ class RT_Event_Manager {
         }
         $sql .= ' ORDER BY order_id ASC, ticket_index ASC';
 
-        return $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+        if ($include_terminal && $rows) {
+            // Tickets refunded because a duplicate account was merged into this
+            // one are not the member's tickets — never list them on the account.
+            $rows = array_values(array_filter($rows, function ($r) {
+                return !self::is_merge_refunded_ticket($r);
+            }));
+        }
+        return $rows;
+    }
+
+    /**
+     * Whether a ticket was refunded by Group Import's account merge (the
+     * duplicate's ticket when the kept account already held one). Its order
+     * carries `_rti_merge_refunded`.
+     *
+     * @param array $ticket Ticket row (ARRAY_A).
+     */
+    public static function is_merge_refunded_ticket($ticket) {
+        static $cache = array();
+        if (empty($ticket['order_id']) || 'refunded' !== (isset($ticket['status']) ? $ticket['status'] : '')) {
+            return false;
+        }
+        $oid = absint($ticket['order_id']);
+        if (!isset($cache[$oid])) {
+            $order       = function_exists('wc_get_order') ? wc_get_order($oid) : null;
+            $cache[$oid] = $order && 'yes' === $order->get_meta('_rti_merge_refunded');
+        }
+        return $cache[$oid];
     }
 
     /**
