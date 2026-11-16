@@ -51,6 +51,7 @@ class RT_Event_Manager_Group_Import {
         add_action('admin_menu', array($this, 'add_admin_menu'), 61);
         add_action('admin_init', array($this, 'handle_post'));
         add_action('admin_post_rti_group_import_template', array($this, 'download_template'));
+        add_action('admin_post_rti_group_invoice_pdf', array($this, 'download_invoice'));
         add_action('admin_init', array($this, 'maybe_fix_world_ids'));
         add_action('admin_init', array($this, 'maybe_flag_merge_refunds'));
     }
@@ -862,6 +863,9 @@ class RT_Event_Manager_Group_Import {
             case 'merge':
                 $this->post_merge();
                 break;
+            case 'invoice':
+                $this->post_invoice();
+                break;
         }
     }
 
@@ -1453,6 +1457,336 @@ class RT_Event_Manager_Group_Import {
     }
 
     /* ---------------------------------------------------------------------
+     * Coupon invoices — every ticket issued under a coupon, invoiced as one
+     * PDF; the coupon is then disabled so nothing more can be added to it.
+     * ------------------------------------------------------------------- */
+
+    const INVOICE_META = '_rti_gi_invoice';
+
+    /** Coupons for the invoice picker (published + already invoiced drafts). */
+    private function invoice_coupons() {
+        return get_posts(array(
+            'post_type'      => 'shop_coupon',
+            'post_status'    => array('publish', 'draft'),
+            'posts_per_page' => 300,
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+        ));
+    }
+
+    /** IDs of orders that used a coupon code (order items table — HPOS-safe). */
+    private static function coupon_order_ids($code) {
+        global $wpdb;
+        $ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT order_id FROM {$wpdb->prefix}woocommerce_order_items WHERE order_item_type = 'coupon' AND LOWER(order_item_name) = %s ORDER BY order_id ASC",
+            strtolower($code)
+        ));
+        return array_map('absint', (array) $ids);
+    }
+
+    /**
+     * Billable orders under a coupon: one row per order with its live tickets
+     * and the amount the coupon covered. Refunded / cancelled orders (incl.
+     * tickets refunded by an account merge) are left out.
+     */
+    private function coupon_invoice_rows($code) {
+        $rows = array();
+        foreach (self::coupon_order_ids($code) as $oid) {
+            $order = wc_get_order($oid);
+            if (!$order || in_array($order->get_status(), array('refunded', 'cancelled', 'failed', 'trash', 'checkout-draft', 'pending'), true)) {
+                continue;
+            }
+            if ('yes' === $order->get_meta('_rti_merge_refunded')) {
+                continue;
+            }
+            $tickets = array();
+            foreach (RT_Event_Manager::get_tickets_for_order($oid) as $t) {
+                if (in_array($t['status'], array('refunded', 'cancelled', 'invalid'), true)) {
+                    continue;
+                }
+                $p = wc_get_product($t['product_id']);
+                $tickets[] = array(
+                    'id'      => absint($t['id']),
+                    'number'  => '#' . absint($t['order_id']) . ' · ' . (absint($t['ticket_index']) + 1),
+                    'holder'  => ('' !== $t['holder_name']) ? $t['holder_name'] : __('Unassigned', 'rt-event-manager'),
+                    'product' => $p ? RT_Event_Manager::product_title($p->get_id()) : RT_Event_Manager::ticket_kind_label($t),
+                    'club'    => isset($t['rti_club']) ? trim((string) $t['rti_club']) : '',
+                );
+            }
+            if (empty($tickets)) {
+                continue;
+            }
+            // Amount the coupon covered on this order (net discount + its tax).
+            $net = 0.0;
+            $tax = 0.0;
+            foreach ($order->get_items('coupon') as $ci) {
+                if (strtolower($ci->get_code()) === strtolower($code)) {
+                    $net += (float) $ci->get_discount();
+                    $tax += (float) $ci->get_discount_tax();
+                }
+            }
+            $created = $order->get_date_created();
+            $rows[] = array(
+                'order_id' => $oid,
+                'order_no' => $order->get_order_number(),
+                'date'     => $created ? $created->date('Y-m-d') : '',
+                'customer' => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
+                'tickets'  => $tickets,
+                'net'      => round($net, 2),
+                'tax'      => round($tax, 2),
+                'currency' => $order->get_currency(),
+            );
+        }
+        return $rows;
+    }
+
+    private static function invoice_totals($rows) {
+        $net = 0.0;
+        $tax = 0.0;
+        $n   = 0;
+        foreach ($rows as $r) {
+            $net += $r['net'];
+            $tax += $r['tax'];
+            $n   += count($r['tickets']);
+        }
+        return array('net' => round($net, 2), 'tax' => round($tax, 2), 'total' => round($net + $tax, 2), 'tickets' => $n);
+    }
+
+    /** Next invoice number, e.g. GI-2026-001. */
+    private static function next_invoice_number() {
+        $year = gmdate('Y');
+        $seq  = get_option('rt_event_manager_gi_invoice_seq', array());
+        $seq  = is_array($seq) ? $seq : array();
+        $n    = isset($seq[$year]) ? absint($seq[$year]) + 1 : 1;
+        $seq[$year] = $n;
+        update_option('rt_event_manager_gi_invoice_seq', $seq, false);
+        return sprintf('GI-%s-%03d', $year, $n);
+    }
+
+    private function invoice_download_url($coupon_id) {
+        return wp_nonce_url(add_query_arg(array('action' => 'rti_group_invoice_pdf', 'coupon' => absint($coupon_id)), admin_url('admin-post.php')), self::NONCE);
+    }
+
+    private function render_invoices() {
+        $coupons = $this->invoice_coupons();
+        $cid     = isset($_GET['coupon']) ? absint($_GET['coupon']) : 0;
+
+        echo '<p class="description" style="max-width:780px">' . esc_html__('Choose a coupon to see every ticket issued under it. Generate one PDF invoice for the coupon — the coupon is then disabled, so no further tickets can be issued with it.', 'rt-event-manager') . '</p>';
+        echo '<form method="get" action="' . esc_url(admin_url('admin.php')) . '" style="margin:12px 0">';
+        echo '<input type="hidden" name="page" value="' . esc_attr(self::PAGE_SLUG) . '" /><input type="hidden" name="source" value="invoices" />';
+        echo '<select name="coupon" onchange="this.form.submit()"><option value="">' . esc_html__('— Choose a coupon —', 'rt-event-manager') . '</option>';
+        foreach ($coupons as $c) {
+            $inv   = get_post_meta($c->ID, self::INVOICE_META, true);
+            $label = $c->post_title . (is_array($inv) && !empty($inv['number']) ? ' — ' . sprintf(__('invoiced %s', 'rt-event-manager'), $inv['number']) : '');
+            echo '<option value="' . esc_attr($c->ID) . '"' . selected($cid, $c->ID, false) . '>' . esc_html($label) . '</option>';
+        }
+        echo '</select> <noscript><button class="button">' . esc_html__('Show', 'rt-event-manager') . '</button></noscript></form>';
+
+        $post = $cid ? get_post($cid) : null;
+        if (!$post || 'shop_coupon' !== $post->post_type) {
+            return;
+        }
+        $code    = wc_format_coupon_code($post->post_title);
+        $invoice = get_post_meta($cid, self::INVOICE_META, true);
+        $invoice = is_array($invoice) && !empty($invoice['number']) ? $invoice : null;
+        $rows    = $invoice ? $invoice['rows'] : $this->coupon_invoice_rows($code);
+        $tot     = self::invoice_totals($rows);
+        $cur     = $rows ? $rows[0]['currency'] : get_woocommerce_currency();
+        $money   = function ($v) use ($cur) {
+            return wp_kses_post(wc_price($v, array('currency' => $cur)));
+        };
+
+        if ($invoice) {
+            echo '<div class="notice notice-info inline"><p>'
+                . esc_html(sprintf(__('Invoice %1$s generated on %2$s — the coupon is disabled. The list below is the invoiced snapshot.', 'rt-event-manager'), $invoice['number'], date_i18n(get_option('date_format'), strtotime($invoice['date']))))
+                . ' <a class="button button-primary" href="' . esc_url($this->invoice_download_url($cid)) . '">' . esc_html__('Download PDF invoice', 'rt-event-manager') . '</a></p></div>';
+        } elseif ('publish' !== $post->post_status) {
+            echo '<div class="notice notice-warning inline"><p>' . esc_html__('This coupon is not published (disabled).', 'rt-event-manager') . '</p></div>';
+        }
+
+        echo '<h3>' . esc_html(sprintf(_n('%1$d ticket issued under “%2$s”', '%1$d tickets issued under “%2$s”', $tot['tickets'], 'rt-event-manager'), $tot['tickets'], $post->post_title)) . '</h3>';
+        if (empty($rows)) {
+            echo '<p>' . esc_html__('No active tickets were issued with this coupon.', 'rt-event-manager') . '</p>';
+            return;
+        }
+        echo '<table class="widefat striped" style="max-width:1100px"><thead><tr>'
+            . '<th>' . esc_html__('Ticket', 'rt-event-manager') . '</th>'
+            . '<th>' . esc_html__('Holder', 'rt-event-manager') . '</th>'
+            . '<th>' . esc_html__('Club', 'rt-event-manager') . '</th>'
+            . '<th>' . esc_html__('Product', 'rt-event-manager') . '</th>'
+            . '<th>' . esc_html__('Order', 'rt-event-manager') . '</th>'
+            . '<th style="text-align:right">' . esc_html__('Amount', 'rt-event-manager') . '</th>'
+            . '</tr></thead><tbody>';
+        foreach ($rows as $r) {
+            $first = true;
+            foreach ($r['tickets'] as $t) {
+                $order_link = $first
+                    ? '<a href="' . esc_url(class_exists('\\Automattic\\WooCommerce\\Utilities\\OrderUtil') ? \Automattic\WooCommerce\Utilities\OrderUtil::get_order_admin_edit_url(absint($r['order_id'])) : admin_url('post.php?post=' . absint($r['order_id']) . '&action=edit')) . '">#' . esc_html($r['order_no']) . '</a>'
+                    : '';
+                echo '<tr><td>' . esc_html($t['number']) . '</td><td>' . esc_html($t['holder']) . '</td><td>' . esc_html($t['club']) . '</td><td>' . esc_html($t['product']) . '</td>'
+                    . '<td>' . $order_link . '</td><td style="text-align:right">' . ($first ? $money($r['net'] + $r['tax']) : '') . '</td></tr>';
+                $first = false;
+            }
+        }
+        echo '</tbody><tfoot><tr><th colspan="5" style="text-align:right">' . esc_html__('Total', 'rt-event-manager') . '</th><th style="text-align:right">' . $money($tot['total']) . '</th></tr></tfoot></table>';
+
+        if ($invoice) {
+            return;
+        }
+
+        // Invoice form.
+        $last = get_option('rt_event_manager_gi_invoice_defaults', array());
+        $last = is_array($last) ? $last : array();
+        echo '<h3 style="margin-top:24px">' . esc_html__('Generate invoice', 'rt-event-manager') . '</h3>';
+        echo '<form method="post" action="' . esc_url($this->page_url(array('source' => 'invoices', 'coupon' => $cid))) . '" onsubmit="return confirm(\'' . esc_js(__('Generate the invoice and disable this coupon? No further tickets can be issued with it.', 'rt-event-manager')) . '\');">';
+        wp_nonce_field(self::NONCE);
+        echo '<input type="hidden" name="rti_gi_action" value="invoice" /><input type="hidden" name="coupon" value="' . esc_attr($cid) . '" />';
+        echo '<table class="form-table" role="presentation">';
+        echo '<tr><th><label for="rti_inv_to">' . esc_html__('Bill to', 'rt-event-manager') . '</label></th><td><textarea name="rti_inv_to" id="rti_inv_to" rows="5" cols="60" required placeholder="' . esc_attr__("Organisation\nContact\nStreet\nPostcode City\nCountry", 'rt-event-manager') . '"></textarea></td></tr>';
+        echo '<tr><th><label for="rti_inv_ref">' . esc_html__('Reference / PO', 'rt-event-manager') . '</label></th><td><input type="text" class="regular-text" name="rti_inv_ref" id="rti_inv_ref" /></td></tr>';
+        echo '<tr><th><label for="rti_inv_due">' . esc_html__('Payment due (days)', 'rt-event-manager') . '</label></th><td><input type="number" min="0" max="365" name="rti_inv_due" id="rti_inv_due" value="' . esc_attr(isset($last['due']) ? $last['due'] : 30) . '" /></td></tr>';
+        echo '<tr><th><label for="rti_inv_notes">' . esc_html__('Payment details / notes', 'rt-event-manager') . '</label></th><td><textarea name="rti_inv_notes" id="rti_inv_notes" rows="5" cols="60" placeholder="' . esc_attr__('Bank, IBAN, payment terms… (remembered for the next invoice)', 'rt-event-manager') . '">' . esc_textarea(isset($last['notes']) ? $last['notes'] : '') . '</textarea></td></tr>';
+        echo '</table>';
+        submit_button(__('Generate invoice and disable coupon', 'rt-event-manager'));
+        echo '</form>';
+    }
+
+    private function post_invoice() {
+        $cid  = isset($_POST['coupon']) ? absint($_POST['coupon']) : 0;
+        $post = $cid ? get_post($cid) : null;
+        if (!$post || 'shop_coupon' !== $post->post_type) {
+            $this->flash('error', __('Coupon not found.', 'rt-event-manager'));
+            $this->redirect(array('source' => 'invoices'));
+        }
+        $back = array('source' => 'invoices', 'coupon' => $cid);
+        $existing = get_post_meta($cid, self::INVOICE_META, true);
+        if (is_array($existing) && !empty($existing['number'])) {
+            $this->flash('error', __('This coupon has already been invoiced.', 'rt-event-manager'));
+            $this->redirect($back);
+        }
+        $to = isset($_POST['rti_inv_to']) ? sanitize_textarea_field(wp_unslash($_POST['rti_inv_to'])) : '';
+        if ('' === trim($to)) {
+            $this->flash('error', __('Enter who the invoice is addressed to.', 'rt-event-manager'));
+            $this->redirect($back);
+        }
+        $code = wc_format_coupon_code($post->post_title);
+        $rows = $this->coupon_invoice_rows($code);
+        if (empty($rows)) {
+            $this->flash('error', __('No active tickets were issued with this coupon — nothing to invoice.', 'rt-event-manager'));
+            $this->redirect($back);
+        }
+        $notes = isset($_POST['rti_inv_notes']) ? sanitize_textarea_field(wp_unslash($_POST['rti_inv_notes'])) : '';
+        $due   = isset($_POST['rti_inv_due']) ? min(365, absint($_POST['rti_inv_due'])) : 30;
+        update_option('rt_event_manager_gi_invoice_defaults', array('notes' => $notes, 'due' => $due), false);
+
+        $now     = current_time('Y-m-d');
+        $invoice = array(
+            'number'   => self::next_invoice_number(),
+            'date'     => $now,
+            'due_date' => gmdate('Y-m-d', strtotime($now . ' +' . $due . ' days')),
+            'coupon'   => $post->post_title,
+            'bill_to'  => $to,
+            'ref'      => isset($_POST['rti_inv_ref']) ? sanitize_text_field(wp_unslash($_POST['rti_inv_ref'])) : '',
+            'notes'    => $notes,
+            'currency' => $rows[0]['currency'],
+            'rows'     => $rows,
+            'totals'   => self::invoice_totals($rows),
+            'by'       => get_current_user_id(),
+        );
+        update_post_meta($cid, self::INVOICE_META, $invoice);
+
+        // Disable the coupon: unpublished + usage capped at what was used.
+        $coupon = new WC_Coupon($cid);
+        $coupon->set_usage_limit(max(1, (int) $coupon->get_usage_count()));
+        $coupon->set_description(trim($coupon->get_description() . "\n" . sprintf(__('Invoiced %1$s on %2$s — disabled.', 'rt-event-manager'), $invoice['number'], $now)));
+        $coupon->save();
+        wp_update_post(array('ID' => $cid, 'post_status' => 'draft'));
+
+        foreach ($rows as $r) {
+            $order = wc_get_order($r['order_id']);
+            if ($order) {
+                $order->update_meta_data('_rti_gi_invoice_no', $invoice['number']);
+                $order->add_order_note(sprintf(__('Invoiced on coupon invoice %s.', 'rt-event-manager'), $invoice['number']));
+                $order->save();
+            }
+        }
+
+        $this->flash('success', sprintf(__('Invoice %s generated; the coupon is now disabled.', 'rt-event-manager'), $invoice['number']));
+        $this->redirect($back);
+    }
+
+    /** admin-post: stream the PDF for an invoiced coupon. */
+    public function download_invoice() {
+        if (!current_user_can(self::CAP)) {
+            wp_die(esc_html__('Not allowed.', 'rt-event-manager'));
+        }
+        check_admin_referer(self::NONCE);
+        $cid     = isset($_GET['coupon']) ? absint($_GET['coupon']) : 0;
+        $invoice = $cid ? get_post_meta($cid, self::INVOICE_META, true) : null;
+        if (!is_array($invoice) || empty($invoice['number']) || !class_exists('RT_Event_Manager_Receipt')) {
+            wp_die(esc_html__('Invoice not found.', 'rt-event-manager'));
+        }
+        $pdf = RT_Event_Manager_Receipt::instance()->render_document_pdf($this->invoice_pdf_body($invoice));
+        if (!$pdf) {
+            wp_die(esc_html__('The PDF could not be generated.', 'rt-event-manager'));
+        }
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="invoice-' . sanitize_file_name($invoice['number']) . '.pdf"');
+        header('Content-Length: ' . strlen($pdf));
+        echo $pdf; // phpcs:ignore WordPress.Security.EscapeOutput
+        exit;
+    }
+
+    private function invoice_pdf_body($inv) {
+        $cur   = $inv['currency'];
+        $money = function ($v) use ($cur) {
+            return wp_kses_post(wc_price($v, array('currency' => $cur)));
+        };
+        $fmt = function ($d) {
+            return $d ? date_i18n(get_option('date_format'), strtotime($d)) : '';
+        };
+        $t = $inv['totals'];
+        $h  = '<div class="header"><h1>' . esc_html(get_bloginfo('name')) . '</h1><div class="muted">' . esc_html__('Invoice', 'rt-event-manager') . '</div></div>';
+        $h .= '<table class="meta">';
+        $h .= '<tr><td class="label">' . esc_html__('Invoice no.', 'rt-event-manager') . '</td><td>' . esc_html($inv['number']) . '</td>'
+            . '<td class="label">' . esc_html__('Date', 'rt-event-manager') . '</td><td>' . esc_html($fmt($inv['date'])) . '</td></tr>';
+        $h .= '<tr><td class="label">' . esc_html__('Coupon', 'rt-event-manager') . '</td><td>' . esc_html($inv['coupon']) . '</td>'
+            . '<td class="label">' . esc_html__('Due', 'rt-event-manager') . '</td><td>' . esc_html($fmt($inv['due_date'])) . '</td></tr>';
+        if ('' !== $inv['ref']) {
+            $h .= '<tr><td class="label">' . esc_html__('Reference', 'rt-event-manager') . '</td><td colspan="3">' . esc_html($inv['ref']) . '</td></tr>';
+        }
+        $h .= '<tr><td class="label">' . esc_html__('Billed to', 'rt-event-manager') . '</td><td colspan="3">' . nl2br(esc_html($inv['bill_to'])) . '</td></tr>';
+        $h .= '</table>';
+
+        $h .= '<table class="items"><thead><tr><th>' . esc_html__('Ticket', 'rt-event-manager') . '</th><th>' . esc_html__('Holder', 'rt-event-manager') . '</th><th>' . esc_html__('Item', 'rt-event-manager') . '</th><th class="num">' . esc_html__('Amount', 'rt-event-manager') . '</th></tr></thead><tbody>';
+        foreach ($inv['rows'] as $r) {
+            $first = true;
+            foreach ($r['tickets'] as $tk) {
+                $h .= '<tr><td>' . esc_html($tk['number']) . '</td><td>' . esc_html($tk['holder'])
+                    . ('' !== $tk['club'] ? '<div class="item-dates">' . esc_html($tk['club']) . '</div>' : '')
+                    . '</td><td>' . esc_html($tk['product']) . '</td><td class="num">' . ($first ? $money($r['net'] + $r['tax']) : '') . '</td></tr>';
+                $first = false;
+            }
+        }
+        $h .= '</tbody></table>';
+
+        $h .= '<table class="totals">';
+        $h .= '<tr><td>' . esc_html(sprintf(_n('%d ticket', '%d tickets', $t['tickets'], 'rt-event-manager'), $t['tickets'])) . '</td><td class="num"></td></tr>';
+        if ($t['tax'] > 0) {
+            $h .= '<tr><td>' . esc_html__('Subtotal', 'rt-event-manager') . '</td><td class="num">' . $money($t['net']) . '</td></tr>';
+            $h .= '<tr><td>' . esc_html__('Tax', 'rt-event-manager') . '</td><td class="num">' . $money($t['tax']) . '</td></tr>';
+        }
+        $h .= '<tr class="grand"><td>' . esc_html__('Total due', 'rt-event-manager') . '</td><td class="num">' . $money($t['total']) . '</td></tr>';
+        $h .= '</table>';
+
+        if ('' !== trim($inv['notes'])) {
+            $h .= '<div style="margin-top:24px"><strong>' . esc_html__('Payment details', 'rt-event-manager') . '</strong><br>' . nl2br(esc_html($inv['notes'])) . '</div>';
+        }
+        return $h;
+    }
+
+    /* ---------------------------------------------------------------------
      * Page
      * ------------------------------------------------------------------- */
 
@@ -1529,7 +1863,7 @@ class RT_Event_Manager_Group_Import {
         }
         $this->loading_script();
         $source = isset($_GET['source']) ? sanitize_key(wp_unslash($_GET['source'])) : 'world';
-        if (!in_array($source, array('world', 'excel', 'merge'), true)) {
+        if (!in_array($source, array('world', 'excel', 'merge', 'invoices'), true)) {
             $source = 'world';
         }
         $rows   = $this->get_rows();
@@ -1547,7 +1881,7 @@ class RT_Event_Manager_Group_Import {
             $this->render_results();
         }
 
-        if (!empty($rows) && 'merge' !== $source) {
+        if (!empty($rows) && !in_array($source, array('merge', 'invoices'), true)) {
             $this->render_preview($rows);
             echo '</div>';
             return;
@@ -1557,9 +1891,12 @@ class RT_Event_Manager_Group_Import {
         echo '<a class="nav-tab' . ('world' === $source ? ' nav-tab-active' : '') . '" href="' . esc_url($this->page_url(array('source' => 'world'))) . '">' . esc_html__('From .WORLD', 'rt-event-manager') . '</a>';
         echo '<a class="nav-tab' . ('excel' === $source ? ' nav-tab-active' : '') . '" href="' . esc_url($this->page_url(array('source' => 'excel'))) . '">' . esc_html__('From Excel / CSV', 'rt-event-manager') . '</a>';
         echo '<a class="nav-tab' . ('merge' === $source ? ' nav-tab-active' : '') . '" href="' . esc_url($this->page_url(array('source' => 'merge'))) . '">' . esc_html__('Merge duplicates', 'rt-event-manager') . '</a>';
+        echo '<a class="nav-tab' . ('invoices' === $source ? ' nav-tab-active' : '') . '" href="' . esc_url($this->page_url(array('source' => 'invoices'))) . '">' . esc_html__('Coupon invoices', 'rt-event-manager') . '</a>';
         echo '</h2>';
 
-        if ('merge' === $source) {
+        if ('invoices' === $source) {
+            $this->render_invoices();
+        } elseif ('merge' === $source) {
             $this->render_merge();
         } elseif ('excel' === $source) {
             $this->render_excel_form();

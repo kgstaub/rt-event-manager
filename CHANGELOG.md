@@ -3,6 +3,27 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.5.4] — 2026-11-16
+
+### Added
+- **Coupon invoices** (*Group Import → Coupon invoices*): pick a coupon to see
+  every active ticket issued under it (holder, club, product, order, amount
+  covered) and generate one **PDF invoice** for the coupon — bill-to,
+  reference / PO, due date and payment details (remembered), numbered
+  `GI-YYYY-NNN`, on the shared receipt letterhead. Generating the invoice
+  **disables the coupon** (set to draft, usage capped) so no further tickets
+  can be issued with it; the invoice is stored as a snapshot for re-download
+  and its number is noted on each order. Refunded / cancelled tickets
+  (including merged duplicates) are not invoiced.
+
+### Fixed
+- **Full weekend tickets shown in the partial-admission colour (green).** A
+  full pass counted as partial whenever any other published "Main event
+  admission" product had a wider or undated window. With the event start / end
+  set, an admission is now **full when it covers every event day** and partial
+  only when it misses one; other admission products no longer matter. Without
+  event dates the previous comparison still applies.
+
 ## [2.5.3] — 2026-11-16
 
 ### Fixed
