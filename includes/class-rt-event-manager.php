@@ -7375,6 +7375,30 @@ class RT_Event_Manager {
      *
      * @return array<int,string[]>
      */
+    /**
+     * Whole days (Y-m-d, event timezone) of the event itself, from the Event
+     * start / end settings. Empty when no event start is set.
+     *
+     * @return string[]
+     */
+    public static function event_window_dates() {
+        static $cache = null;
+        if (null === $cache) {
+            $start = self::tour_dt_to_ts(get_option('rt_event_manager_event_start', ''));
+            $end   = self::tour_dt_to_ts(get_option('rt_event_manager_event_end', ''));
+            // An event ending in the small hours (e.g. 02:00 after the party)
+            // does not add a day that admissions must cover.
+            if ($start && $end > $start) {
+                $local = (new DateTime('@' . $end))->setTimezone(self::event_timezone());
+                if ((int) $local->format('G') < 6 && $end - $start >= DAY_IN_SECONDS) {
+                    $end -= 6 * HOUR_IN_SECONDS;
+                }
+            }
+            $cache = $start ? self::dates_in_range($start, $end) : array();
+        }
+        return $cache;
+    }
+
     private static function all_admission_windows() {
         static $cache = null;
         if (null !== $cache) {
@@ -7412,6 +7436,19 @@ class RT_Event_Manager {
         $mine = self::admission_window_dates($pid);
         if (empty($mine)) {
             return false; // no window → unrestricted / full
+        }
+        // When the event dates are set, they decide: an admission is full when
+        // it covers every event day, partial when it misses one. Other admission
+        // products (e.g. a staff pass or a window ending after midnight) no
+        // longer turn a full pass partial.
+        $event = self::event_window_dates();
+        if (!empty($event)) {
+            foreach ($event as $day) {
+                if (!in_array($day, $mine, true)) {
+                    return true;
+                }
+            }
+            return false;
         }
         $count = count($mine);
         foreach (self::all_admission_windows() as $other_pid => $theirs) {

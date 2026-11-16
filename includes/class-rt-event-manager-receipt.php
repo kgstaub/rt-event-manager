@@ -68,6 +68,17 @@ class RT_Event_Manager_Receipt {
         return $this->render_pdf($html);
     }
 
+    /**
+     * Render a ready-made document body (e.g. a Group Import coupon invoice)
+     * in the shared letterhead / footer shell.
+     *
+     * @param string $body Inner HTML.
+     * @return string|false PDF bytes or false.
+     */
+    public function render_document_pdf($body) {
+        return $this->render_pdf($this->wrap_html($body));
+    }
+
     /** Human date range (compact when start/end share a day). */
     private function fmt_range($start, $end) {
         $s = $start ? strtotime($start) : 0;
