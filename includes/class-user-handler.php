@@ -866,6 +866,28 @@ class Multi_OAuth_SSO_User_Handler {
         if (!$user && !empty($user_info['username']) && is_string($user_info['username'])) {
             $user = get_user_by('login', $user_info['username']);
         }
+        // The .world address may also be the EMAIL of an account (accounts
+        // imported before 2.5.2 have username "first.last" and the .world
+        // address as email) — match it, and billing emails, too.
+        if (!$user) {
+            foreach (array(
+                isset($mapped_data['core']['user_login']) ? $mapped_data['core']['user_login'] : '',
+                (!empty($user_info['username']) && is_string($user_info['username'])) ? $user_info['username'] : '',
+            ) as $addr) {
+                $addr = trim((string) $addr);
+                if ('' === $addr || !is_email($addr)) {
+                    continue;
+                }
+                $user = get_user_by('email', $addr);
+                if (!$user) {
+                    $ids = get_users(array('meta_key' => 'billing_email', 'meta_value' => $addr, 'number' => 1, 'fields' => 'ID'));
+                    $user = !empty($ids) ? get_userdata((int) $ids[0]) : null;
+                }
+                if ($user) {
+                    break;
+                }
+            }
+        }
 
         if ($user) {
             // Update existing user
