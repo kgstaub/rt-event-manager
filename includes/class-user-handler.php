@@ -509,8 +509,8 @@ class Multi_OAuth_SSO_User_Handler {
                 // Save to order meta
                 $order->update_meta_data('_' . $meta_key, $value);
 
-                // Save to user meta if logged in
-                if ($user_id) {
+                // Save to user meta if logged in (a locked club stays as it is)
+                if ($user_id && !(self::org_locked($user_id) && in_array($meta_key, self::org_locked_keys(), true))) {
                     update_user_meta($user_id, $meta_key, $value);
                 }
             }
@@ -712,6 +712,9 @@ class Multi_OAuth_SSO_User_Handler {
 
         foreach ($fields as $post_key => $meta_key) {
             if (isset($_POST[$post_key])) {
+                if (self::org_locked($user_id) && in_array($meta_key, self::org_locked_keys(), true)) {
+                    continue;
+                }
                 $value = sanitize_text_field($_POST[$post_key]);
                 // Save both with billing_ prefix (for WooCommerce) and without (for our plugin)
                 update_user_meta($user_id, $post_key, $value);
@@ -834,9 +837,26 @@ class Multi_OAuth_SSO_User_Handler {
 
         $mapped_data = $validation['data'];
 
-        // Check if user exists
+        // Check if user exists: first by .WORLD ID (so accounts created by the
+        // Group Import, or whose email differs from .WORLD, are reused), then by
+        // email. The .WORLD ID comes from the identity provider, not the user.
         $user_email = $mapped_data['core']['user_email'];
-        $user = get_user_by('email', $user_email);
+        $user       = null;
+        $world_id   = isset($mapped_data['meta']['world_id']) ? trim((string) $mapped_data['meta']['world_id']) : '';
+        if ('' !== $world_id) {
+            $ids = get_users(array(
+                'meta_key'   => 'world_id',
+                'meta_value' => $world_id,
+                'number'     => 1,
+                'fields'     => 'ID',
+            ));
+            if (!empty($ids)) {
+                $user = get_userdata((int) $ids[0]);
+            }
+        }
+        if (!$user) {
+            $user = get_user_by('email', $user_email);
+        }
 
         if ($user) {
             // Update existing user
@@ -974,9 +994,28 @@ class Multi_OAuth_SSO_User_Handler {
      * Update user meta fields
      */
     private function update_user_meta($user_id, $meta_data) {
+        $locked = self::org_locked($user_id);
         foreach ($meta_data as $meta_key => $meta_value) {
+            if ($locked && in_array($meta_key, self::org_locked_keys(), true)) {
+                continue; // club locked (international board)
+            }
             update_user_meta($user_id, $meta_key, $meta_value);
         }
+    }
+
+    /**
+     * Whether a member's club is locked — set by the Group Import for
+     * international board members (club "RTI Board"), so .WORLD sign-in,
+     * checkout and the profile do not replace it with their home club. Their
+     * association still follows their home club.
+     */
+    public static function org_locked($user_id) {
+        return $user_id && 'yes' === get_user_meta($user_id, 'rti_org_locked', true);
+    }
+
+    /** Meta keys protected by the organisation lock. */
+    public static function org_locked_keys() {
+        return array('rti_club', 'billing_rti_club');
     }
 
     /**

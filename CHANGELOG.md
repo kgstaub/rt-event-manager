@@ -3,6 +3,64 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.5.0] — 2026-11-16
+
+### Added
+- **Group Import** (*RT Event → Group Import*). Import a group — e.g. an
+  international board — and give each person an account and a full event
+  ticket paid by a coupon, so a proper order exists for invoicing.
+  - **From .WORLD:** an admin signs in to the .WORLD API
+    (api.roundtable.world, documented at developer.roundtable.world) with their
+    own .WORLD credentials (2FA supported, Production or Demo), picks a family
+    and a level — the international board by default, or e.g. a national
+    association — and loads its board (optionally with board assistants and,
+    for a national level, the **President of each area** below it, who sit on
+    their area's board rather than the national board).
+    Names come from each member's profile; email and phone only where the
+    member shares them. The password is never stored; the API token is kept
+    encrypted for 2 hours per admin.
+  - **From Excel / CSV:** upload an .xlsx/.xls/.csv (downloadable template) with
+    First name, Last name, Email and optional .WORLD ID, Family, Club,
+    Association, Function, Phone, Country.
+  - **Preview:** every person with a checkbox to pick individuals, editable
+    email (fill in any .WORLD didn't share), and the account match — new,
+    existing, or already holding a ticket — and the association each person
+    will have (needed for delegate status), plus a per-person
+    **Delegate** checkbox (off by default). Ticked people are made delegates
+    with the usual rules (hosting family, two per association); if a rule
+    blocks it they are still imported and the result says why. Unticked never
+    removes an existing delegate status. People who already hold a ticket can
+    be ticked too (off by default): only their profile gaps and delegate
+    status are updated — no second order.
+  - **Association for delegates:** .WORLD rows get their association code from
+    the board data, the national level being loaded (also for its area
+    presidents), or the member search, so imported members can be made
+    delegates before they ever sign in.
+  - **International boards:** members imported from an international (family)
+    level get club **RTI Board** (41I / LCI / ACI / TCI Board for the other
+    families) and keep their **home association** (e.g. RT Switzerland),
+    derived from their own club. The club is **locked**: .WORLD sign-in,
+    checkout and the member's own profile no longer replace it with their home
+    club (admins can still edit it in wp-admin); the association keeps syncing
+    from their home club. Re-running the import also corrects the club and
+    association on their existing ticket. In Excel, a Club ending in "Board"
+    (e.g. "RTI Board") is locked the same way.
+  - **Import:** for each ticked person an account is found (by .WORLD ID, else
+    email) or created, profile gaps are filled (never overwritten), and a
+    **Completed** order is created for the chosen event ticket with the chosen
+    coupon applied (the coupon must cover the full price), plus the ticket
+    row owned by the member. **No emails are sent.** A results table links
+    each account and order; orders are tagged with the import batch.
+  - A loading indicator (spinner + message) shows while .WORLD is queried,
+    the spreadsheet is read or the import runs, and the buttons are disabled
+    so nothing is submitted twice.
+
+### Changed
+- **.WORLD sign-in matches by .WORLD ID first, then email.** Members created by
+  the Group Import — or whose .WORLD email differs from the one on their
+  account — now land in their existing account and see their ticket, instead of
+  getting a new account.
+
 ## [2.4.0] — 2026-11-12
 
 ### Added

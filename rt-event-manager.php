@@ -3,7 +3,7 @@
  * Plugin Name: RT Event Manager
  * Plugin URI: https://www.staub.ee
  * Description: Round Table International event management for WooCommerce — attendee tickets with a full member account portal (dashboard, profile, tours, calendar, visa letters, shop), pretours &amp; day tours, ticket transfers &amp; refunds, Apple &amp; Google Wallet passes with live push updates, and a staff QR check-in web app.
- * Version: 2.4.0
+ * Version: 2.5.0
  * Author: Kenneth Staub, RT Switzerland
  * Author URI: https://www.staub.ee
  * License: GPL v2 or later
@@ -19,7 +19,7 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('RT_EVENT_MANAGER_VERSION', '2.4.0');
+define('RT_EVENT_MANAGER_VERSION', '2.5.0');
 define('RT_EVENT_MANAGER_DB_VERSION', '2.5.0');
 define('RT_EVENT_MANAGER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RT_EVENT_MANAGER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -110,6 +110,7 @@ function rt_event_manager_init() {
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-coin.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-parking.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-delegate-tour.php';
+    require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-group-import.php';
     require_once RT_EVENT_MANAGER_PLUGIN_DIR . 'includes/class-rt-event-manager-sbb-timetable.php';
 
     // Initialize
@@ -153,6 +154,9 @@ function rt_event_manager_init() {
 
     // Initialize delegate-only day tours (booked from the event account only)
     RT_Event_Manager_Delegate_Tour::instance();
+
+    // Initialize the Group Import (accounts + coupon-paid tickets from .WORLD or Excel)
+    RT_Event_Manager_Group_Import::instance();
 
     // Initialize the SBB timetable widget shortcode ([rt_sbb_timetable])
     RT_Event_Manager_SBB_Timetable::instance();
