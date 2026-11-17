@@ -3,6 +3,15 @@
 All notable changes to RT Event Manager. Versioning follows semantic
 versioning (MAJOR.MINOR.PATCH).
 
+## [2.5.7] — 2026-11-16
+
+### Added
+- **Correct an issued coupon invoice.** Group Import → Coupon invoices now has
+  **Cancel & refund** per person (Group Import or fully coupon-paid orders; no
+  email sent) and **Void and issue a corrected invoice**, which gives the
+  current tickets a new invoice number referring to the replaced one. Voided
+  invoices stay downloadable with a VOID banner; the coupon stays disabled.
+
 ## [2.5.6] — 2026-11-16
 
 ### Fixed
